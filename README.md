@@ -4,8 +4,7 @@ A powerful tiling window manager for macOS.
 
 ![macOS](https://img.shields.io/badge/macOS-26.0%2B-blue)
 
-## Click the image below to watch OmniWM video showcase playlist
-[![Watch the video](https://img.youtube.com/vi/gYfne_aqXnQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=gYfne_aqXnQ&list=PLOvpT5mq6q2vz5uw2o5V4vR2Aln0Ef569)
+![Image](https://private-user-images.githubusercontent.com/12249659/530459053-4662ddfd-68c8-4c15-8371-adf48da33bb6.gif?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NjY4NTE4OTEsIm5iZiI6MTc2Njg1MTU5MSwicGF0aCI6Ii8xMjI0OTY1OS81MzA0NTkwNTMtNDY2MmRkZmQtNjhjOC00YzE1LTgzNzEtYWRmNDhkYTMzYmI2LmdpZj9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTEyMjclMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUxMjI3VDE2MDYzMVomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTg0NzcwNTcwZGZmOTA1NjE3ZmRkMThlYzkyMjMzNzJlOTEwOTYyN2UzY2JmMjc5ODc0NzBkMzNjMTExYTdkMzEmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.idrOvdVLNswP8nF84ZMU1jif3bJ5UemjqJgTJMUcLos)
 
 ## Features
 
