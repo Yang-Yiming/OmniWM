@@ -228,6 +228,42 @@ final class SettingsStore {
         didSet { defaults.set(columnRevealCustomDamping, forKey: Keys.columnRevealCustomDamping) }
     }
 
+    var focusChangeAnimationType: AnimationType {
+        didSet { defaults.set(focusChangeAnimationType.rawValue, forKey: Keys.focusChangeAnimationType) }
+    }
+
+    var focusChangeEasingCurve: EasingCurve {
+        didSet { defaults.set(focusChangeEasingCurve.rawValue, forKey: Keys.focusChangeEasingCurve) }
+    }
+
+    var focusChangeEasingDuration: Double {
+        didSet { defaults.set(focusChangeEasingDuration, forKey: Keys.focusChangeEasingDuration) }
+    }
+
+    var gestureAnimationType: AnimationType {
+        didSet { defaults.set(gestureAnimationType.rawValue, forKey: Keys.gestureAnimationType) }
+    }
+
+    var gestureEasingCurve: EasingCurve {
+        didSet { defaults.set(gestureEasingCurve.rawValue, forKey: Keys.gestureEasingCurve) }
+    }
+
+    var gestureEasingDuration: Double {
+        didSet { defaults.set(gestureEasingDuration, forKey: Keys.gestureEasingDuration) }
+    }
+
+    var columnRevealAnimationType: AnimationType {
+        didSet { defaults.set(columnRevealAnimationType.rawValue, forKey: Keys.columnRevealAnimationType) }
+    }
+
+    var columnRevealEasingCurve: EasingCurve {
+        didSet { defaults.set(columnRevealEasingCurve.rawValue, forKey: Keys.columnRevealEasingCurve) }
+    }
+
+    var columnRevealEasingDuration: Double {
+        didSet { defaults.set(columnRevealEasingDuration, forKey: Keys.columnRevealEasingDuration) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -308,6 +344,30 @@ final class SettingsStore {
         columnRevealUseCustom = defaults.object(forKey: Keys.columnRevealUseCustom) as? Bool ?? false
         columnRevealCustomStiffness = defaults.object(forKey: Keys.columnRevealCustomStiffness) as? Double ?? 1000
         columnRevealCustomDamping = defaults.object(forKey: Keys.columnRevealCustomDamping) as? Double ?? 1.0
+
+        focusChangeAnimationType = AnimationType(
+            rawValue: defaults.string(forKey: Keys.focusChangeAnimationType) ?? ""
+        ) ?? .spring
+        focusChangeEasingCurve = EasingCurve(
+            rawValue: defaults.string(forKey: Keys.focusChangeEasingCurve) ?? ""
+        ) ?? .easeOutCubic
+        focusChangeEasingDuration = defaults.object(forKey: Keys.focusChangeEasingDuration) as? Double ?? 0.3
+
+        gestureAnimationType = AnimationType(
+            rawValue: defaults.string(forKey: Keys.gestureAnimationType) ?? ""
+        ) ?? .spring
+        gestureEasingCurve = EasingCurve(
+            rawValue: defaults.string(forKey: Keys.gestureEasingCurve) ?? ""
+        ) ?? .easeOutCubic
+        gestureEasingDuration = defaults.object(forKey: Keys.gestureEasingDuration) as? Double ?? 0.3
+
+        columnRevealAnimationType = AnimationType(
+            rawValue: defaults.string(forKey: Keys.columnRevealAnimationType) ?? ""
+        ) ?? .spring
+        columnRevealEasingCurve = EasingCurve(
+            rawValue: defaults.string(forKey: Keys.columnRevealEasingCurve) ?? ""
+        ) ?? .easeOutCubic
+        columnRevealEasingDuration = defaults.object(forKey: Keys.columnRevealEasingDuration) as? Double ?? 0.3
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -649,6 +709,16 @@ private enum Keys {
     static let columnRevealUseCustom = "settings.columnRevealUseCustom"
     static let columnRevealCustomStiffness = "settings.columnRevealCustomStiffness"
     static let columnRevealCustomDamping = "settings.columnRevealCustomDamping"
+
+    static let focusChangeAnimationType = "settings.focusChangeAnimationType"
+    static let focusChangeEasingCurve = "settings.focusChangeEasingCurve"
+    static let focusChangeEasingDuration = "settings.focusChangeEasingDuration"
+    static let gestureAnimationType = "settings.gestureAnimationType"
+    static let gestureEasingCurve = "settings.gestureEasingCurve"
+    static let gestureEasingDuration = "settings.gestureEasingDuration"
+    static let columnRevealAnimationType = "settings.columnRevealAnimationType"
+    static let columnRevealEasingCurve = "settings.columnRevealEasingCurve"
+    static let columnRevealEasingDuration = "settings.columnRevealEasingDuration"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {
@@ -683,6 +753,18 @@ enum AnimationSpringPreset: String, CaseIterable, Codable {
         case .snappy: .snappy
         case .smooth: .smooth
         case .bouncy: .bouncy
+        }
+    }
+}
+
+enum AnimationType: String, CaseIterable, Codable {
+    case spring
+    case easing
+
+    var displayName: String {
+        switch self {
+        case .spring: "Spring"
+        case .easing: "Easing"
         }
     }
 }

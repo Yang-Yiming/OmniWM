@@ -675,7 +675,16 @@ final class WMController {
         animationsEnabled: Bool? = nil,
         focusChangeSpringConfig: SpringConfig? = nil,
         gestureSpringConfig: SpringConfig? = nil,
-        columnRevealSpringConfig: SpringConfig? = nil
+        columnRevealSpringConfig: SpringConfig? = nil,
+        focusChangeAnimationType: AnimationType? = nil,
+        focusChangeEasingCurve: EasingCurve? = nil,
+        focusChangeEasingDuration: Double? = nil,
+        gestureAnimationType: AnimationType? = nil,
+        gestureEasingCurve: EasingCurve? = nil,
+        gestureEasingDuration: Double? = nil,
+        columnRevealAnimationType: AnimationType? = nil,
+        columnRevealEasingCurve: EasingCurve? = nil,
+        columnRevealEasingDuration: Double? = nil
     ) {
         niriEngine?.updateConfiguration(
             maxWindowsPerColumn: maxWindowsPerColumn,
@@ -687,7 +696,16 @@ final class WMController {
             animationsEnabled: animationsEnabled,
             focusChangeSpringConfig: focusChangeSpringConfig,
             gestureSpringConfig: gestureSpringConfig,
-            columnRevealSpringConfig: columnRevealSpringConfig
+            columnRevealSpringConfig: columnRevealSpringConfig,
+            focusChangeAnimationType: focusChangeAnimationType,
+            focusChangeEasingCurve: focusChangeEasingCurve,
+            focusChangeEasingDuration: focusChangeEasingDuration,
+            gestureAnimationType: gestureAnimationType,
+            gestureEasingCurve: gestureEasingCurve,
+            gestureEasingDuration: gestureEasingDuration,
+            columnRevealAnimationType: columnRevealAnimationType,
+            columnRevealEasingCurve: columnRevealEasingCurve,
+            columnRevealEasingDuration: columnRevealEasingDuration
         )
         layoutRefreshController?.refreshWindowsAndLayout()
     }

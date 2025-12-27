@@ -1,20 +1,55 @@
 import Foundation
 
-enum EasingCurve {
+enum EasingCurve: String, CaseIterable, Codable {
     case linear
+    case easeInCubic
     case easeOutCubic
+    case easeInOutCubic
+    case easeInExpo
     case easeOutExpo
+    case easeInOutExpo
+
+    var displayName: String {
+        switch self {
+        case .linear: "Linear"
+        case .easeInCubic: "Ease In (Cubic)"
+        case .easeOutCubic: "Ease Out (Cubic)"
+        case .easeInOutCubic: "Ease In-Out (Cubic)"
+        case .easeInExpo: "Ease In (Expo)"
+        case .easeOutExpo: "Ease Out (Expo)"
+        case .easeInOutExpo: "Ease In-Out (Expo)"
+        }
+    }
 
     func apply(_ t: Double) -> Double {
         let clamped = min(max(t, 0), 1)
         switch self {
         case .linear:
             return clamped
+        case .easeInCubic:
+            return clamped * clamped * clamped
         case .easeOutCubic:
             let inv = 1 - clamped
             return 1 - inv * inv * inv
+        case .easeInOutCubic:
+            if clamped < 0.5 {
+                return 4 * clamped * clamped * clamped
+            } else {
+                let f = -2 * clamped + 2
+                return 1 - (f * f * f) / 2
+            }
+        case .easeInExpo:
+            return clamped <= 0 ? 0 : pow(2, 10 * (clamped - 1))
         case .easeOutExpo:
             return clamped >= 1 ? 1 : 1 - pow(2, -10 * clamped)
+        case .easeInOutExpo:
+            if clamped <= 0 { return 0 }
+            if clamped >= 1 { return 1 }
+            if clamped < 0.5 {
+                return pow(2, 20 * clamped - 10) / 2
+            } else {
+                return (2 - pow(2, -20 * clamped + 10)) / 2
+            }
         }
     }
 }

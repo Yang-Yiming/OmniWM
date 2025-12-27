@@ -498,7 +498,16 @@ final class NiriLayoutEngine {
         animationsEnabled: Bool? = nil,
         focusChangeSpringConfig: SpringConfig? = nil,
         gestureSpringConfig: SpringConfig? = nil,
-        columnRevealSpringConfig: SpringConfig? = nil
+        columnRevealSpringConfig: SpringConfig? = nil,
+        focusChangeAnimationType: AnimationType? = nil,
+        focusChangeEasingCurve: EasingCurve? = nil,
+        focusChangeEasingDuration: Double? = nil,
+        gestureAnimationType: AnimationType? = nil,
+        gestureEasingCurve: EasingCurve? = nil,
+        gestureEasingDuration: Double? = nil,
+        columnRevealAnimationType: AnimationType? = nil,
+        columnRevealEasingCurve: EasingCurve? = nil,
+        columnRevealEasingDuration: Double? = nil
     ) {
         if let max = maxWindowsPerColumn {
             self.maxWindowsPerColumn = max.clamped(to: 1 ... 10)
@@ -522,7 +531,16 @@ final class NiriLayoutEngine {
         let hasAnimationChanges = animationsEnabled != nil ||
             focusChangeSpringConfig != nil ||
             gestureSpringConfig != nil ||
-            columnRevealSpringConfig != nil
+            columnRevealSpringConfig != nil ||
+            focusChangeAnimationType != nil ||
+            focusChangeEasingCurve != nil ||
+            focusChangeEasingDuration != nil ||
+            gestureAnimationType != nil ||
+            gestureEasingCurve != nil ||
+            gestureEasingDuration != nil ||
+            columnRevealAnimationType != nil ||
+            columnRevealEasingCurve != nil ||
+            columnRevealEasingDuration != nil
 
         if hasAnimationChanges {
             for monitor in monitors.values {
@@ -538,6 +556,33 @@ final class NiriLayoutEngine {
                     }
                     if let config = columnRevealSpringConfig {
                         monitor.viewportStates[workspaceId]?.columnRevealSpringConfig = config
+                    }
+                    if let animType = focusChangeAnimationType {
+                        monitor.viewportStates[workspaceId]?.focusChangeAnimationType = animType
+                    }
+                    if let curve = focusChangeEasingCurve {
+                        monitor.viewportStates[workspaceId]?.focusChangeEasingCurve = curve
+                    }
+                    if let duration = focusChangeEasingDuration {
+                        monitor.viewportStates[workspaceId]?.focusChangeEasingDuration = duration
+                    }
+                    if let animType = gestureAnimationType {
+                        monitor.viewportStates[workspaceId]?.gestureAnimationType = animType
+                    }
+                    if let curve = gestureEasingCurve {
+                        monitor.viewportStates[workspaceId]?.gestureEasingCurve = curve
+                    }
+                    if let duration = gestureEasingDuration {
+                        monitor.viewportStates[workspaceId]?.gestureEasingDuration = duration
+                    }
+                    if let animType = columnRevealAnimationType {
+                        monitor.viewportStates[workspaceId]?.columnRevealAnimationType = animType
+                    }
+                    if let curve = columnRevealEasingCurve {
+                        monitor.viewportStates[workspaceId]?.columnRevealEasingCurve = curve
+                    }
+                    if let duration = columnRevealEasingDuration {
+                        monitor.viewportStates[workspaceId]?.columnRevealEasingDuration = duration
                     }
                 }
             }

@@ -75,6 +75,18 @@ struct ViewportState {
     var gestureSpringConfig: SpringConfig = .snappy
     var columnRevealSpringConfig: SpringConfig = .snappy
 
+    var focusChangeAnimationType: AnimationType = .spring
+    var focusChangeEasingCurve: EasingCurve = .easeOutCubic
+    var focusChangeEasingDuration: Double = 0.3
+
+    var gestureAnimationType: AnimationType = .spring
+    var gestureEasingCurve: EasingCurve = .easeOutCubic
+    var gestureEasingDuration: Double = 0.3
+
+    var columnRevealAnimationType: AnimationType = .spring
+    var columnRevealEasingCurve: EasingCurve = .easeOutCubic
+    var columnRevealEasingDuration: Double = 0.3
+
     func columnX(at index: Int, columns: [NiriContainer], gap: CGFloat) -> CGFloat {
         var x: CGFloat = 0
         for i in 0..<index {
@@ -137,14 +149,26 @@ struct ViewportState {
 
         if animate && animationsEnabled {
             let now = CACurrentMediaTime()
-            let animation = SpringAnimation(
-                from: newOffset,
-                to: targetOffset,
-                initialVelocity: 0,
-                startTime: now,
-                config: focusChangeSpringConfig
-            )
-            viewOffsetPixels = .spring(animation)
+            switch focusChangeAnimationType {
+            case .spring:
+                let animation = SpringAnimation(
+                    from: newOffset,
+                    to: targetOffset,
+                    initialVelocity: 0,
+                    startTime: now,
+                    config: focusChangeSpringConfig
+                )
+                viewOffsetPixels = .spring(animation)
+            case .easing:
+                let animation = ViewAnimation(
+                    from: newOffset,
+                    to: targetOffset,
+                    duration: focusChangeEasingDuration,
+                    curve: focusChangeEasingCurve,
+                    startTime: now
+                )
+                viewOffsetPixels = .animating(animation)
+            }
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
@@ -287,14 +311,27 @@ struct ViewportState {
 
         if animationsEnabled {
             let now = CACurrentMediaTime()
-            let animation = SpringAnimation(
-                from: currentOffset,
-                to: targetOffset,
-                initialVelocity: velocity,
-                startTime: now,
-                config: gestureSpringConfig
-            )
-            viewOffsetPixels = .spring(animation)
+            switch gestureAnimationType {
+            case .spring:
+                let animation = SpringAnimation(
+                    from: currentOffset,
+                    to: targetOffset,
+                    initialVelocity: velocity,
+                    startTime: now,
+                    config: gestureSpringConfig
+                )
+                viewOffsetPixels = .spring(animation)
+            case .easing:
+                let animation = ViewAnimation(
+                    from: currentOffset,
+                    to: targetOffset,
+                    duration: gestureEasingDuration,
+                    curve: gestureEasingCurve,
+                    startTime: now,
+                    initialVelocity: velocity
+                )
+                viewOffsetPixels = .animating(animation)
+            }
         } else {
             viewOffsetPixels = .static(CGFloat(targetOffset))
         }
@@ -388,14 +425,26 @@ struct ViewportState {
 
         if animate && animationsEnabled {
             let now = CACurrentMediaTime()
-            let animation = SpringAnimation(
-                from: Double(currentOffset),
-                to: Double(targetOffset),
-                initialVelocity: 0,
-                startTime: now,
-                config: columnRevealSpringConfig
-            )
-            viewOffsetPixels = .spring(animation)
+            switch columnRevealAnimationType {
+            case .spring:
+                let animation = SpringAnimation(
+                    from: Double(currentOffset),
+                    to: Double(targetOffset),
+                    initialVelocity: 0,
+                    startTime: now,
+                    config: columnRevealSpringConfig
+                )
+                viewOffsetPixels = .spring(animation)
+            case .easing:
+                let animation = ViewAnimation(
+                    from: Double(currentOffset),
+                    to: Double(targetOffset),
+                    duration: columnRevealEasingDuration,
+                    curve: columnRevealEasingCurve,
+                    startTime: now
+                )
+                viewOffsetPixels = .animating(animation)
+            }
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
