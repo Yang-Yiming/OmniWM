@@ -320,7 +320,7 @@ final class SettingsStore {
         scrollGestureEnabled = defaults.object(forKey: Keys.scrollGestureEnabled) as? Bool ?? true
         scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? 1.0
         scrollModifierKey = ScrollModifierKey(rawValue: defaults.string(forKey: Keys.scrollModifierKey) ?? "") ??
-            .option
+            .optionShift
 
         animationsEnabled = defaults.object(forKey: Keys.animationsEnabled) as? Bool ?? true
 
@@ -722,15 +722,13 @@ private enum Keys {
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {
-    case option
-    case control
-    case command
+    case optionShift
+    case controlShift
 
     var displayName: String {
         switch self {
-        case .option: "Option (⌥)"
-        case .control: "Control (⌃)"
-        case .command: "Command (⌘)"
+        case .optionShift: "Option+Shift (⌥⇧)"
+        case .controlShift: "Control+Shift (⌃⇧)"
         }
     }
 }

@@ -305,7 +305,11 @@ final class MouseEventHandler {
         if isTrackpad {
             deltaX = event.scrollingDeltaX
         } else if event.modifierFlags.contains(controller.internalSettings.scrollModifierKey.eventModifierFlag) {
-            deltaX = -event.scrollingDeltaY
+            if event.modifierFlags.contains(.shift) {
+                deltaX = event.scrollingDeltaX
+            } else {
+                deltaX = -event.scrollingDeltaY
+            }
         } else {
             return
         }

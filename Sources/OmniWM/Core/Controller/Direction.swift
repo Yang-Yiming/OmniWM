@@ -16,9 +16,8 @@ enum Direction: String, Codable {
 extension ScrollModifierKey {
     var eventModifierFlag: NSEvent.ModifierFlags {
         switch self {
-        case .option: .option
-        case .control: .control
-        case .command: .command
+        case .optionShift: [.option, .shift]
+        case .controlShift: [.control, .shift]
         }
     }
 }
