@@ -2,23 +2,19 @@ import Foundation
 import SwiftUI
 
 struct SpringConfig {
-    var duration: Double
-    var bounce: Double
-    var epsilon: Double
-    var velocityEpsilon: Double
+    let duration: Double
+    let bounce: Double
+    let epsilon: Double
+    let velocityEpsilon: Double
 
-    init(duration: Double = 0.35, bounce: Double = 0.0, epsilon: Double = 0.5, velocityEpsilon: Double = 50.0) {
+    init(duration: Double = 0.22, bounce: Double = 0.0, epsilon: Double = 0.3, velocityEpsilon: Double = 25.0) {
         self.duration = max(0.1, duration)
         self.bounce = min(max(bounce, -1.0), 1.0)
         self.epsilon = max(0, epsilon)
         self.velocityEpsilon = max(0, velocityEpsilon)
     }
 
-    static let snappy = SpringConfig(duration: 0.30, bounce: 0.0)
-    static let smooth = SpringConfig(duration: 0.50, bounce: 0.0)
-    static let bouncy = SpringConfig(duration: 0.45, bounce: 0.25)
-    static let responsive = SpringConfig(duration: 0.25, bounce: -0.1)
-    static let appleNavigation = SpringConfig(duration: 0.22, bounce: 0.0, epsilon: 0.3, velocityEpsilon: 25.0)
+    static let `default` = SpringConfig()
 
     var appleSpring: Spring {
         Spring(duration: duration, bounce: bounce)
@@ -32,6 +28,7 @@ final class SpringAnimation {
     private let startTime: TimeInterval
     let config: SpringConfig
     private let clock: AnimationClock?
+    private let displayRefreshRate: Double
 
     private let spring: Spring
     private let displacement: Double
@@ -41,14 +38,16 @@ final class SpringAnimation {
         to: Double,
         initialVelocity: Double = 0,
         startTime: TimeInterval,
-        config: SpringConfig = .snappy,
-        clock: AnimationClock? = nil
+        config: SpringConfig = .default,
+        clock: AnimationClock? = nil,
+        displayRefreshRate: Double = 60.0
     ) {
         self.from = from
         self.target = to
         self.startTime = startTime
         self.config = config
         self.clock = clock
+        self.displayRefreshRate = displayRefreshRate
 
         let scaledVelocity = initialVelocity / max(clock?.rate ?? 1.0, 0.001)
         self.initialVelocity = scaledVelocity
@@ -82,8 +81,12 @@ final class SpringAnimation {
         let position = value(at: time)
         let currentVelocity = velocity(at: time)
 
-        let positionSettled = abs(position - target) < config.epsilon
-        let velocitySettled = abs(currentVelocity) < config.velocityEpsilon
+        let refreshScale = 60.0 / displayRefreshRate
+        let scaledEpsilon = config.epsilon * refreshScale
+        let scaledVelocityEpsilon = config.velocityEpsilon * refreshScale
+
+        let positionSettled = abs(position - target) < scaledEpsilon
+        let velocitySettled = abs(currentVelocity) < scaledVelocityEpsilon
 
         return positionSettled && velocitySettled
     }

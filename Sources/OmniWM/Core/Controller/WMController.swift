@@ -57,8 +57,6 @@ final class WMController {
         self.settings = settings
         workspaceManager = WorkspaceManager(settings: settings)
         workspaceManager.updateAnimationClock(animationClock)
-        animationClock.setRate(settings.animationClockRate)
-        workspaceManager.updateDecelerationRate(settings.decelerationRate)
         hotkeys.onCommand = { [weak self] command in
             self?.commandHandler?.handle(command)
         }
@@ -675,19 +673,7 @@ final class WMController {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        animationsEnabled: Bool? = nil,
-        focusChangeSpringConfig: SpringConfig? = nil,
-        gestureSpringConfig: SpringConfig? = nil,
-        columnRevealSpringConfig: SpringConfig? = nil,
-        focusChangeAnimationType: AnimationType? = nil,
-        focusChangeEasingCurve: EasingCurve? = nil,
-        focusChangeEasingDuration: Double? = nil,
-        gestureAnimationType: AnimationType? = nil,
-        gestureEasingCurve: EasingCurve? = nil,
-        gestureEasingDuration: Double? = nil,
-        columnRevealAnimationType: AnimationType? = nil,
-        columnRevealEasingCurve: EasingCurve? = nil,
-        columnRevealEasingDuration: Double? = nil
+        animationsEnabled: Bool? = nil
     ) {
         niriEngine?.updateConfiguration(
             maxWindowsPerColumn: maxWindowsPerColumn,
@@ -696,44 +682,10 @@ final class WMController {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
-            animationsEnabled: animationsEnabled,
-            focusChangeSpringConfig: focusChangeSpringConfig,
-            gestureSpringConfig: gestureSpringConfig,
-            columnRevealSpringConfig: columnRevealSpringConfig,
-            focusChangeAnimationType: focusChangeAnimationType,
-            focusChangeEasingCurve: focusChangeEasingCurve,
-            focusChangeEasingDuration: focusChangeEasingDuration,
-            gestureAnimationType: gestureAnimationType,
-            gestureEasingCurve: gestureEasingCurve,
-            gestureEasingDuration: gestureEasingDuration,
-            columnRevealAnimationType: columnRevealAnimationType,
-            columnRevealEasingCurve: columnRevealEasingCurve,
-            columnRevealEasingDuration: columnRevealEasingDuration
+            animationsEnabled: animationsEnabled
         )
-        workspaceManager.updateAnimationSettings(
-            animationsEnabled: animationsEnabled,
-            focusChangeSpringConfig: focusChangeSpringConfig,
-            gestureSpringConfig: gestureSpringConfig,
-            columnRevealSpringConfig: columnRevealSpringConfig,
-            focusChangeAnimationType: focusChangeAnimationType,
-            focusChangeEasingCurve: focusChangeEasingCurve,
-            focusChangeEasingDuration: focusChangeEasingDuration,
-            gestureAnimationType: gestureAnimationType,
-            gestureEasingCurve: gestureEasingCurve,
-            gestureEasingDuration: gestureEasingDuration,
-            columnRevealAnimationType: columnRevealAnimationType,
-            columnRevealEasingCurve: columnRevealEasingCurve,
-            columnRevealEasingDuration: columnRevealEasingDuration
-        )
+        workspaceManager.updateAnimationSettings(animationsEnabled: animationsEnabled)
         layoutRefreshController?.refreshWindowsAndLayout()
-    }
-
-    func updateAnimationClockRate(_ rate: Double) {
-        animationClock.setRate(rate)
-    }
-
-    func updateDecelerationRate(_ rate: Double) {
-        workspaceManager.updateDecelerationRate(rate)
     }
 
     func monitorForInteraction() -> Monitor? {

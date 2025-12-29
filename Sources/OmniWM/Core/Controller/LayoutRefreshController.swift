@@ -11,7 +11,8 @@ final class LayoutRefreshController {
     private var isImmediateLayoutInProgress: Bool = false
     private var refreshTimer: Timer?
 
-    private var scrollAnimationDisplayLink: CADisplayLink?
+    private var displayLinkByDisplayId: [CGDirectDisplayID: CADisplayLink] = [:]
+    private var activeDisplayLinkId: CGDirectDisplayID?
     private var scrollAnimationWorkspaceId: WorkspaceDescriptor.ID?
     private var isScrollAnimationRunning: Bool = false
     private var cachedWindowSizes: [Int: CGSize] = [:]
@@ -20,7 +21,7 @@ final class LayoutRefreshController {
 
     init(controller: WMController) {
         self.controller = controller
-        setupDisplayLink()
+        setupDisplayLinks()
         detectRefreshRates()
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -29,14 +30,34 @@ final class LayoutRefreshController {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.detectRefreshRates()
+                self?.recreateDisplayLinks()
             }
         }
     }
 
-    private func setupDisplayLink() {
-        guard let screen = NSScreen.main else { return }
-        let displayLink = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
-        scrollAnimationDisplayLink = displayLink
+    private func setupDisplayLinks() {
+        for screen in NSScreen.screens {
+            guard let displayId = screen.displayId else { continue }
+            let displayLink = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
+            displayLinkByDisplayId[displayId] = displayLink
+        }
+    }
+
+    private func recreateDisplayLinks() {
+        let wasRunning = isScrollAnimationRunning
+        let runningWorkspaceId = scrollAnimationWorkspaceId
+        if wasRunning { stopScrollAnimation() }
+
+        for (_, displayLink) in displayLinkByDisplayId {
+            displayLink.invalidate()
+        }
+        displayLinkByDisplayId.removeAll()
+
+        setupDisplayLinks()
+
+        if wasRunning, let wsId = runningWorkspaceId {
+            startScrollAnimation(for: wsId)
+        }
     }
 
     private func detectRefreshRates() {
@@ -65,15 +86,35 @@ final class LayoutRefreshController {
         if isScrollAnimationRunning { return }
         isScrollAnimationRunning = true
 
-        scrollAnimationDisplayLink?.add(to: .main, forMode: .common)
+        guard let controller,
+              let monitor = controller.internalWorkspaceManager.monitor(for: workspaceId) else {
+            if let mainDisplayId = NSScreen.main?.displayId,
+               let displayLink = displayLinkByDisplayId[mainDisplayId] {
+                activeDisplayLinkId = mainDisplayId
+                displayLink.add(to: .main, forMode: .common)
+            }
+            return
+        }
+
+        let displayId = monitor.id.displayId
+        if let displayLink = displayLinkByDisplayId[displayId] {
+            activeDisplayLinkId = displayId
+            displayLink.add(to: .main, forMode: .common)
+        } else if let mainDisplayId = NSScreen.main?.displayId,
+                  let displayLink = displayLinkByDisplayId[mainDisplayId] {
+            activeDisplayLinkId = mainDisplayId
+            displayLink.add(to: .main, forMode: .common)
+        }
     }
 
     func stopScrollAnimation() {
-        scrollAnimationDisplayLink?.invalidate()
-        scrollAnimationDisplayLink = nil
-        setupDisplayLink()
+        if let displayId = activeDisplayLinkId,
+           let displayLink = displayLinkByDisplayId[displayId] {
+            displayLink.remove(from: .main, forMode: .common)
+        }
         isScrollAnimationRunning = false
         scrollAnimationWorkspaceId = nil
+        activeDisplayLinkId = nil
     }
 
     private func tickScrollAnimation(targetTime: CFTimeInterval) {
@@ -109,9 +150,12 @@ final class LayoutRefreshController {
         activeRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let debounce = event.debounceInterval
-                if debounce > 0 {
-                    try await Task.sleep(nanoseconds: debounce)
+                let baseDebounce = event.debounceInterval
+                if baseDebounce > 0 {
+                    let mainDisplayId = NSScreen.main?.displayId ?? 0
+                    let refreshRate = refreshRateByDisplay[mainDisplayId] ?? 60.0
+                    let scaledDebounce = UInt64(Double(baseDebounce) * (60.0 / refreshRate))
+                    try await Task.sleep(nanoseconds: scaledDebounce)
                 }
                 try Task.checkCancellation()
                 if event.requiresFullEnumeration {
@@ -193,6 +237,10 @@ final class LayoutRefreshController {
         activeRefreshTask = nil
         isInLightSession = false
         stopScrollAnimation()
+        for (_, displayLink) in displayLinkByDisplayId {
+            displayLink.invalidate()
+        }
+        displayLinkByDisplayId.removeAll()
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
@@ -301,6 +349,7 @@ final class LayoutRefreshController {
             }
 
             var state = workspaceManager.niriViewportState(for: wsId)
+            state.displayRefreshRate = refreshRateByDisplay[monitor.id.displayId] ?? 60.0
 
             if let selectedId = state.selectedNodeId {
                 if engine.findNode(by: selectedId) == nil {

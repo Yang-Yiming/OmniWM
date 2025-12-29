@@ -7,7 +7,7 @@ struct SwipeEvent {
 
 final class SwipeTracker {
     private static let historyLimit: TimeInterval = 0.150
-    private static let decelerationRate: Double = 0.997
+    private static let decelerationRate: Double = 0.990
 
     private var history: [SwipeEvent] = []
     private(set) var position: Double = 0

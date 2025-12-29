@@ -20,8 +20,6 @@ final class ViewGesture {
 enum ViewOffset {
     case `static`(CGFloat)
     case gesture(ViewGesture)
-    case animating(ViewAnimation)
-    case decelerating(DecelerationAnimation)
     case spring(SpringAnimation)
 
     func current() -> CGFloat {
@@ -30,22 +28,14 @@ enum ViewOffset {
             offset
         case let .gesture(g):
             CGFloat(g.currentOffsetPixels)
-        case let .animating(anim):
-            CGFloat(anim.value(at: CACurrentMediaTime()))
-        case let .decelerating(anim):
-            CGFloat(anim.value(at: CACurrentMediaTime()))
         case let .spring(anim):
             CGFloat(anim.value(at: CACurrentMediaTime()))
         }
     }
 
     var isAnimating: Bool {
-        switch self {
-        case .animating, .decelerating, .spring:
-            true
-        default:
-            false
-        }
+        if case .spring = self { return true }
+        return false
     }
 
     var isGesture: Bool {
@@ -64,10 +54,6 @@ enum ViewOffset {
             return 0
         case .gesture(let g):
             return g.tracker.velocity()
-        case .animating:
-            return 0
-        case .decelerating(let anim):
-            return anim.velocityAt(time)
         case .spring(let anim):
             return anim.velocity(at: time)
         }
@@ -86,23 +72,11 @@ struct ViewportState {
     var viewOffsetToRestore: CGFloat?
 
     var animationsEnabled: Bool = true
-    var focusChangeSpringConfig: SpringConfig = .appleNavigation
-    var gestureSpringConfig: SpringConfig = .appleNavigation
-    var columnRevealSpringConfig: SpringConfig = .appleNavigation
-
-    var focusChangeAnimationType: AnimationType = .spring
-    var focusChangeEasingCurve: EasingCurve = .easeOutCubic
-    var focusChangeEasingDuration: Double = 0.3
-
-    var gestureAnimationType: AnimationType = .spring
-    var gestureEasingCurve: EasingCurve = .easeOutCubic
-    var gestureEasingDuration: Double = 0.3
-
-    var columnRevealAnimationType: AnimationType = .spring
-    var columnRevealEasingCurve: EasingCurve = .easeOutCubic
-    var columnRevealEasingDuration: Double = 0.3
+    let springConfig: SpringConfig = .default
 
     var animationClock: AnimationClock?
+
+    var displayRefreshRate: Double = 60.0
 
     func columnX(at index: Int, columns: [NiriContainer], gap: CGFloat) -> CGFloat {
         var x: CGFloat = 0
@@ -167,28 +141,16 @@ struct ViewportState {
 
         if animate && animationsEnabled {
             let now = animationClock?.now() ?? CACurrentMediaTime()
-            switch focusChangeAnimationType {
-            case .spring:
-                let animation = SpringAnimation(
-                    from: newOffset,
-                    to: targetOffset,
-                    initialVelocity: currentVelocity,
-                    startTime: now,
-                    config: focusChangeSpringConfig,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .spring(animation)
-            case .easing:
-                let animation = ViewAnimation(
-                    from: newOffset,
-                    to: targetOffset,
-                    duration: focusChangeEasingDuration,
-                    curve: focusChangeEasingCurve,
-                    startTime: now,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .animating(animation)
-            }
+            let animation = SpringAnimation(
+                from: newOffset,
+                to: targetOffset,
+                initialVelocity: currentVelocity,
+                startTime: now,
+                config: springConfig,
+                clock: animationClock,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
@@ -331,28 +293,16 @@ struct ViewportState {
 
         if animationsEnabled {
             let now = animationClock?.now() ?? CACurrentMediaTime()
-            switch gestureAnimationType {
-            case .spring:
-                let animation = SpringAnimation(
-                    from: currentOffset,
-                    to: targetOffset,
-                    initialVelocity: velocity,
-                    startTime: now,
-                    config: gestureSpringConfig,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .spring(animation)
-            case .easing:
-                let animation = ViewAnimation(
-                    from: currentOffset,
-                    to: targetOffset,
-                    duration: gestureEasingDuration,
-                    curve: gestureEasingCurve,
-                    startTime: now,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .animating(animation)
-            }
+            let animation = SpringAnimation(
+                from: currentOffset,
+                to: targetOffset,
+                initialVelocity: velocity,
+                startTime: now,
+                config: springConfig,
+                clock: animationClock,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(CGFloat(targetOffset))
         }
@@ -362,22 +312,6 @@ struct ViewportState {
 
     mutating func tickAnimation(at time: CFTimeInterval = CACurrentMediaTime()) -> Bool {
         switch viewOffsetPixels {
-        case let .animating(anim):
-            if anim.isComplete(at: time) {
-                let finalOffset = CGFloat(anim.targetValue)
-                viewOffsetPixels = .static(finalOffset)
-                return false
-            }
-            return true
-
-        case let .decelerating(anim):
-            if anim.isComplete(at: time) {
-                let finalOffset = CGFloat(anim.targetValue)
-                viewOffsetPixels = .static(finalOffset)
-                return false
-            }
-            return true
-
         case let .spring(anim):
             if anim.isComplete(at: time) {
                 let finalOffset = CGFloat(anim.target)
@@ -473,28 +407,16 @@ struct ViewportState {
         if animate && animationsEnabled {
             let now = animationClock?.now() ?? CACurrentMediaTime()
             let currentVelocity = viewOffsetPixels.currentVelocity()
-            switch columnRevealAnimationType {
-            case .spring:
-                let animation = SpringAnimation(
-                    from: Double(currentOffset),
-                    to: Double(targetOffset),
-                    initialVelocity: currentVelocity,
-                    startTime: now,
-                    config: columnRevealSpringConfig,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .spring(animation)
-            case .easing:
-                let animation = ViewAnimation(
-                    from: Double(currentOffset),
-                    to: Double(targetOffset),
-                    duration: columnRevealEasingDuration,
-                    curve: columnRevealEasingCurve,
-                    startTime: now,
-                    clock: animationClock
-                )
-                viewOffsetPixels = .animating(animation)
-            }
+            let animation = SpringAnimation(
+                from: Double(currentOffset),
+                to: Double(targetOffset),
+                initialVelocity: currentVelocity,
+                startTime: now,
+                config: springConfig,
+                clock: animationClock,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }

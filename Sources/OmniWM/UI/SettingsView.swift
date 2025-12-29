@@ -31,11 +31,6 @@ struct SettingsView: View {
                     Label("Bar", systemImage: "menubar.rectangle")
                 }
 
-            AnimationsSettingsTab(settings: settings, controller: controller)
-                .tabItem {
-                    Label("Animations", systemImage: "sparkles")
-                }
-
             HotkeySettingsView(settings: settings, controller: controller)
                 .padding()
                 .tabItem {
@@ -111,6 +106,14 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapBottom) { _, _ in
                     syncOuterGaps()
                 }
+
+                Divider()
+                Text("Animations").font(.subheadline).foregroundColor(.secondary)
+
+                Toggle("Enable Animations", isOn: $settings.animationsEnabled)
+                    .onChange(of: settings.animationsEnabled) { _, newValue in
+                        controller.updateNiriConfig(animationsEnabled: newValue)
+                    }
 
                 Divider()
                 Text("Scroll Gestures").font(.subheadline).foregroundColor(.secondary)

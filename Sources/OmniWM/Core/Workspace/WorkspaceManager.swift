@@ -35,7 +35,6 @@ final class WorkspaceManager {
     private var niriViewportStates: [WorkspaceDescriptor.ID: ViewportState] = [:]
     private var currentAnimationSettings: ViewportState = ViewportState()
     var animationClock: AnimationClock?
-    var decelerationRate: Double = DecelerationAnimation.defaultDecelerationRate
 
     var onGapsChanged: (() -> Void)?
 
@@ -118,30 +117,6 @@ final class WorkspaceManager {
 
     private func applyAnimationSettingsFromStore() {
         currentAnimationSettings.animationsEnabled = settings.animationsEnabled
-
-        let focusSpringConfig = settings.focusChangeUseCustom
-            ? SpringConfig(duration: settings.focusChangeCustomDuration, bounce: settings.focusChangeCustomBounce)
-            : settings.focusChangeSpringPreset.config
-        currentAnimationSettings.focusChangeSpringConfig = focusSpringConfig
-        currentAnimationSettings.focusChangeAnimationType = settings.focusChangeAnimationType
-        currentAnimationSettings.focusChangeEasingCurve = settings.focusChangeEasingCurve
-        currentAnimationSettings.focusChangeEasingDuration = settings.focusChangeEasingDuration
-
-        let gestureSpringConfig = settings.gestureUseCustom
-            ? SpringConfig(duration: settings.gestureCustomDuration, bounce: settings.gestureCustomBounce)
-            : settings.gestureSpringPreset.config
-        currentAnimationSettings.gestureSpringConfig = gestureSpringConfig
-        currentAnimationSettings.gestureAnimationType = settings.gestureAnimationType
-        currentAnimationSettings.gestureEasingCurve = settings.gestureEasingCurve
-        currentAnimationSettings.gestureEasingDuration = settings.gestureEasingDuration
-
-        let columnRevealSpringConfig = settings.columnRevealUseCustom
-            ? SpringConfig(duration: settings.columnRevealCustomDuration, bounce: settings.columnRevealCustomBounce)
-            : settings.columnRevealSpringPreset.config
-        currentAnimationSettings.columnRevealSpringConfig = columnRevealSpringConfig
-        currentAnimationSettings.columnRevealAnimationType = settings.columnRevealAnimationType
-        currentAnimationSettings.columnRevealEasingCurve = settings.columnRevealEasingCurve
-        currentAnimationSettings.columnRevealEasingDuration = settings.columnRevealEasingDuration
     }
 
     func updateMonitors(_ newMonitors: [Monitor]) {
@@ -377,18 +352,6 @@ final class WorkspaceManager {
         }
         var newState = ViewportState()
         newState.animationsEnabled = currentAnimationSettings.animationsEnabled
-        newState.focusChangeSpringConfig = currentAnimationSettings.focusChangeSpringConfig
-        newState.gestureSpringConfig = currentAnimationSettings.gestureSpringConfig
-        newState.columnRevealSpringConfig = currentAnimationSettings.columnRevealSpringConfig
-        newState.focusChangeAnimationType = currentAnimationSettings.focusChangeAnimationType
-        newState.focusChangeEasingCurve = currentAnimationSettings.focusChangeEasingCurve
-        newState.focusChangeEasingDuration = currentAnimationSettings.focusChangeEasingDuration
-        newState.gestureAnimationType = currentAnimationSettings.gestureAnimationType
-        newState.gestureEasingCurve = currentAnimationSettings.gestureEasingCurve
-        newState.gestureEasingDuration = currentAnimationSettings.gestureEasingDuration
-        newState.columnRevealAnimationType = currentAnimationSettings.columnRevealAnimationType
-        newState.columnRevealEasingCurve = currentAnimationSettings.columnRevealEasingCurve
-        newState.columnRevealEasingDuration = currentAnimationSettings.columnRevealEasingDuration
         newState.animationClock = animationClock
         return newState
     }
@@ -397,106 +360,15 @@ final class WorkspaceManager {
         niriViewportStates[workspaceId] = state
     }
 
-    func updateAnimationSettings(
-        animationsEnabled: Bool? = nil,
-        focusChangeSpringConfig: SpringConfig? = nil,
-        gestureSpringConfig: SpringConfig? = nil,
-        columnRevealSpringConfig: SpringConfig? = nil,
-        focusChangeAnimationType: AnimationType? = nil,
-        focusChangeEasingCurve: EasingCurve? = nil,
-        focusChangeEasingDuration: Double? = nil,
-        gestureAnimationType: AnimationType? = nil,
-        gestureEasingCurve: EasingCurve? = nil,
-        gestureEasingDuration: Double? = nil,
-        columnRevealAnimationType: AnimationType? = nil,
-        columnRevealEasingCurve: EasingCurve? = nil,
-        columnRevealEasingDuration: Double? = nil
-    ) {
+    func updateAnimationSettings(animationsEnabled: Bool? = nil) {
         if let enabled = animationsEnabled {
             currentAnimationSettings.animationsEnabled = enabled
         }
-        if let config = focusChangeSpringConfig {
-            currentAnimationSettings.focusChangeSpringConfig = config
-        }
-        if let config = gestureSpringConfig {
-            currentAnimationSettings.gestureSpringConfig = config
-        }
-        if let config = columnRevealSpringConfig {
-            currentAnimationSettings.columnRevealSpringConfig = config
-        }
-        if let animType = focusChangeAnimationType {
-            currentAnimationSettings.focusChangeAnimationType = animType
-        }
-        if let curve = focusChangeEasingCurve {
-            currentAnimationSettings.focusChangeEasingCurve = curve
-        }
-        if let duration = focusChangeEasingDuration {
-            currentAnimationSettings.focusChangeEasingDuration = duration
-        }
-        if let animType = gestureAnimationType {
-            currentAnimationSettings.gestureAnimationType = animType
-        }
-        if let curve = gestureEasingCurve {
-            currentAnimationSettings.gestureEasingCurve = curve
-        }
-        if let duration = gestureEasingDuration {
-            currentAnimationSettings.gestureEasingDuration = duration
-        }
-        if let animType = columnRevealAnimationType {
-            currentAnimationSettings.columnRevealAnimationType = animType
-        }
-        if let curve = columnRevealEasingCurve {
-            currentAnimationSettings.columnRevealEasingCurve = curve
-        }
-        if let duration = columnRevealEasingDuration {
-            currentAnimationSettings.columnRevealEasingDuration = duration
-        }
-
         for workspaceId in niriViewportStates.keys {
             if let enabled = animationsEnabled {
                 niriViewportStates[workspaceId]?.animationsEnabled = enabled
             }
-            if let config = focusChangeSpringConfig {
-                niriViewportStates[workspaceId]?.focusChangeSpringConfig = config
-            }
-            if let config = gestureSpringConfig {
-                niriViewportStates[workspaceId]?.gestureSpringConfig = config
-            }
-            if let config = columnRevealSpringConfig {
-                niriViewportStates[workspaceId]?.columnRevealSpringConfig = config
-            }
-            if let animType = focusChangeAnimationType {
-                niriViewportStates[workspaceId]?.focusChangeAnimationType = animType
-            }
-            if let curve = focusChangeEasingCurve {
-                niriViewportStates[workspaceId]?.focusChangeEasingCurve = curve
-            }
-            if let duration = focusChangeEasingDuration {
-                niriViewportStates[workspaceId]?.focusChangeEasingDuration = duration
-            }
-            if let animType = gestureAnimationType {
-                niriViewportStates[workspaceId]?.gestureAnimationType = animType
-            }
-            if let curve = gestureEasingCurve {
-                niriViewportStates[workspaceId]?.gestureEasingCurve = curve
-            }
-            if let duration = gestureEasingDuration {
-                niriViewportStates[workspaceId]?.gestureEasingDuration = duration
-            }
-            if let animType = columnRevealAnimationType {
-                niriViewportStates[workspaceId]?.columnRevealAnimationType = animType
-            }
-            if let curve = columnRevealEasingCurve {
-                niriViewportStates[workspaceId]?.columnRevealEasingCurve = curve
-            }
-            if let duration = columnRevealEasingDuration {
-                niriViewportStates[workspaceId]?.columnRevealEasingDuration = duration
-            }
         }
-    }
-
-    func updateDecelerationRate(_ rate: Double) {
-        decelerationRate = rate
     }
 
     func updateAnimationClock(_ clock: AnimationClock?) {
