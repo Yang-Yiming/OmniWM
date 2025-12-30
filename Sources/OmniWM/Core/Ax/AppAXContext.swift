@@ -126,8 +126,9 @@ final class AppAXContext: @unchecked Sendable {
             for element in windowElements {
                 try job.checkCancellation()
 
-                var windowId = 0
-                let idResult = _AXUIElementGetWindow(element, &windowId)
+                var windowIdRaw: CGWindowID = 0
+                let idResult = _AXUIElementGetWindow(element, &windowIdRaw)
+                let windowId = Int(windowIdRaw)
                 guard idResult == .success else { continue }
 
                 var roleValue: CFTypeRef?
@@ -293,8 +294,9 @@ private func axObserverCallback(
     var pid: pid_t = 0
     let pidResult = AXUIElementGetPid(element, &pid)
 
-    var windowId = 0
-    _ = _AXUIElementGetWindow(element, &windowId)
+    var windowIdRaw: CGWindowID = 0
+    _ = _AXUIElementGetWindow(element, &windowIdRaw)
+    let windowId = Int(windowIdRaw)
 
     if notif == kAXUIElementDestroyedNotification as String {
         let capturedPid = pid

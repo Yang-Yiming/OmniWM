@@ -2,9 +2,6 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ out: UnsafeMutablePointer<Int>) -> AXError
-
 struct AXWindowRef: Hashable, @unchecked Sendable {
     let id: UUID
     let element: AXUIElement
@@ -33,11 +30,11 @@ enum AXWindowService {
     }
 
     static func windowId(_ window: AXWindowRef) throws(AXErrorWrapper) -> Int {
-        var value = 0
+        var value: CGWindowID = 0
 
         let result = _AXUIElementGetWindow(window.element, &value)
         guard result == .success else { throw .cannotGetWindowId }
-        return value
+        return Int(value)
     }
 
     static func frame(_ window: AXWindowRef) throws(AXErrorWrapper) -> CGRect {
