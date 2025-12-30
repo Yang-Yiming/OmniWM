@@ -32,13 +32,12 @@ final class AXEventHandler {
     private func handleCreated(ref: AXWindowRef, pid: pid_t, winId: Int) {
         guard let controller else { return }
 
+        let bundleId = controller.internalAppInfoCache.bundleId(for: pid)
         let appPolicy = controller.internalAppInfoCache.activationPolicy(for: pid)
-        let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy)
+        let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy, bundleId: bundleId)
         guard windowType == .tiling else { return }
 
-        if let bundleId = controller.internalAppInfoCache.bundleId(for: pid),
-           controller.internalAppRulesByBundleId[bundleId]?.alwaysFloat == true
-        {
+        if let bundleId, controller.internalAppRulesByBundleId[bundleId]?.alwaysFloat == true {
             return
         }
 
@@ -96,8 +95,9 @@ final class AXEventHandler {
 
     private func handleFocused(ref: AXWindowRef, pid: pid_t, winId: Int) {
         guard let controller else { return }
+        let bundleId = controller.internalAppInfoCache.bundleId(for: pid)
         let appPolicy = controller.internalAppInfoCache.activationPolicy(for: pid)
-        let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy)
+        let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy, bundleId: bundleId)
         if windowType != .tiling {
             controller.internalIsNonManagedFocusActive = true
             controller.internalIsAppFullscreenActive = false

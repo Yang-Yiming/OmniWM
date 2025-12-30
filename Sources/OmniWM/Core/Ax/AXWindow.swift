@@ -222,7 +222,15 @@ enum AXWindowService {
             abs(frame.size.height - screenFrame.size.height) <= tolerance
     }
 
-    static func windowType(_ window: AXWindowRef, appPolicy: NSApplication.ActivationPolicy?) -> AXWindowType {
+    static func windowType(
+        _ window: AXWindowRef,
+        appPolicy: NSApplication.ActivationPolicy?,
+        bundleId: String? = nil
+    ) -> AXWindowType {
+        if DefaultFloatingApps.shouldFloat(bundleId) {
+            return .floating
+        }
+
         if isPopup(window, appPolicy: appPolicy) {
             return .floating
         }

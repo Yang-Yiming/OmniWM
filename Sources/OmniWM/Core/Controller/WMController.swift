@@ -821,7 +821,7 @@ final class WMController {
 
                 let hasAlwaysFloatRule = app.bundleIdentifier.flatMap { appRulesByBundleId[$0]?.alwaysFloat } == true
 
-                let windowType = AXWindowService.windowType(axRef, appPolicy: app.activationPolicy)
+                let windowType = AXWindowService.windowType(axRef, appPolicy: app.activationPolicy, bundleId: app.bundleIdentifier)
                 guard windowType == .floating || hasAlwaysFloatRule else { continue }
 
                 _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)

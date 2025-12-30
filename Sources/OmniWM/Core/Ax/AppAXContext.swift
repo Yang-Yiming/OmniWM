@@ -141,7 +141,7 @@ final class AppAXContext: @unchecked Sendable {
                       role == kAXWindowRole as String else { continue }
 
                 let axRef = AXWindowRef(id: UUID(), element: element)
-                let windowType = AXWindowService.windowType(axRef, appPolicy: nsApp.activationPolicy)
+                let windowType = AXWindowService.windowType(axRef, appPolicy: nsApp.activationPolicy, bundleId: nsApp.bundleIdentifier)
                 guard windowType == .tiling else { continue }
 
                 newWindows[windowId] = element
