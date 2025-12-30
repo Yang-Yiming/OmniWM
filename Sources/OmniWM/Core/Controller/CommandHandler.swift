@@ -117,6 +117,10 @@ final class CommandHandler {
             controller.openWindowFinder()
         case .raiseAllFloatingWindows:
             controller.raiseAllFloatingWindows()
+        case .openMenuAnywhere:
+            controller.openMenuAnywhere()
+        case .openMenuPalette:
+            controller.openMenuPalette()
         }
     }
 

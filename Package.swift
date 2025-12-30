@@ -22,7 +22,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
-                .linkedFramework("Carbon")
+                .linkedFramework("Carbon"),
+                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
         )
     ]

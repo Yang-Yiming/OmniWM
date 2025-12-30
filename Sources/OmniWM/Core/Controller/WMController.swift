@@ -800,6 +800,41 @@ final class WMController {
         }
     }
 
+    func openMenuAnywhere() {
+        guard settings.menuAnywhereNativeEnabled else { return }
+        MenuAnywhereController.shared.showNativeMenu(at: settings.menuAnywherePosition)
+    }
+
+    func openMenuPalette() {
+        guard settings.menuAnywherePaletteEnabled else { return }
+
+        let ownBundleId = Bundle.main.bundleIdentifier
+        let frontmost = NSWorkspace.shared.frontmostApplication
+
+        let targetApp: NSRunningApplication
+        if let fm = frontmost, fm.bundleIdentifier != ownBundleId {
+            targetApp = fm
+        } else if let stored = MenuPaletteController.shared.currentApp, !stored.isTerminated {
+            targetApp = stored
+        } else {
+            return
+        }
+
+        let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
+        var windowValue: AnyObject?
+        var targetWindow: AXUIElement?
+        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue) == .success {
+            targetWindow = (windowValue as! AXUIElement)
+        }
+
+        MenuPaletteController.shared.show(
+            at: settings.menuAnywherePosition,
+            showShortcuts: settings.menuAnywhereShowShortcuts,
+            targetApp: targetApp,
+            targetWindow: targetWindow
+        )
+    }
+
     func raiseAllFloatingWindows() {
         guard let monitor = monitorForInteraction() else { return }
 

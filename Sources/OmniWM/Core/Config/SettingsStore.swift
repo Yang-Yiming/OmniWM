@@ -188,6 +188,22 @@ final class SettingsStore {
         didSet { defaults.set(animationsEnabled, forKey: Keys.animationsEnabled) }
     }
 
+    var menuAnywhereNativeEnabled: Bool {
+        didSet { defaults.set(menuAnywhereNativeEnabled, forKey: Keys.menuAnywhereNativeEnabled) }
+    }
+
+    var menuAnywherePaletteEnabled: Bool {
+        didSet { defaults.set(menuAnywherePaletteEnabled, forKey: Keys.menuAnywherePaletteEnabled) }
+    }
+
+    var menuAnywherePosition: MenuAnywherePosition {
+        didSet { defaults.set(menuAnywherePosition.rawValue, forKey: Keys.menuAnywherePosition) }
+    }
+
+    var menuAnywhereShowShortcuts: Bool {
+        didSet { defaults.set(menuAnywhereShowShortcuts, forKey: Keys.menuAnywhereShowShortcuts) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -249,6 +265,11 @@ final class SettingsStore {
         gestureInvertDirection = defaults.object(forKey: Keys.gestureInvertDirection) as? Bool ?? true
 
         animationsEnabled = defaults.object(forKey: Keys.animationsEnabled) as? Bool ?? true
+
+        menuAnywhereNativeEnabled = defaults.object(forKey: Keys.menuAnywhereNativeEnabled) as? Bool ?? true
+        menuAnywherePaletteEnabled = defaults.object(forKey: Keys.menuAnywherePaletteEnabled) as? Bool ?? true
+        menuAnywherePosition = MenuAnywherePosition(rawValue: defaults.string(forKey: Keys.menuAnywherePosition) ?? "") ?? .cursor
+        menuAnywhereShowShortcuts = defaults.object(forKey: Keys.menuAnywhereShowShortcuts) as? Bool ?? true
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -580,6 +601,11 @@ private enum Keys {
     static let gestureInvertDirection = "settings.gestureInvertDirection"
 
     static let animationsEnabled = "settings.animationsEnabled"
+
+    static let menuAnywhereNativeEnabled = "settings.menuAnywhere.nativeEnabled"
+    static let menuAnywherePaletteEnabled = "settings.menuAnywhere.paletteEnabled"
+    static let menuAnywherePosition = "settings.menuAnywhere.position"
+    static let menuAnywhereShowShortcuts = "settings.menuAnywhere.showShortcuts"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {

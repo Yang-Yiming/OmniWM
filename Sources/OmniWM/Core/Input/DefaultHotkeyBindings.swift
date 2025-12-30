@@ -443,6 +443,18 @@ enum DefaultHotkeyBindings {
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(optionKey | shiftKey))
         ))
 
+        bindings.append(HotkeyBinding(
+            id: "openMenuAnywhere",
+            command: .openMenuAnywhere,
+            binding: KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey))
+        ))
+
+        bindings.append(HotkeyBinding(
+            id: "openMenuPalette",
+            command: .openMenuPalette,
+            binding: KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey | shiftKey))
+        ))
+
         return bindings
     }
 }

@@ -31,6 +31,11 @@ struct SettingsView: View {
                     Label("Bar", systemImage: "menubar.rectangle")
                 }
 
+            MenuAnywhereSettingsTab(settings: settings)
+                .tabItem {
+                    Label("Menu", systemImage: "filemenu.and.selection")
+                }
+
             HotkeySettingsView(settings: settings, controller: controller)
                 .padding()
                 .tabItem {
@@ -226,6 +231,38 @@ struct NiriSettingsTab: View {
                 .onChange(of: settings.niriSingleWindowAspectRatio) { _, newValue in
                     controller.updateNiriConfig(singleWindowAspectRatio: newValue)
                 }
+            }
+        }
+        .padding()
+    }
+}
+
+struct MenuAnywhereSettingsTab: View {
+    @Bindable var settings: SettingsStore
+
+    var body: some View {
+        Form {
+            Section("Menu Anywhere") {
+                Toggle("Enable Native Menu Popup", isOn: $settings.menuAnywhereNativeEnabled)
+                Text("Shows the frontmost app's menu bar as a popup at your cursor")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Enable Menu Palette", isOn: $settings.menuAnywherePaletteEnabled)
+                Text("Shows a searchable command palette with all menu items")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Picker("Popup Position", selection: $settings.menuAnywherePosition) {
+                    ForEach(MenuAnywherePosition.allCases, id: \.self) { position in
+                        Text(position.displayName).tag(position)
+                    }
+                }
+
+                Toggle("Show Keyboard Shortcuts", isOn: $settings.menuAnywhereShowShortcuts)
+                Text("Display keyboard shortcuts in the menu palette")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .padding()
