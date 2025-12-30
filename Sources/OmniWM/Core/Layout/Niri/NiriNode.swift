@@ -403,6 +403,9 @@ class NiriWindow: NiriNode {
 
     var isHiddenInTabbedMode: Bool = false
 
+    var moveXAnimation: MoveAnimation?
+    var moveYAnimation: MoveAnimation?
+
     init(handle: WindowHandle) {
         self.handle = handle
         super.init()
@@ -451,6 +454,80 @@ class NiriWindow: NiriNode {
 
     var windowId: UUID {
         handle.id
+    }
+
+    func renderOffset(at time: TimeInterval = CACurrentMediaTime()) -> CGPoint {
+        var offset = CGPoint.zero
+        if let moveX = moveXAnimation {
+            offset.x = moveX.currentOffset(at: time)
+        }
+        if let moveY = moveYAnimation {
+            offset.y = moveY.currentOffset(at: time)
+        }
+        return offset
+    }
+
+    func animateMoveFrom(
+        displacement: CGPoint,
+        clock: AnimationClock?,
+        config: SpringConfig = .default,
+        displayRefreshRate: Double = 60.0
+    ) {
+        let now = clock?.now() ?? CACurrentMediaTime()
+        let currentOffset = renderOffset(at: now)
+
+        if displacement.x != 0 {
+            let totalOffsetX = displacement.x + currentOffset.x
+            let anim = SpringAnimation(
+                from: 1,
+                to: 0,
+                startTime: now,
+                config: config,
+                clock: clock,
+                displayRefreshRate: displayRefreshRate
+            )
+            moveXAnimation = MoveAnimation(animation: anim, fromOffset: totalOffsetX)
+        }
+        if displacement.y != 0 {
+            let totalOffsetY = displacement.y + currentOffset.y
+            let anim = SpringAnimation(
+                from: 1,
+                to: 0,
+                startTime: now,
+                config: config,
+                clock: clock,
+                displayRefreshRate: displayRefreshRate
+            )
+            moveYAnimation = MoveAnimation(animation: anim, fromOffset: totalOffsetY)
+        }
+    }
+
+    func tickMoveAnimations(at time: TimeInterval) -> Bool {
+        var running = false
+        if let moveX = moveXAnimation {
+            if moveX.isComplete(at: time) {
+                moveXAnimation = nil
+            } else {
+                running = true
+            }
+        }
+        if let moveY = moveYAnimation {
+            if moveY.isComplete(at: time) {
+                moveYAnimation = nil
+            } else {
+                running = true
+            }
+        }
+        return running
+    }
+
+    func stopMoveAnimations() {
+        moveXAnimation = nil
+        moveYAnimation = nil
+    }
+
+    var hasMoveAnimationsRunning: Bool {
+        moveXAnimation != nil || moveYAnimation != nil
     }
 }
 

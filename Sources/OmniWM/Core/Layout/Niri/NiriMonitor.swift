@@ -25,6 +25,12 @@ final class NiriMonitor {
 
     var viewportStates: [WorkspaceDescriptor.ID: ViewportState] = [:]
 
+    var workspaceSwitch: WorkspaceSwitch?
+
+    var animationClock: AnimationClock?
+
+    var workspaceSwitchConfig: SpringConfig = SpringConfig(duration: 0.3, bounce: 0.0)
+
     var activeWorkspaceId: WorkspaceDescriptor.ID? {
         guard workspaceOrder.indices.contains(activeWorkspaceIdx) else { return nil }
         return workspaceOrder[activeWorkspaceIdx]
@@ -135,5 +141,51 @@ extension NiriMonitor {
     func activateWorkspace(_ workspaceId: WorkspaceDescriptor.ID) {
         guard let idx = workspaceOrder.firstIndex(of: workspaceId) else { return }
         activateWorkspace(at: idx)
+    }
+
+    func activateWorkspaceAnimated(_ workspaceId: WorkspaceDescriptor.ID) {
+        guard let targetIdx = workspaceOrder.firstIndex(of: workspaceId) else { return }
+
+        if targetIdx == activeWorkspaceIdx && workspaceSwitch == nil {
+            return
+        }
+
+        let currentRenderIdx = workspaceRenderIndex()
+
+        previousWorkspaceId = activeWorkspaceId
+        activeWorkspaceIdx = targetIdx
+
+        let now = animationClock?.now() ?? CACurrentMediaTime()
+        let animation = SpringAnimation(
+            from: currentRenderIdx,
+            to: Double(targetIdx),
+            startTime: now,
+            config: workspaceSwitchConfig,
+            clock: animationClock
+        )
+        workspaceSwitch = .animation(animation)
+    }
+
+    func workspaceRenderIndex() -> Double {
+        if let switch_ = workspaceSwitch {
+            return switch_.currentIndex()
+        }
+        return Double(activeWorkspaceIdx)
+    }
+
+    func tickWorkspaceSwitchAnimation(at time: TimeInterval) -> Bool {
+        guard var switch_ = workspaceSwitch else { return false }
+
+        let running = switch_.tick(at: time)
+        if running {
+            workspaceSwitch = switch_
+        } else {
+            workspaceSwitch = nil
+        }
+        return running
+    }
+
+    var isWorkspaceSwitchAnimating: Bool {
+        workspaceSwitch?.isAnimating() ?? false
     }
 }

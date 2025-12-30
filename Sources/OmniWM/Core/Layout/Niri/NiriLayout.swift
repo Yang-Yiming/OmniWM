@@ -196,7 +196,10 @@ extension NiriLayoutEngine {
 
             row.frame = frame
             row.resolvedHeight = rowHeight
-            result[row.handle] = frame
+
+            let offset = row.renderOffset()
+            let animatedFrame = frame.offsetBy(dx: offset.x, dy: offset.y)
+            result[row.handle] = animatedFrame
 
             if !isTabbed {
                 y += rowHeight

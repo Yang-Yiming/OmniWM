@@ -123,19 +123,20 @@ final class LayoutRefreshController {
             stopScrollAnimation()
             return
         }
-        guard controller.internalNiriEngine != nil else {
+        guard let engine = controller.internalNiriEngine else {
             stopScrollAnimation()
             return
         }
 
         var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
 
-        let shouldContinue = state.tickAnimation(at: targetTime)
+        let viewportAnimationRunning = state.tickAnimation(at: targetTime)
+        let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
 
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
         executeLayoutRefreshImmediate()
 
-        if !shouldContinue {
+        if !viewportAnimationRunning && !windowAnimationsRunning {
             stopScrollAnimation()
         }
     }

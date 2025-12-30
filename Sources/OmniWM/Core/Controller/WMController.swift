@@ -652,6 +652,7 @@ final class WMController {
         engine.centerFocusedColumn = centerFocusedColumn
         engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
         engine.renderStyle.tabIndicatorHeight = TabbedColumnOverlayManager.tabIndicatorHeight
+        engine.animationClock = animationClock
         niriEngine = engine
 
         syncMonitorsToNiriEngine()
@@ -674,6 +675,7 @@ final class WMController {
             let orderedWorkspaceIds = workspaceManager.workspaces(on: monitor.id).map(\.id)
             if let niriMonitor = engine.monitor(for: monitor.id) {
                 niriMonitor.workspaceOrder = orderedWorkspaceIds
+                niriMonitor.animationClock = animationClock
                 if let activeWorkspace = workspaceManager.activeWorkspace(on: monitor.id) {
                     niriMonitor.activateWorkspace(activeWorkspace.id)
                 }

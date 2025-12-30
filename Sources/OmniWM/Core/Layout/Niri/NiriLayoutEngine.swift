@@ -86,6 +86,15 @@ final class NiriLayoutEngine {
     var resizeConfiguration = ResizeConfiguration.default
     var moveConfiguration = MoveConfiguration.default
 
+    var windowMovementAnimationConfig: SpringConfig = SpringConfig(
+        duration: 0.35,
+        bounce: 0.0,
+        epsilon: 0.0001,
+        velocityEpsilon: 0.01
+    )
+    var animationClock: AnimationClock?
+    var displayRefreshRate: Double = 60.0
+
     var presetColumnWidths: [PresetSize] = [
         .proportion(1.0 / 3.0),
         .proportion(0.5),
@@ -1954,5 +1963,65 @@ extension NiriLayoutEngine {
             scale: area.scale,
             workingArea: area
         )
+    }
+
+    func captureWindowFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowHandle: CGRect] {
+        guard let root = root(for: workspaceId) else { return [:] }
+        var frames: [WindowHandle: CGRect] = [:]
+        for window in root.allWindows {
+            if let frame = window.frame {
+                frames[window.handle] = frame
+            }
+        }
+        return frames
+    }
+
+    func triggerMoveAnimations(
+        in workspaceId: WorkspaceDescriptor.ID,
+        oldFrames: [WindowHandle: CGRect],
+        newFrames: [WindowHandle: CGRect],
+        threshold: CGFloat = 1.0
+    ) -> Bool {
+        guard let root = root(for: workspaceId) else { return false }
+        var anyAnimationStarted = false
+
+        for window in root.allWindows {
+            guard let oldFrame = oldFrames[window.handle],
+                  let newFrame = newFrames[window.handle]
+            else {
+                continue
+            }
+
+            let dx = oldFrame.origin.x - newFrame.origin.x
+            let dy = oldFrame.origin.y - newFrame.origin.y
+
+            if abs(dx) > threshold || abs(dy) > threshold {
+                window.animateMoveFrom(
+                    displacement: CGPoint(x: dx, y: dy),
+                    clock: animationClock,
+                    config: windowMovementAnimationConfig,
+                    displayRefreshRate: displayRefreshRate
+                )
+                anyAnimationStarted = true
+            }
+        }
+
+        return anyAnimationStarted
+    }
+
+    func hasAnyWindowAnimationsRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let root = root(for: workspaceId) else { return false }
+        return root.allWindows.contains { $0.hasMoveAnimationsRunning }
+    }
+
+    func tickAllWindowAnimations(in workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
+        guard let root = root(for: workspaceId) else { return false }
+        var anyRunning = false
+        for window in root.allWindows {
+            if window.tickMoveAnimations(at: time) {
+                anyRunning = true
+            }
+        }
+        return anyRunning
     }
 }
