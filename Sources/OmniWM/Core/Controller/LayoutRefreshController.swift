@@ -340,8 +340,10 @@ final class LayoutRefreshController {
             let wsId = workspace.id
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
+            let existingHandleIds = Set(engine.root(for: wsId)?.allWindows.map(\.handle.id) ?? [])
             let currentSelection = workspaceManager.niriViewportState(for: wsId).selectedNodeId
             _ = engine.syncWindows(windowHandles, in: wsId, selectedNodeId: currentSelection, focusedHandle: controller.internalFocusedHandle)
+            let newHandles = windowHandles.filter { !existingHandleIds.contains($0.id) }
 
             for entry in workspaceManager.entries(in: wsId) {
                 let currentSize = (try? AXWindowService.frame(entry.axRef))?.size
@@ -404,13 +406,43 @@ final class LayoutRefreshController {
                 scale: backingScale(for: monitor)
             )
 
-            let frames = engine.calculateCombinedLayout(
+            var frames = engine.calculateCombinedLayout(
                 in: wsId,
                 monitor: monitor,
                 gaps: gaps,
                 state: state,
                 workingArea: area
             )
+
+            if let newHandle = newHandles.last,
+               let newNode = engine.findNode(for: newHandle),
+               wsId == controller.activeWorkspace()?.id
+            {
+                state.selectedNodeId = newNode.id
+                let gap = CGFloat(workspaceManager.gaps)
+                engine.ensureSelectionVisible(
+                    node: newNode,
+                    in: wsId,
+                    state: &state,
+                    edge: .right,
+                    workingFrame: insetFrame,
+                    gaps: gap
+                )
+                controller.internalFocusedHandle = newHandle
+                controller.internalLastFocusedByWorkspace[wsId] = newHandle
+                engine.updateFocusTimestamp(for: newNode.id)
+                workspaceManager.updateNiriViewportState(state, for: wsId)
+                startScrollAnimation(for: wsId)
+                controller.focusWindow(newHandle)
+
+                frames = engine.calculateCombinedLayout(
+                    in: wsId,
+                    monitor: monitor,
+                    gaps: gaps,
+                    state: state,
+                    workingArea: area
+                )
+            }
 
             let hiddenHandles = engine.hiddenWindowHandles(in: wsId, state: state, workingFrame: insetFrame)
             let corner = cornersByMonitor[monitor.id] ?? .bottomRightCorner

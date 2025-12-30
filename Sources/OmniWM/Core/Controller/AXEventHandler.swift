@@ -46,6 +46,23 @@ final class AXEventHandler {
             pid: pid,
             fallbackWorkspaceId: controller.activeWorkspace()?.id
         )
+
+        if workspaceId != controller.activeWorkspace()?.id {
+            if let monitor = controller.internalWorkspaceManager.monitor(for: workspaceId),
+               controller.internalWorkspaceManager.workspaces(on: monitor.id)
+               .contains(where: { $0.id == workspaceId })
+            {
+                if let currentMonitorId = controller.internalActiveMonitorId ?? controller
+                    .monitorForInteraction()?.id,
+                    currentMonitorId != monitor.id
+                {
+                    controller.internalPreviousMonitorId = currentMonitorId
+                }
+                controller.internalActiveMonitorId = monitor.id
+                _ = controller.internalWorkspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
+            }
+        }
+
         _ = controller.internalWorkspaceManager.addWindow(ref, pid: pid, windowId: winId, to: workspaceId)
         controller.updateWorkspaceBar()
 
