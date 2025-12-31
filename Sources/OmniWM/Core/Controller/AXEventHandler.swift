@@ -258,41 +258,44 @@ final class AXEventHandler {
         }
 
         isFocusOperationPending = true
-        defer {
-            isFocusOperationPending = false
-            if let deferred = deferredFocusHandle, deferred != handle {
-                deferredFocusHandle = nil
-                focusWindow(deferred)
-            }
-        }
 
         pendingFocusHandle = handle
         lastFocusTime = now
         lastAnyFocusTime = now
         controller.internalLastFocusedByWorkspace[entry.workspaceId] = handle
 
-        let app = AXUIElementCreateApplication(handle.pid)
-        let focusResult = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, entry.axRef.element)
-        let raiseResult = AXUIElementPerformAction(entry.axRef.element, kAXRaiseAction as CFString)
+        let axRef = entry.axRef
+        let pid = handle.pid
+        let moveMouseEnabled = controller.internalMoveMouseToFocusedWindowEnabled
 
-        if let runningApp = NSRunningApplication(processIdentifier: handle.pid) {
-            runningApp.activate()
-        }
-
-        if focusResult != .success || raiseResult != .success {
-            NSLog("WMController: Focus failed - focus: \(focusResult.rawValue), raise: \(raiseResult.rawValue)")
-        }
-
-        if controller.internalMoveMouseToFocusedWindowEnabled {
-            controller.moveMouseToWindow(handle)
-        }
-
-        let handleForBorder = handle
         Task { @MainActor [weak self, weak controller] in
+            let app = AXUIElementCreateApplication(pid)
+            let focusResult = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, axRef.element)
+            let raiseResult = AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+
+            if focusResult != .success || raiseResult != .success {
+                NSLog("WMController: Focus failed - focus: \(focusResult.rawValue), raise: \(raiseResult.rawValue)")
+            }
+
             guard let self, let controller else { return }
-            guard let entry = controller.internalWorkspaceManager.entry(for: handleForBorder) else { return }
-            if let frame = try? AXWindowService.frame(entry.axRef) {
-                updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+
+            if let runningApp = NSRunningApplication(processIdentifier: pid) {
+                runningApp.activate()
+            }
+
+            if moveMouseEnabled {
+                controller.moveMouseToWindow(handle)
+            }
+
+            if let entry = controller.internalWorkspaceManager.entry(for: handle),
+               let frame = try? AXWindowService.frame(entry.axRef) {
+                self.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+            }
+
+            self.isFocusOperationPending = false
+            if let deferred = self.deferredFocusHandle, deferred != handle {
+                self.deferredFocusHandle = nil
+                self.focusWindow(deferred)
             }
         }
     }
