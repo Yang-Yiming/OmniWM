@@ -497,6 +497,14 @@ final class LayoutRefreshController {
                 scale: backingScale(for: monitor)
             )
 
+            var frames = engine.calculateCombinedLayout(
+                in: wsId,
+                monitor: monitor,
+                gaps: gaps,
+                state: state,
+                workingArea: area
+            )
+
             var newWindowHandle: WindowHandle?
             if hasCompletedInitialRefresh,
                let newHandle = newHandles.last,
@@ -518,15 +526,15 @@ final class LayoutRefreshController {
                 engine.updateFocusTimestamp(for: newNode.id)
                 workspaceManager.updateNiriViewportState(state, for: wsId)
                 newWindowHandle = newHandle
-            }
 
-            let frames = engine.calculateCombinedLayout(
-                in: wsId,
-                monitor: monitor,
-                gaps: gaps,
-                state: state,
-                workingArea: area
-            )
+                frames = engine.calculateCombinedLayout(
+                    in: wsId,
+                    monitor: monitor,
+                    gaps: gaps,
+                    state: state,
+                    workingArea: area
+                )
+            }
 
             if let newHandle = newWindowHandle {
                 startScrollAnimation(for: wsId)
