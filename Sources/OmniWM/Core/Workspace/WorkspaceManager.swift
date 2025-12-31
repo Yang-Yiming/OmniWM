@@ -175,6 +175,14 @@ final class WorkspaceManager {
         windows.entry(for: handle)
     }
 
+    func entry(forPid pid: pid_t, windowId: Int) -> WindowModel.Entry? {
+        windows.entry(forPid: pid, windowId: windowId)
+    }
+
+    func entries(forPid pid: pid_t) -> [WindowModel.Entry] {
+        windows.entries(forPid: pid)
+    }
+
     func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>) {
         windows.removeMissing(keys: activeKeys)
     }

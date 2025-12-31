@@ -81,6 +81,16 @@ final class WindowModel {
         entries[handle]
     }
 
+    func entry(forPid pid: pid_t, windowId: Int) -> Entry? {
+        let key = WindowKey(pid: pid, windowId: windowId)
+        guard let handle = keyToHandle[key] else { return nil }
+        return entries[handle]
+    }
+
+    func entries(forPid pid: pid_t) -> [Entry] {
+        entries.values.filter { $0.handle.pid == pid }
+    }
+
     func hiddenProportionalPosition(for handle: WindowHandle) -> CGPoint? {
         entries[handle]?.hiddenProportionalPosition
     }

@@ -273,52 +273,83 @@ enum AXWindowService {
     }
 
     static func sizeConstraints(_ window: AXWindowRef, currentSize: CGSize? = nil) -> WindowSizeConstraints {
-        let resizable = isResizable(window)
+        if let cached = constraintsCache[window.id] {
+            return cached
+        }
+
+        let constraints = fetchSizeConstraintsBatched(window, currentSize: currentSize)
+        constraintsCache[window.id] = constraints
+        return constraints
+    }
+
+    static func invalidateConstraintsCache(for windowId: UUID) {
+        constraintsCache.removeValue(forKey: windowId)
+    }
+
+    static func invalidateAllConstraintsCaches() {
+        constraintsCache.removeAll()
+    }
+
+    nonisolated(unsafe) private static var constraintsCache: [UUID: WindowSizeConstraints] = [:]
+
+    private static func fetchSizeConstraintsBatched(_ window: AXWindowRef, currentSize: CGSize? = nil) -> WindowSizeConstraints {
+        let attributes: [CFString] = [
+            "AXGrowArea" as CFString,
+            kAXZoomButtonAttribute as CFString,
+            kAXSubroleAttribute as CFString,
+            "AXMinSize" as CFString,
+            "AXMaxSize" as CFString
+        ]
+
+        var values: CFArray?
+        let attributesCFArray = attributes as CFArray
+        let result = AXUIElementCopyMultipleAttributeValues(
+            window.element,
+            attributesCFArray,
+            AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values
+        )
+
+        var hasGrowArea = false
+        var hasZoomButton = false
+        var subroleValue: String?
+        var minSize = CGSize(width: 100, height: 100)
+        var maxSize = CGSize.zero
+
+        if result == .success, let valuesArray = values as? [Any?] {
+            if valuesArray.count > 0, valuesArray[0] != nil, !(valuesArray[0] is NSError) {
+                hasGrowArea = true
+            }
+            if valuesArray.count > 1, valuesArray[1] != nil, !(valuesArray[1] is NSError) {
+                hasZoomButton = true
+            }
+            if valuesArray.count > 2, let subrole = valuesArray[2] as? String {
+                subroleValue = subrole
+            }
+            if valuesArray.count > 3, let minValue = valuesArray[3], CFGetTypeID(minValue as CFTypeRef) == AXValueGetTypeID() {
+                var size = CGSize.zero
+                if AXValueGetValue(minValue as! AXValue, .cgSize, &size) {
+                    minSize = size
+                }
+            }
+            if valuesArray.count > 4, let maxValue = valuesArray[4], CFGetTypeID(maxValue as CFTypeRef) == AXValueGetTypeID() {
+                var size = CGSize.zero
+                if AXValueGetValue(maxValue as! AXValue, .cgSize, &size) {
+                    maxSize = size
+                }
+            }
+        }
+
+        let resizable = hasGrowArea || hasZoomButton || (subroleValue == (kAXStandardWindowSubrole as String))
 
         if !resizable {
             if let size = currentSize {
                 return .fixed(size: size)
             }
-
             if let frame = try? frame(window) {
                 return .fixed(size: frame.size)
             }
             return .unconstrained
-        }
-
-        var minSize = CGSize(width: 100, height: 100)
-        var maxSize = CGSize.zero
-
-        var value: CFTypeRef?
-
-        let minResult = AXUIElementCopyAttributeValue(
-            window.element,
-            "AXMinSize" as CFString,
-            &value
-        )
-        if minResult == .success,
-           let rawValue = value,
-           CFGetTypeID(rawValue) == AXValueGetTypeID()
-        {
-            var size = CGSize.zero
-            if AXValueGetValue(rawValue as! AXValue, .cgSize, &size) {
-                minSize = size
-            }
-        }
-
-        let maxResult = AXUIElementCopyAttributeValue(
-            window.element,
-            "AXMaxSize" as CFString,
-            &value
-        )
-        if maxResult == .success,
-           let rawValue = value,
-           CFGetTypeID(rawValue) == AXValueGetTypeID()
-        {
-            var size = CGSize.zero
-            if AXValueGetValue(rawValue as! AXValue, .cgSize, &size) {
-                maxSize = size
-            }
         }
 
         return WindowSizeConstraints(

@@ -20,4 +20,11 @@ extension ScrollModifierKey {
         case .controlShift: [.control, .shift]
         }
     }
+
+    var cgEventFlag: CGEventFlags {
+        switch self {
+        case .optionShift: [.maskAlternate, .maskShift]
+        case .controlShift: [.maskControl, .maskShift]
+        }
+    }
 }

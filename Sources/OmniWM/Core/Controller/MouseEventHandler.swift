@@ -5,12 +5,8 @@ import Foundation
 final class MouseEventHandler {
     private weak var controller: WMController?
 
-    private var mouseMovedMonitor: Any?
-    private var mouseMovedLocalMonitor: Any?
-    private var mouseDownMonitor: Any?
-    private var mouseDraggedMonitor: Any?
-    private var mouseUpMonitor: Any?
-    private var scrollWheelMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
     private var gestureMonitor: Any?
     private var currentHoveredEdges: ResizeEdge = []
     private var isResizing: Bool = false
@@ -29,46 +25,90 @@ final class MouseEventHandler {
     private var lastFocusFollowsMouseHandle: WindowHandle?
     private let focusFollowsMouseDebounce: TimeInterval = 0.1
 
+    private static var sharedHandler: MouseEventHandler?
+    private var cachedScrollEvent: (deltaX: CGFloat, deltaY: CGFloat, momentumPhase: UInt32, phase: UInt32, modifiers: CGEventFlags)?
+
     init(controller: WMController) {
         self.controller = controller
     }
 
     func setup() {
-        mouseMovedMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMouseMoved()
+        MouseEventHandler.sharedHandler = self
+
+        let eventMask: CGEventMask =
+            (1 << CGEventType.mouseMoved.rawValue) |
+            (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.leftMouseDragged.rawValue) |
+            (1 << CGEventType.leftMouseUp.rawValue) |
+            (1 << CGEventType.scrollWheel.rawValue)
+
+        let callback: CGEventTapCallBack = { proxy, type, event, refcon in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = MouseEventHandler.sharedHandler?.eventTap {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+                return Unmanaged.passUnretained(event)
             }
+
+            let location = event.location
+            let flippedY = NSScreen.screens.first.map { $0.frame.maxY - location.y } ?? location.y
+            let screenLocation = CGPoint(x: location.x, y: flippedY)
+
+            switch type {
+            case .mouseMoved:
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleMouseMovedFromTap(at: screenLocation)
+                }
+            case .leftMouseDown:
+                let modifiers = event.flags
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleMouseDownFromTap(at: screenLocation, modifiers: modifiers)
+                }
+            case .leftMouseDragged:
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleMouseDraggedFromTap(at: screenLocation)
+                }
+            case .leftMouseUp:
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleMouseUpFromTap(at: screenLocation)
+                }
+            case .scrollWheel:
+                let deltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+                let deltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+                let momentumPhase = UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
+                let phase = UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+                let modifiers = event.flags
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleScrollWheelFromTap(
+                        deltaX: CGFloat(deltaX),
+                        deltaY: CGFloat(deltaY),
+                        momentumPhase: momentumPhase,
+                        phase: phase,
+                        modifiers: modifiers
+                    )
+                }
+            default:
+                break
+            }
+
+            return Unmanaged.passUnretained(event)
         }
 
-        mouseMovedLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            Task { @MainActor in
-                self?.handleMouseMoved()
-            }
-            return event
-        }
+        eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: eventMask,
+            callback: callback,
+            userInfo: nil
+        )
 
-        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMouseDown()
+        if let tap = eventTap {
+            runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            if let source = runLoopSource {
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             }
-        }
-
-        mouseDraggedMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDragged) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMouseDragged()
-            }
-        }
-
-        mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMouseUp()
-            }
-        }
-
-        scrollWheelMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            Task { @MainActor in
-                self?.handleScrollWheel(event)
-            }
+            CGEvent.tapEnable(tap: tap, enable: true)
         }
 
         gestureMonitor = NSEvent.addGlobalMonitorForEvents(matching: .gesture) { [weak self] event in
@@ -79,40 +119,25 @@ final class MouseEventHandler {
     }
 
     func cleanup() {
-        if let monitor = mouseMovedMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseMovedMonitor = nil
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            runLoopSource = nil
         }
-        if let monitor = mouseMovedLocalMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseMovedLocalMonitor = nil
-        }
-        if let monitor = mouseDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseDownMonitor = nil
-        }
-        if let monitor = mouseDraggedMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseDraggedMonitor = nil
-        }
-        if let monitor = mouseUpMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseUpMonitor = nil
-        }
-        if let monitor = scrollWheelMonitor {
-            NSEvent.removeMonitor(monitor)
-            scrollWheelMonitor = nil
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            eventTap = nil
         }
         if let monitor = gestureMonitor {
             NSEvent.removeMonitor(monitor)
             gestureMonitor = nil
         }
+        MouseEventHandler.sharedHandler = nil
         currentHoveredEdges = []
         isResizing = false
         gesturePhase = .idle
     }
 
-    private func handleMouseMoved() {
+    private func handleMouseMovedFromTap(at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else {
             if !currentHoveredEdges.isEmpty {
@@ -121,8 +146,6 @@ final class MouseEventHandler {
             }
             return
         }
-
-        let location = NSEvent.mouseLocation
 
         if controller.internalFocusFollowsMouseEnabled, !isResizing {
             handleFocusFollowsMouse(at: location)
@@ -153,41 +176,7 @@ final class MouseEventHandler {
         }
     }
 
-    private func handleFocusFollowsMouse(at location: CGPoint) {
-        guard let controller else { return }
-        guard !controller.internalIsNonManagedFocusActive, !controller.internalIsAppFullscreenActive else {
-            return
-        }
-
-        let now = Date()
-        guard now.timeIntervalSince(lastFocusFollowsMouseTime) >= focusFollowsMouseDebounce else {
-            return
-        }
-
-        guard let engine = controller.internalNiriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
-            return
-        }
-
-        if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
-            let handle = tiledWindow.handle
-            if handle != lastFocusFollowsMouseHandle, handle != controller.internalFocusedHandle {
-                lastFocusFollowsMouseTime = now
-                lastFocusFollowsMouseHandle = handle
-                var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-                state.selectedNodeId = tiledWindow.id
-                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-                engine.updateFocusTimestamp(for: tiledWindow.id)
-                controller.internalFocusedHandle = handle
-                controller.internalLastFocusedByWorkspace[wsId] = handle
-                controller.focusWindow(handle)
-            }
-            return
-        }
-    }
-
-    private func handleMouseDown() {
+    private func handleMouseDownFromTap(at location: CGPoint, modifiers: CGEventFlags) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
 
@@ -197,10 +186,7 @@ final class MouseEventHandler {
             return
         }
 
-        let location = NSEvent.mouseLocation
-        let modifiers = NSEvent.modifierFlags
-
-        if modifiers.contains(.option) {
+        if modifiers.contains(.maskAlternate) {
             if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
                 if engine.interactiveMoveBegin(
                     windowId: tiledWindow.id,
@@ -226,17 +212,14 @@ final class MouseEventHandler {
             ) {
                 isResizing = true
                 controller.internalLayoutRefreshController?.invalidateLayout()
-
                 hitResult.edges.cursor.set()
             }
         }
     }
 
-    private func handleMouseDragged() {
+    private func handleMouseDraggedFromTap(at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
-
-        let location = NSEvent.mouseLocation
 
         if isMoving {
             guard let engine = controller.internalNiriEngine,
@@ -273,9 +256,8 @@ final class MouseEventHandler {
         }
     }
 
-    private func handleMouseUp() {
+    private func handleMouseUpFromTap(at location: CGPoint) {
         guard let controller else { return }
-        let location = NSEvent.mouseLocation
 
         if isMoving {
             if let engine = controller.internalNiriEngine,
@@ -316,29 +298,29 @@ final class MouseEventHandler {
         }
     }
 
-    private func handleScrollWheel(_ event: NSEvent) {
+    private func handleScrollWheelFromTap(deltaX: CGFloat, deltaY: CGFloat, momentumPhase: UInt32, phase: UInt32, modifiers: CGEventFlags) {
         guard let controller else { return }
         guard controller.isEnabled, controller.internalSettings.scrollGestureEnabled else { return }
         guard !isResizing, !isMoving else { return }
         guard let engine = controller.internalNiriEngine, let wsId = controller.activeWorkspace()?.id else { return }
 
-        let isTrackpad = event.momentumPhase != [] || event.phase != []
+        let isTrackpad = momentumPhase != 0 || phase != 0
         if isTrackpad {
             return
         }
 
-        guard event.modifierFlags.contains(controller.internalSettings.scrollModifierKey.eventModifierFlag) else {
+        guard modifiers.contains(controller.internalSettings.scrollModifierKey.cgEventFlag) else {
             return
         }
 
-        let deltaX: CGFloat
-        if event.modifierFlags.contains(.shift) {
-            deltaX = event.scrollingDeltaX
+        let scrollDeltaX: CGFloat
+        if modifiers.contains(.maskShift) {
+            scrollDeltaX = deltaX
         } else {
-            deltaX = -event.scrollingDeltaY
+            scrollDeltaX = -deltaY
         }
 
-        guard abs(deltaX) > 0.5 else { return }
+        guard abs(scrollDeltaX) > 0.5 else { return }
 
         let timestamp = CACurrentMediaTime()
 
@@ -359,7 +341,7 @@ final class MouseEventHandler {
         let columns = engine.columns(in: wsId)
 
         let sensitivity = CGFloat(controller.internalSettings.scrollSensitivity)
-        let adjustedDelta = deltaX * sensitivity
+        let adjustedDelta = scrollDeltaX * sensitivity
 
         var targetWindowHandle: WindowHandle?
         if let steps = state.updateGesture(
@@ -392,6 +374,40 @@ final class MouseEventHandler {
 
         if let handle = targetWindowHandle {
             controller.focusWindow(handle)
+        }
+    }
+
+    private func handleFocusFollowsMouse(at location: CGPoint) {
+        guard let controller else { return }
+        guard !controller.internalIsNonManagedFocusActive, !controller.internalIsAppFullscreenActive else {
+            return
+        }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastFocusFollowsMouseTime) >= focusFollowsMouseDebounce else {
+            return
+        }
+
+        guard let engine = controller.internalNiriEngine,
+              let wsId = controller.activeWorkspace()?.id
+        else {
+            return
+        }
+
+        if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
+            let handle = tiledWindow.handle
+            if handle != lastFocusFollowsMouseHandle, handle != controller.internalFocusedHandle {
+                lastFocusFollowsMouseTime = now
+                lastFocusFollowsMouseHandle = handle
+                var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+                state.selectedNodeId = tiledWindow.id
+                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+                engine.updateFocusTimestamp(for: tiledWindow.id)
+                controller.internalFocusedHandle = handle
+                controller.internalLastFocusedByWorkspace[wsId] = handle
+                controller.focusWindow(handle)
+            }
+            return
         }
     }
 

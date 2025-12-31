@@ -78,18 +78,12 @@ final class AXEventHandler {
 
     private func handleRemoved(pid: pid_t, winId: Int) {
         guard let controller else { return }
-        var affectedWorkspaceId: WorkspaceDescriptor.ID?
-        var removedHandle: WindowHandle?
-        for ws in controller.internalWorkspaceManager.workspaces {
-            for entry in controller.internalWorkspaceManager.entries(in: ws.id) {
-                if entry.windowId == winId, entry.handle.pid == pid {
-                    affectedWorkspaceId = ws.id
-                    removedHandle = entry.handle
-                    break
-                }
-            }
-            if affectedWorkspaceId != nil { break }
-        }
+
+        let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId)
+        let affectedWorkspaceId = entry?.workspaceId
+        let removedHandle = entry?.handle
+
+        AXWindowService.invalidateConstraintsCache(for: entry?.axRef.id ?? UUID())
 
         controller.internalWorkspaceManager.removeWindow(pid: pid, windowId: winId)
 
@@ -124,48 +118,47 @@ final class AXEventHandler {
             return
         }
         controller.internalIsNonManagedFocusActive = false
-        for ws in controller.internalWorkspaceManager.workspaces {
-            for entry in controller.internalWorkspaceManager.entries(in: ws.id) {
-                if entry.windowId == winId, entry.handle.pid == pid {
-                    if ws.id != controller.activeWorkspace()?.id {
-                        guard let monitor = controller.internalWorkspaceManager.monitor(for: ws.id),
-                              controller.internalWorkspaceManager.workspaces(on: monitor.id)
-                              .contains(where: { $0.id == ws.id })
-                        else {
-                            return
-                        }
 
-                        if let currentMonitorId = controller.internalActiveMonitorId ?? controller
-                            .monitorForInteraction()?.id,
-                            currentMonitorId != monitor.id
-                        {
-                            controller.internalPreviousMonitorId = currentMonitorId
-                        }
-                        controller.internalActiveMonitorId = monitor.id
-                        _ = controller.internalWorkspaceManager.setActiveWorkspace(ws.id, on: monitor.id)
-                        controller.internalLayoutRefreshController?.scheduleRefreshSession(.axWindowFocused)
-                    }
-
-                    controller.internalFocusedHandle = entry.handle
-                    controller.internalLastFocusedByWorkspace[ws.id] = entry.handle
-
-                    if let engine = controller.internalNiriEngine,
-                       let node = engine.findNode(for: entry.handle)
-                    {
-                        var state = controller.internalWorkspaceManager.niriViewportState(for: ws.id)
-                        state.selectedNodeId = node.id
-                        controller.internalWorkspaceManager.updateNiriViewportState(state, for: ws.id)
-
-                        engine.updateFocusTimestamp(for: node.id)
-                    }
-
-                    if let frame = try? AXWindowService.frame(entry.axRef) {
-                        updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-                    }
+        if let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId) {
+            let wsId = entry.workspaceId
+            if wsId != controller.activeWorkspace()?.id {
+                guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId),
+                      controller.internalWorkspaceManager.workspaces(on: monitor.id)
+                      .contains(where: { $0.id == wsId })
+                else {
                     return
                 }
+
+                if let currentMonitorId = controller.internalActiveMonitorId ?? controller
+                    .monitorForInteraction()?.id,
+                    currentMonitorId != monitor.id
+                {
+                    controller.internalPreviousMonitorId = currentMonitorId
+                }
+                controller.internalActiveMonitorId = monitor.id
+                _ = controller.internalWorkspaceManager.setActiveWorkspace(wsId, on: monitor.id)
+                controller.internalLayoutRefreshController?.scheduleRefreshSession(.axWindowFocused)
             }
+
+            controller.internalFocusedHandle = entry.handle
+            controller.internalLastFocusedByWorkspace[wsId] = entry.handle
+
+            if let engine = controller.internalNiriEngine,
+               let node = engine.findNode(for: entry.handle)
+            {
+                var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+                state.selectedNodeId = node.id
+                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+
+                engine.updateFocusTimestamp(for: node.id)
+            }
+
+            if let frame = try? AXWindowService.frame(entry.axRef) {
+                updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+            }
+            return
         }
+
         controller.internalBorderManager.hideBorder()
         handleCreated(ref: ref, pid: pid, winId: winId)
     }
@@ -191,31 +184,29 @@ final class AXEventHandler {
             return
         }
 
-        for ws in controller.internalWorkspaceManager.workspaces {
-            for entry in controller.internalWorkspaceManager.entries(in: ws.id) {
-                if entry.windowId == winId, entry.handle.pid == pid {
-                    controller.internalIsNonManagedFocusActive = false
+        if let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId) {
+            let wsId = entry.workspaceId
+            controller.internalIsNonManagedFocusActive = false
 
-                    controller.internalFocusedHandle = entry.handle
-                    controller.internalLastFocusedByWorkspace[ws.id] = entry.handle
+            controller.internalFocusedHandle = entry.handle
+            controller.internalLastFocusedByWorkspace[wsId] = entry.handle
 
-                    if let engine = controller.internalNiriEngine,
-                       let node = engine.findNode(for: entry.handle)
-                    {
-                        var state = controller.internalWorkspaceManager.niriViewportState(for: ws.id)
-                        state.selectedNodeId = node.id
-                        controller.internalWorkspaceManager.updateNiriViewportState(state, for: ws.id)
-                        engine.updateFocusTimestamp(for: node.id)
-                    }
-
-                    if let frame = try? AXWindowService.frame(entry.axRef) {
-                        updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-                    }
-                    controller.internalLayoutRefreshController?.updateTabbedColumnOverlays()
-                    return
-                }
+            if let engine = controller.internalNiriEngine,
+               let node = engine.findNode(for: entry.handle)
+            {
+                var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+                state.selectedNodeId = node.id
+                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+                engine.updateFocusTimestamp(for: node.id)
             }
+
+            if let frame = try? AXWindowService.frame(entry.axRef) {
+                updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+            }
+            controller.internalLayoutRefreshController?.updateTabbedColumnOverlays()
+            return
         }
+
         controller.internalIsNonManagedFocusActive = true
         controller.internalIsAppFullscreenActive = false
         controller.internalBorderManager.hideBorder()
@@ -225,12 +216,8 @@ final class AXEventHandler {
         guard let controller else { return }
         controller.internalHiddenAppPIDs.insert(pid)
 
-        for ws in controller.internalWorkspaceManager.workspaces {
-            for entry in controller.internalWorkspaceManager.entries(in: ws.id) {
-                if entry.handle.pid == pid {
-                    controller.internalWorkspaceManager.setLayoutReason(.macosHiddenApp, for: entry.handle)
-                }
-            }
+        for entry in controller.internalWorkspaceManager.entries(forPid: pid) {
+            controller.internalWorkspaceManager.setLayoutReason(.macosHiddenApp, for: entry.handle)
         }
         controller.internalLayoutRefreshController?.scheduleRefreshSession(.appHidden)
     }
@@ -239,13 +226,9 @@ final class AXEventHandler {
         guard let controller else { return }
         controller.internalHiddenAppPIDs.remove(pid)
 
-        for ws in controller.internalWorkspaceManager.workspaces {
-            for entry in controller.internalWorkspaceManager.entries(in: ws.id) {
-                if entry.handle.pid == pid,
-                   controller.internalWorkspaceManager.layoutReason(for: entry.handle) == .macosHiddenApp
-                {
-                    _ = controller.internalWorkspaceManager.restoreFromNativeState(for: entry.handle)
-                }
+        for entry in controller.internalWorkspaceManager.entries(forPid: pid) {
+            if controller.internalWorkspaceManager.layoutReason(for: entry.handle) == .macosHiddenApp {
+                _ = controller.internalWorkspaceManager.restoreFromNativeState(for: entry.handle)
             }
         }
         controller.internalLayoutRefreshController?.scheduleRefreshSession(.appUnhidden)
