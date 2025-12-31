@@ -110,20 +110,19 @@ final class CommandHandler {
 
     private func focusNeighborInNiri(direction: Direction) {
         pendingNavigationTask?.cancel()
+        pendingNavigationTask = nil
 
         if isProcessingNavigation {
             navigationQueue = [direction]
-            pendingNavigationTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                if let self, let queued = navigationQueue.first {
-                    navigationQueue.removeAll()
-                    executeFocusNeighborInNiri(direction: queued)
-                }
-            }
             return
         }
 
         executeFocusNeighborInNiri(direction: direction)
+
+        if let queuedDirection = navigationQueue.first {
+            navigationQueue.removeAll()
+            focusNeighborInNiri(direction: queuedDirection)
+        }
     }
 
     private func executeFocusNeighborInNiri(direction: Direction) {
