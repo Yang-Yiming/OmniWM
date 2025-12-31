@@ -296,17 +296,17 @@ final class NiriLayoutEngine {
         let viewLeft = -viewOffset
         let viewRight = viewLeft + workingFrame.width
 
-        func columnX(at index: Int) -> CGFloat {
-            var x: CGFloat = 0
-            for i in 0..<index {
-                x += cols[i].cachedWidth + gaps
-            }
-            return x
+        var columnPositions = [CGFloat]()
+        columnPositions.reserveCapacity(cols.count)
+        var runningX: CGFloat = 0
+        for column in cols {
+            columnPositions.append(runningX)
+            runningX += column.cachedWidth + gaps
         }
 
         var hiddenHandles = Set<WindowHandle>()
         for (colIdx, column) in cols.enumerated() {
-            let colX = columnX(at: colIdx)
+            let colX = columnPositions[colIdx]
             let colRight = colX + column.cachedWidth
 
             let isVisible = colRight > viewLeft && colX < viewRight

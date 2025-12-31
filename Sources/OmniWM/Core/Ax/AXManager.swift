@@ -116,26 +116,32 @@ final class AXManager {
 
         await AppAXContext.garbageCollect()
 
-        var results: [(AXWindowRef, pid_t, Int)] = []
         let apps = NSWorkspace.shared.runningApplications.filter { shouldTrack($0) }
 
-        for app in apps {
-            do {
-                guard let context = try await AppAXContext.getOrCreate(app) else { continue }
+        return await withTaskGroup(of: [(AXWindowRef, pid_t, Int)].self) { group in
+            for app in apps {
+                group.addTask {
+                    do {
+                        guard let context = try await AppAXContext.getOrCreate(app) else { return [] }
 
-                let appWindows = try await withTimeoutOrNil(seconds: perAppTimeout) {
-                    try await context.getWindowsAsync()
-                }
+                        let appWindows = try await self.withTimeoutOrNil(seconds: perAppTimeout) {
+                            try await context.getWindowsAsync()
+                        }
 
-                if let windows = appWindows {
-                    results.append(contentsOf: windows.map { ($0.0, app.processIdentifier, $0.1) })
+                        if let windows = appWindows {
+                            return windows.map { ($0.0, app.processIdentifier, $0.1) }
+                        }
+                    } catch {}
+                    return []
                 }
-            } catch {
-                continue
             }
-        }
 
-        return results
+            var results: [(AXWindowRef, pid_t, Int)] = []
+            for await appWindows in group {
+                results.append(contentsOf: appWindows)
+            }
+            return results
+        }
     }
 
     func applyFramesParallel(_ frames: [(pid: pid_t, windowId: Int, frame: CGRect)]) {

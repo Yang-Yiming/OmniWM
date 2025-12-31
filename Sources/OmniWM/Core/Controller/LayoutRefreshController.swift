@@ -166,8 +166,11 @@ final class LayoutRefreshController {
         guard let controller else { return }
 
         let currentViewportOffset = state.viewOffsetPixels.current()
+        let visibleCount = snapshot.targetFrames.count - snapshot.hiddenHandles.count
         var positionUpdates: [(windowId: Int, origin: CGPoint)] = []
+        positionUpdates.reserveCapacity(visibleCount)
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        frameUpdates.reserveCapacity(visibleCount)
 
         for (handle, _) in snapshot.targetFrames {
             guard snapshot.isWindowVisible(handle) else { continue }
@@ -196,26 +199,17 @@ final class LayoutRefreshController {
             controller.internalAXManager.applyFramesParallel(frameUpdates)
             sizesAppliedForAnimation = true
         }
-
-        if let focusedHandle = controller.internalFocusedHandle,
-           snapshot.isWindowVisible(focusedHandle),
-           let entry = controller.internalWorkspaceManager.entry(for: focusedHandle)
-        {
-            let window = engine.findNode(for: focusedHandle)
-            let moveOffset = window?.renderOffset(at: time) ?? .zero
-            if let frame = snapshot.interpolatedFrame(
-                for: focusedHandle,
-                currentViewportOffset: currentViewportOffset,
-                moveOffset: moveOffset
-            ) {
-                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-            }
-        } else if let focusedHandle = controller.internalFocusedHandle, !snapshot.isWindowVisible(focusedHandle) {
-            controller.internalBorderManager.hideBorder()
-        }
     }
 
     private func finalizeAnimation() {
+        if let controller,
+           let focusedHandle = controller.internalFocusedHandle,
+           let entry = controller.internalWorkspaceManager.entry(for: focusedHandle),
+           let frame = try? AXWindowService.frame(entry.axRef)
+        {
+            controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+        }
+
         activeSnapshot = nil
         layoutDirtyFlag = false
         sizesAppliedForAnimation = false
