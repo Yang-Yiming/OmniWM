@@ -310,7 +310,7 @@ struct AppRuleAddSheet: View {
     @State private var minWidthEnabled = false
     @State private var minHeightEnabled = false
     @State private var runningApps: [RunningAppInfo] = []
-    @State private var isPickerExpanded = false
+    @State private var isPickerExpanded = true
     @State private var selectedAppInfo: RunningAppInfo?
 
     var body: some View {

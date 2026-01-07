@@ -47,51 +47,7 @@ struct OmniWMApp: App {
 
     var body: some Scene {
         MenuBarExtra("O", systemImage: "o.circle") {
-            Toggle("Focus Follows Mouse", isOn: $settings.focusFollowsMouse)
-                .onChange(of: settings.focusFollowsMouse) { _, newValue in
-                    controller.setFocusFollowsMouse(newValue)
-                }
-            Toggle("Move Mouse to Focused Window", isOn: $settings.moveMouseToFocusedWindow)
-                .onChange(of: settings.moveMouseToFocusedWindow) { _, newValue in
-                    controller.setMoveMouseToFocusedWindow(newValue)
-                }
-            Toggle("Window Borders", isOn: $settings.bordersEnabled)
-                .onChange(of: settings.bordersEnabled) { _, newValue in
-                    controller.setBordersEnabled(newValue)
-                }
-            Toggle("Workspace Bar", isOn: $settings.workspaceBarEnabled)
-                .onChange(of: settings.workspaceBarEnabled) { _, newValue in
-                    controller.setWorkspaceBarEnabled(newValue)
-                }
-            Toggle("Keep Awake", isOn: $settings.preventSleepEnabled)
-                .onChange(of: settings.preventSleepEnabled) { _, newValue in
-                    controller.setPreventSleepEnabled(newValue)
-                }
-            Divider()
-            Button("App Rules…") {
-                AppRulesWindowController.shared.show(settings: settings, controller: controller)
-            }
-            Button("Settings…") {
-                SettingsWindowController.shared.show(settings: settings, controller: controller)
-            }
-            Divider()
-            Button("GitHub") {
-                if let url = URL(string: "https://github.com/BarutSRB/OmniWM") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            Button("Sponsor on GitHub") {
-                if let url = URL(string: "https://github.com/sponsors/BarutSRB") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            Button("Sponsor on PayPal") {
-                if let url = URL(string: "https://paypal.me/beacon2024") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            Divider()
-            Button("Quit OmniWM") { NSApplication.shared.terminate(nil) }
+            StatusBarMenuView(settings: $settings, controller: controller)
         }
         .menuBarExtraStyle(.window)
 

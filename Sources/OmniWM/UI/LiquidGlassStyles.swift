@@ -60,3 +60,92 @@ struct GlassSearchField: View {
         .padding(.vertical, 12)
     }
 }
+
+struct GlassMenuRow<Content: View>: View {
+    let content: Content
+    var icon: String?
+    var action: () -> Void
+
+    @State private var isHovered = false
+
+    init(icon: String? = nil, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.icon = icon
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                }
+                content
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if isHovered {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(.quaternary)
+            }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+struct GlassToggleRow: View {
+    let label: String
+    @Binding var isOn: Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Toggle(label, isOn: $isOn)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.quaternary)
+                }
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+struct GlassMenuSection<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            content
+        }
+    }
+}
+
+struct GlassMenuDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+    }
+}
