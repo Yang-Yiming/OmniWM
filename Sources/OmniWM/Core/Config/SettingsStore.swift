@@ -290,7 +290,7 @@ final class SettingsStore {
         monitorOrientationSettings = Self.loadMonitorOrientationSettings(from: defaults)
         monitorNiriSettings = Self.loadMonitorNiriSettings(from: defaults)
 
-        dwindleSmartSplit = defaults.object(forKey: Keys.dwindleSmartSplit) as? Bool ?? true
+        dwindleSmartSplit = defaults.object(forKey: Keys.dwindleSmartSplit) as? Bool ?? false
         dwindleDefaultSplitRatio = defaults.object(forKey: Keys.dwindleDefaultSplitRatio) as? Double ?? 1.0
         dwindleSplitWidthMultiplier = defaults.object(forKey: Keys.dwindleSplitWidthMultiplier) as? Double ?? 1.0
         dwindleSingleWindowAspectRatio = DwindleSingleWindowAspectRatio(
