@@ -31,6 +31,12 @@ struct OmniWMApp: App {
             singleWindowAspectRatio: settings.niriSingleWindowAspectRatio
         )
         controller.enableDwindleLayout()
+        controller.updateDwindleConfig(
+            smartSplit: settings.dwindleSmartSplit,
+            defaultSplitRatio: settings.dwindleDefaultSplitRatio,
+            splitWidthMultiplier: settings.dwindleSplitWidthMultiplier,
+            singleWindowAspectRatio: settings.dwindleSingleWindowAspectRatio.size
+        )
         controller.updateWorkspaceConfig()
         controller.rebuildAppRulesCache()
 
