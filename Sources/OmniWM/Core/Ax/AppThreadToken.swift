@@ -1,24 +1,24 @@
 import Foundation
 
 @TaskLocal
+@usableFromInline
 var appThreadToken: AppThreadToken?
 
-struct AppThreadToken: Sendable, Equatable, CustomStringConvertible {
+@usableFromInline
+struct AppThreadToken: Sendable, Equatable {
+    @usableFromInline
     let pid: pid_t
-    let bundleId: String?
 
-    init(pid: pid_t, bundleId: String?) {
+    @inlinable
+    init(pid: pid_t) {
         self.pid = pid
-        self.bundleId = bundleId
     }
 
+    @usableFromInline
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.pid == rhs.pid }
 
+    @inlinable
     func checkEquals(_ other: AppThreadToken?) {
-        precondition(self == other, "Thread token mismatch: \(self) != \(String(describing: other))")
-    }
-
-    var description: String {
-        bundleId ?? "pid:\(pid)"
+        precondition(self == other)
     }
 }

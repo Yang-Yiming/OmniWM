@@ -3,8 +3,29 @@ import ApplicationServices
 import Foundation
 
 struct AXWindowRef: Hashable, @unchecked Sendable {
-    let id: UUID
     let element: AXUIElement
+    let windowId: Int
+
+    init(element: AXUIElement, windowId: Int) {
+        self.element = element
+        self.windowId = windowId
+    }
+
+    init(element: AXUIElement) throws {
+        self.element = element
+        var value: CGWindowID = 0
+        let result = _AXUIElementGetWindow(element, &value)
+        guard result == .success else { throw AXErrorWrapper.cannotGetWindowId }
+        self.windowId = Int(value)
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(windowId)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.windowId == rhs.windowId
+    }
 }
 
 enum AXErrorWrapper: Error {
@@ -36,16 +57,11 @@ enum AXWindowService {
 
     @MainActor
     static func titlePreferFast(_ window: AXWindowRef) -> String? {
-        guard let wid = try? windowId(window) else { return nil }
-        return SkyLight.shared.getWindowTitle(UInt32(wid))
+        SkyLight.shared.getWindowTitle(UInt32(windowId(window)))
     }
 
-    static func windowId(_ window: AXWindowRef) throws(AXErrorWrapper) -> Int {
-        var value: CGWindowID = 0
-
-        let result = _AXUIElementGetWindow(window.element, &value)
-        guard result == .success else { throw .cannotGetWindowId }
-        return Int(value)
+    static func windowId(_ window: AXWindowRef) -> Int {
+        window.windowId
     }
 
     static func frame(_ window: AXWindowRef) throws(AXErrorWrapper) -> CGRect {
@@ -73,8 +89,7 @@ enum AXWindowService {
 
     @MainActor
     static func fastFrame(_ window: AXWindowRef) -> CGRect? {
-        guard let windowId = try? windowId(window) else { return nil }
-        return SkyLight.shared.getWindowBounds(UInt32(windowId))
+        SkyLight.shared.getWindowBounds(UInt32(windowId(window)))
     }
 
     @MainActor
@@ -93,10 +108,24 @@ enum AXWindowService {
         guard err1 == .success, err2 == .success else { throw .cannotSetFrame }
     }
 
+    nonisolated(unsafe) private static var _cachedGlobalFrame: CGRect?
+    nonisolated(unsafe) private static var _screenConfigurationToken: Int = 0
+
     private static var globalFrame: CGRect {
-        NSScreen.screens.reduce(into: CGRect.null) { result, screen in
+        let currentToken = NSScreen.screens.hashValue
+        if let cached = _cachedGlobalFrame, currentToken == _screenConfigurationToken {
+            return cached
+        }
+        let frame = NSScreen.screens.reduce(into: CGRect.null) { result, screen in
             result = result.union(screen.frame)
         }
+        _cachedGlobalFrame = frame
+        _screenConfigurationToken = currentToken
+        return frame
+    }
+
+    static func invalidateGlobalFrameCache() {
+        _cachedGlobalFrame = nil
     }
 
     private static func convertFromAX(_ rect: CGRect) -> CGRect {
@@ -213,8 +242,7 @@ enum AXWindowService {
 
     @MainActor
     static func isMinimizedPreferFast(_ window: AXWindowRef) -> Bool {
-        guard let wid = try? windowId(window) else { return false }
-        return !SkyLight.shared.isWindowOrderedIn(UInt32(wid))
+        !SkyLight.shared.isWindowOrderedIn(UInt32(windowId(window)))
     }
 
     static func setMinimized(_ window: AXWindowRef, minimized: Bool) -> Bool {
@@ -250,16 +278,57 @@ enum AXWindowService {
             return .floating
         }
 
-        if isPopup(window, appPolicy: appPolicy) {
+        let attributes: [CFString] = [
+            kAXSubroleAttribute as CFString,
+            kAXCloseButtonAttribute as CFString,
+            kAXFullScreenButtonAttribute as CFString,
+            kAXZoomButtonAttribute as CFString,
+            kAXMinimizeButtonAttribute as CFString
+        ]
+
+        var values: CFArray?
+        let result = AXUIElementCopyMultipleAttributeValues(
+            window.element,
+            attributes as CFArray,
+            AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values
+        )
+
+        guard result == .success, let valuesArray = values as? [Any?] else {
             return .floating
         }
 
-        let subrole = subrole(window)
-        if let subrole, subrole != (kAXStandardWindowSubrole as String) {
+        let subroleValue = valuesArray[0] as? String
+        let hasCloseButton = valuesArray[1] != nil && !(valuesArray[1] is NSError)
+        let fullscreenButtonElement = valuesArray[2]
+        let hasFullscreenButton = fullscreenButtonElement != nil && !(fullscreenButtonElement is NSError)
+        let hasZoomButton = valuesArray[3] != nil && !(valuesArray[3] is NSError)
+        let hasMinimizeButton = valuesArray[4] != nil && !(valuesArray[4] is NSError)
+
+        let hasAnyButton = hasCloseButton || hasFullscreenButton || hasZoomButton || hasMinimizeButton
+
+        if appPolicy == .accessory && !hasCloseButton {
+            return .floating
+        }
+        if !hasAnyButton && subroleValue != kAXStandardWindowSubrole as String {
             return .floating
         }
 
-        if !hasFullscreenButton(window) {
+        if let subroleValue, subroleValue != (kAXStandardWindowSubrole as String) {
+            return .floating
+        }
+
+        if hasFullscreenButton, let buttonElement = fullscreenButtonElement {
+            var enabledValue: CFTypeRef?
+            let enabledResult = AXUIElementCopyAttributeValue(
+                buttonElement as! AXUIElement,
+                kAXEnabledAttribute as CFString,
+                &enabledValue
+            )
+            if enabledResult != .success || enabledValue as? Bool != true {
+                return .floating
+            }
+        } else {
             return .floating
         }
 
@@ -388,7 +457,7 @@ enum AXWindowService {
         for window in windows {
             var winId: CGWindowID = 0
             if _AXUIElementGetWindow(window, &winId) == .success, winId == windowId {
-                return AXWindowRef(id: UUID(), element: window)
+                return AXWindowRef(element: window, windowId: Int(winId))
             }
         }
 

@@ -6,6 +6,12 @@ enum SkyLightWindowOrder: Int32 {
     case below = -1
 }
 
+private typealias CFReleaseFunc = @convention(c) (CFTypeRef) -> Void
+private let cfRelease: CFReleaseFunc = {
+    let lib = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_LAZY)!
+    return unsafeBitCast(dlsym(lib, "CFRelease"), to: CFReleaseFunc.self)
+}()
+
 @MainActor
 final class SkyLight {
     static let shared = SkyLight()
@@ -256,11 +262,15 @@ final class SkyLight {
 
         var widValue = Int32(wid)
         let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
+        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
 
-        guard let query = windowQueryWindows(cid, windowArray, 0),
-              let iterator = windowQueryResultCopyWindows(query),
-              windowIteratorGetCount(iterator) > 0,
+        guard let query = windowQueryWindows(cid, windowArray, 0) else { return nil }
+        defer { cfRelease(query) }
+        guard let iterator = windowQueryResultCopyWindows(query) else { return nil }
+        defer { cfRelease(iterator) }
+
+        guard windowIteratorGetCount(iterator) > 0,
               windowIteratorAdvance(iterator),
               let radii = windowIteratorGetCornerRadii(iterator),
               CFArrayGetCount(radii) > 0
@@ -284,11 +294,15 @@ final class SkyLight {
 
         var widValue = Int32(wid)
         let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
+        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
 
-        guard let query = windowQueryWindows(cid, windowArray, 0),
-              let iterator = windowQueryResultCopyWindows(query),
-              windowIteratorGetCount(iterator) > 0,
+        guard let query = windowQueryWindows(cid, windowArray, 0) else { return nil }
+        defer { cfRelease(query) }
+        guard let iterator = windowQueryResultCopyWindows(query) else { return nil }
+        defer { cfRelease(iterator) }
+
+        guard windowIteratorGetCount(iterator) > 0,
               windowIteratorAdvance(iterator),
               let radii = windowIteratorGetCornerRadii(iterator)
         else {
@@ -336,6 +350,7 @@ final class SkyLight {
         guard let transaction = transactionCreate(cid) else {
             fatalError("Failed to create SkyLight transaction")
         }
+        defer { cfRelease(transaction) }
         transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
         _ = transactionCommit(transaction, 0)
     }
@@ -348,6 +363,7 @@ final class SkyLight {
     ) {
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else { return }
+        defer { cfRelease(transaction) }
         if let transactionMoveWindowWithGroup {
             _ = transactionMoveWindowWithGroup(transaction, wid, origin)
         }
@@ -413,6 +429,7 @@ final class SkyLight {
 
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else { return }
+        defer { cfRelease(transaction) }
 
         for (windowId, origin) in positions {
             _ = transactionMoveWindowWithGroup(transaction, windowId, origin)
@@ -435,9 +452,10 @@ final class SkyLight {
         guard cid != 0 else { return [] }
 
         let emptyArray = [] as CFArray
-        guard let query = windowQueryWindows(cid, emptyArray, 0),
-              let iterator = windowQueryResultCopyWindows(query)
-        else { return [] }
+        guard let query = windowQueryWindows(cid, emptyArray, 0) else { return [] }
+        defer { cfRelease(query) }
+        guard let iterator = windowQueryResultCopyWindows(query) else { return [] }
+        defer { cfRelease(iterator) }
 
         var results: [WindowServerInfo] = []
 
@@ -493,12 +511,14 @@ final class SkyLight {
 
         var widValue = Int32(windowId)
         let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
+        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
 
-        guard let query = windowQueryWindows(cid, windowArray, 1),
-              let iterator = windowQueryResultCopyWindows(query),
-              windowIteratorAdvance(iterator)
-        else { return nil }
+        guard let query = windowQueryWindows(cid, windowArray, 1) else { return nil }
+        defer { cfRelease(query) }
+        guard let iterator = windowQueryResultCopyWindows(query) else { return nil }
+        defer { cfRelease(iterator) }
+        guard windowIteratorAdvance(iterator) else { return nil }
 
         let wid = windowIteratorGetWindowID(iterator)
         let pid = windowIteratorGetPID(iterator)
@@ -679,6 +699,7 @@ final class SkyLight {
     func transactionMoveAndOrder(_ wid: UInt32, origin: CGPoint, level: Int32, relativeTo targetWid: UInt32, order: SkyLightWindowOrder) {
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else { return }
+        defer { cfRelease(transaction) }
 
         if let transactionMoveWindowWithGroup {
             _ = transactionMoveWindowWithGroup(transaction, wid, origin)
@@ -693,6 +714,7 @@ final class SkyLight {
     func transactionHide(_ wid: UInt32) {
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else { return }
+        defer { cfRelease(transaction) }
         transactionOrderWindow(transaction, wid, 0, 0)
         _ = transactionCommit(transaction, 0)
     }

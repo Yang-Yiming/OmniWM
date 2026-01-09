@@ -167,29 +167,33 @@ final class AXEventHandler: CGSEventDelegate {
         controller.internalWorkspaceManager.removeWindow(pid: pid, windowId: winId)
 
         if let wsId = affectedWorkspaceId {
-            controller.internalLayoutRefreshController?.layoutWithNiriEngine(
-                activeWorkspaces: [wsId],
-                useScrollAnimationPath: true,
-                removedNodeId: removedNodeId
-            )
+            Task { @MainActor [weak self, weak controller] in
+                guard let self, let controller else { return }
 
-            if let engine = controller.internalNiriEngine {
-                let newFrames = engine.captureWindowFrames(in: wsId)
-                let animationsTriggered = engine.triggerMoveAnimations(
-                    in: wsId,
-                    oldFrames: oldFrames,
-                    newFrames: newFrames
+                await controller.internalLayoutRefreshController?.layoutWithNiriEngine(
+                    activeWorkspaces: [wsId],
+                    useScrollAnimationPath: true,
+                    removedNodeId: removedNodeId
                 )
 
-                if animationsTriggered
-                    || engine.hasAnyWindowAnimationsRunning(in: wsId)
-                    || engine.hasAnyColumnAnimationsRunning(in: wsId) {
-                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
-                }
-            }
+                if let engine = controller.internalNiriEngine {
+                    let newFrames = engine.captureWindowFrames(in: wsId)
+                    let animationsTriggered = engine.triggerMoveAnimations(
+                        in: wsId,
+                        oldFrames: oldFrames,
+                        newFrames: newFrames
+                    )
+                    let hasWindowAnimations = engine.hasAnyWindowAnimationsRunning(in: wsId)
+                    let hasColumnAnimations = engine.hasAnyColumnAnimationsRunning(in: wsId)
 
-            if let removed = removedHandle, removed.id == controller.internalFocusedHandle?.id {
-                ensureFocusedHandleValid(in: wsId)
+                    if animationsTriggered || hasWindowAnimations || hasColumnAnimations {
+                        controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+                    }
+                }
+
+                if let removed = removedHandle, removed.id == controller.internalFocusedHandle?.id {
+                    self.ensureFocusedHandleValid(in: wsId)
+                }
             }
         }
 
@@ -216,13 +220,13 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        let axRef = AXWindowRef(id: UUID(), element: windowElement as! AXUIElement)
-        guard let winId = try? AXWindowService.windowId(axRef) else {
+        guard let axRef = try? AXWindowRef(element: windowElement as! AXUIElement) else {
             controller.internalIsNonManagedFocusActive = true
             controller.internalIsAppFullscreenActive = false
             controller.internalBorderManager.hideBorder()
             return
         }
+        let winId = axRef.windowId
 
         if let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId) {
             let wsId = entry.workspaceId

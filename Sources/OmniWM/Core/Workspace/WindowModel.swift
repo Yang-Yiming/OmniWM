@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 final class WindowModel {
-    struct Entry {
+    final class Entry {
         let handle: WindowHandle
         var axRef: AXWindowRef
         var workspaceId: WorkspaceDescriptor.ID
@@ -14,6 +14,23 @@ final class WindowModel {
         var parentKind: ParentKind = .tilingContainer
 
         var prevParentKind: ParentKind?
+
+        var cachedConstraints: WindowSizeConstraints?
+        var constraintsCacheTime: Date?
+
+        init(
+            handle: WindowHandle,
+            axRef: AXWindowRef,
+            workspaceId: WorkspaceDescriptor.ID,
+            windowId: Int,
+            hiddenProportionalPosition: CGPoint?
+        ) {
+            self.handle = handle
+            self.axRef = axRef
+            self.workspaceId = workspaceId
+            self.windowId = windowId
+            self.hiddenProportionalPosition = hiddenProportionalPosition
+        }
     }
 
     private(set) var entries: [WindowHandle: Entry] = [:]
@@ -35,9 +52,8 @@ final class WindowModel {
 
     func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle {
         let key = WindowKey(pid: pid, windowId: windowId)
-        if let handle = keyToHandle[key], var entry = entries[handle] {
-            entry.axRef = window
-            entries[handle] = entry
+        if let handle = keyToHandle[key] {
+            entries[handle]?.axRef = window
             return handle
         } else {
             let handle = WindowHandle(id: UUID(), pid: pid, axElement: window.element)
@@ -57,14 +73,12 @@ final class WindowModel {
     }
 
     func updateWorkspace(for handle: WindowHandle, workspace: WorkspaceDescriptor.ID) {
-        guard var entry = entries[handle] else { return }
-        let oldWorkspace = entry.workspaceId
+        guard let oldWorkspace = entries[handle]?.workspaceId else { return }
         if oldWorkspace != workspace {
             handlesByWorkspace[oldWorkspace]?.removeAll { $0 == handle }
             handlesByWorkspace[workspace, default: []].append(handle)
         }
-        entry.workspaceId = workspace
-        entries[handle] = entry
+        entries[handle]?.workspaceId = workspace
     }
 
     func windows(in workspace: WorkspaceDescriptor.ID) -> [Entry] {
@@ -108,9 +122,7 @@ final class WindowModel {
     }
 
     func setHiddenProportionalPosition(_ position: CGPoint?, for handle: WindowHandle) {
-        guard var entry = entries[handle] else { return }
-        entry.hiddenProportionalPosition = position
-        entries[handle] = entry
+        entries[handle]?.hiddenProportionalPosition = position
     }
 
     func isHiddenInCorner(_ handle: WindowHandle) -> Bool {
@@ -126,29 +138,24 @@ final class WindowModel {
     }
 
     func setLayoutReason(_ reason: LayoutReason, for handle: WindowHandle) {
-        guard var entry = entries[handle] else { return }
-
+        guard let entry = entries[handle] else { return }
         if reason != .standard, entry.layoutReason == .standard {
             entry.prevParentKind = entry.parentKind
         }
         entry.layoutReason = reason
-        entries[handle] = entry
     }
 
     func setParentKind(_ kind: ParentKind, for handle: WindowHandle) {
-        guard var entry = entries[handle] else { return }
-        entry.parentKind = kind
-        entries[handle] = entry
+        entries[handle]?.parentKind = kind
     }
 
     func restoreFromNativeState(for handle: WindowHandle) -> ParentKind? {
-        guard var entry = entries[handle],
+        guard let entry = entries[handle],
               entry.layoutReason != .standard,
               let prevKind = entry.prevParentKind else { return nil }
         entry.layoutReason = .standard
         entry.parentKind = prevKind
         entry.prevParentKind = nil
-        entries[handle] = entry
         return prevKind
     }
 
@@ -184,5 +191,27 @@ final class WindowModel {
             entries.removeValue(forKey: handle)
             keyToHandle.removeValue(forKey: key)
         }
+    }
+
+    func cachedConstraints(for handle: WindowHandle, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
+        guard let entry = entries[handle],
+              let cached = entry.cachedConstraints,
+              let cacheTime = entry.constraintsCacheTime,
+              Date().timeIntervalSince(cacheTime) < maxAge else {
+            return nil
+        }
+        return cached
+    }
+
+    func setCachedConstraints(_ constraints: WindowSizeConstraints, for handle: WindowHandle) {
+        guard let entry = entries[handle] else { return }
+        entry.cachedConstraints = constraints
+        entry.constraintsCacheTime = Date()
+    }
+
+    func invalidateConstraintsCache(for handle: WindowHandle) {
+        guard let entry = entries[handle] else { return }
+        entry.cachedConstraints = nil
+        entry.constraintsCacheTime = nil
     }
 }

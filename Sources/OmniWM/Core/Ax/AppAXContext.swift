@@ -25,6 +25,8 @@ final class AppAXContext: @unchecked Sendable {
 
     @MainActor static var contexts: [pid_t: AppAXContext] = [:]
     @MainActor private static var wipPids: Set<pid_t> = []
+    @MainActor private static var pendingContinuations: [pid_t: [CheckedContinuation<AppAXContext?, Error>]] = [:]
+    @MainActor private static var timeoutTasks: [pid_t: Task<Void, Never>] = [:]
 
     private init(
         _ nsApp: NSRunningApplication,
@@ -51,13 +53,45 @@ final class AppAXContext: @unchecked Sendable {
         if let existing = contexts[pid] { return existing }
 
         try Task.checkCancellation()
-        if !wipPids.insert(pid).inserted {
-            try await Task.sleep(nanoseconds: 100_000_000)
-            return try await getOrCreate(nsApp)
+
+        if wipPids.contains(pid) {
+            let result: AppAXContext? = try await withThrowingTaskGroup(of: AppAXContext?.self) { group in
+                group.addTask {
+                    try await withCheckedThrowingContinuation { continuation in
+                        Task { @MainActor in
+                            pendingContinuations[pid, default: []].append(continuation)
+                        }
+                    }
+                }
+                group.addTask {
+                    try await Task.sleep(for: .milliseconds(500))
+                    return nil
+                }
+                guard let r = try await group.next() else { return nil }
+                group.cancelAll()
+                return r
+            }
+            return result
+        }
+
+        wipPids.insert(pid)
+
+        timeoutTasks[pid] = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                if contexts[pid] == nil, wipPids.contains(pid) {
+                    wipPids.remove(pid)
+                    timeoutTasks.removeValue(forKey: pid)
+                    for cont in pendingContinuations.removeValue(forKey: pid) ?? [] {
+                        cont.resume(returning: nil)
+                    }
+                }
+            }
         }
 
         let thread = Thread {
-            $appThreadToken.withValue(AppThreadToken(pid: pid, bundleId: nsApp.bundleIdentifier)) {
+            $appThreadToken.withValue(AppThreadToken(pid: pid)) {
                 let axApp = AXUIElementCreateApplication(pid)
 
                 var observer: AXObserver?
@@ -83,8 +117,7 @@ final class AppAXContext: @unchecked Sendable {
                 let context = AppAXContext(nsApp, axApp, observer, Thread.current)
 
                 Task { @MainActor in
-                    contexts[pid] = context
-                    wipPids.remove(pid)
+                    contextDidCreate(context, pid: pid)
                 }
 
                 let port = NSMachPort()
@@ -96,19 +129,19 @@ final class AppAXContext: @unchecked Sendable {
         thread.name = "OmniWM-AX-\(nsApp.bundleIdentifier ?? "pid:\(pid)")"
         thread.start()
 
-        let startTime = Date()
-        let maxWait: TimeInterval = 2.0
-
-        while contexts[pid] == nil, wipPids.contains(pid) {
-            try Task.checkCancellation()
-            if Date().timeIntervalSince(startTime) > maxWait {
-                wipPids.remove(pid)
-                return nil
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingContinuations[pid, default: []].append(continuation)
         }
+    }
 
-        return contexts[pid]
+    @MainActor
+    private static func contextDidCreate(_ context: AppAXContext, pid: pid_t) {
+        contexts[pid] = context
+        wipPids.remove(pid)
+        timeoutTasks.removeValue(forKey: pid)?.cancel()
+        for continuation in pendingContinuations.removeValue(forKey: pid) ?? [] {
+            continuation.resume(returning: context)
+        }
     }
 
     func getWindowsAsync() async throws -> [(AXWindowRef, Int)] {
@@ -137,8 +170,8 @@ final class AppAXContext: @unchecked Sendable {
                 return (results, [])
             }
 
-            let oldWindowIds = Set(windows.value.keys)
-            var newWindows: [Int: AXUIElement] = [:]
+            var seenIds = Set<Int>(minimumCapacity: windowElements.count)
+            var newWindows: [Int: AXUIElement] = Dictionary(minimumCapacity: windowElements.count)
 
             for element in windowElements {
                 try job.checkCancellation()
@@ -158,7 +191,7 @@ final class AppAXContext: @unchecked Sendable {
                       let role = roleValue as? String,
                       role == kAXWindowRole as String else { continue }
 
-                let axRef = AXWindowRef(id: UUID(), element: element)
+                let axRef = AXWindowRef(element: element, windowId: windowId)
                 let windowType = AXWindowService.windowType(
                     axRef,
                     appPolicy: nsApp.activationPolicy,
@@ -167,9 +200,10 @@ final class AppAXContext: @unchecked Sendable {
                 guard windowType == .tiling else { continue }
 
                 newWindows[windowId] = element
+                seenIds.insert(windowId)
                 results.append((axRef, windowId))
 
-                if !subscribedWindowIds.value.contains(windowId), let obs = axObserver.value {
+                if !subscribedWindowIds.contains(windowId), let obs = axObserver.value {
                     let subResult = AXObserverAddNotification(
                         obs,
                         element,
@@ -177,16 +211,17 @@ final class AppAXContext: @unchecked Sendable {
                         nil
                     )
                     if subResult == .success {
-                        subscribedWindowIds.value.insert(windowId)
+                        subscribedWindowIds.insert(windowId)
                     }
                 }
             }
 
-            let newWindowIds = Set(newWindows.keys)
-            let deadIds = Array(oldWindowIds.subtracting(newWindowIds))
-
-            for deadId in deadIds {
-                subscribedWindowIds.value.remove(deadId)
+            var deadIds: [Int] = []
+            windows.forEachKey { existingId in
+                if !seenIds.contains(existingId) {
+                    deadIds.append(existingId)
+                    subscribedWindowIds.remove(existingId)
+                }
             }
 
             windows.value = newWindows
@@ -204,8 +239,8 @@ final class AppAXContext: @unchecked Sendable {
     func setFrame(windowId: Int, frame: CGRect) {
         setFrameJobs[windowId]?.cancel()
         setFrameJobs[windowId] = thread?.runInLoopAsync { [windows] _ in
-            guard let element = windows.value[windowId] else { return }
-            let axRef = AXWindowRef(id: UUID(), element: element)
+            guard let element = windows[windowId] else { return }
+            let axRef = AXWindowRef(element: element, windowId: windowId)
             try? AXWindowService.setFrame(axRef, frame: frame)
         }
     }
@@ -217,7 +252,7 @@ final class AppAXContext: @unchecked Sendable {
             setFrameJobs[windowId]?.cancel()
         }
 
-        thread.runInLoopAsync { [axApp, windows] job in
+        let batchJob = thread.runInLoopAsync { [axApp, windows] job in
             let enhancedUIKey = "AXEnhancedUserInterface" as CFString
             var wasEnabled = false
             var value: CFTypeRef?
@@ -239,45 +274,14 @@ final class AppAXContext: @unchecked Sendable {
 
             for (windowId, frame) in frames {
                 if job.isCancelled { break }
-                guard let element = windows.value[windowId] else { continue }
-                let axRef = AXWindowRef(id: UUID(), element: element)
+                guard let element = windows[windowId] else { continue }
+                let axRef = AXWindowRef(element: element, windowId: windowId)
                 try? AXWindowService.setFrame(axRef, frame: frame)
             }
         }
-    }
-
-    func setFramesBatchSync(_ frames: [(windowId: Int, frame: CGRect)]) {
-        guard let thread else { return }
 
         for (windowId, _) in frames {
-            setFrameJobs[windowId]?.cancel()
-        }
-
-        thread.runInLoopSync { [axApp, windows] in
-            let enhancedUIKey = "AXEnhancedUserInterface" as CFString
-            var wasEnabled = false
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(axApp.value, enhancedUIKey, &value) == .success,
-               let boolValue = value as? Bool
-            {
-                wasEnabled = boolValue
-            }
-
-            if wasEnabled {
-                AXUIElementSetAttributeValue(axApp.value, enhancedUIKey, kCFBooleanFalse)
-            }
-
-            defer {
-                if wasEnabled {
-                    AXUIElementSetAttributeValue(axApp.value, enhancedUIKey, kCFBooleanTrue)
-                }
-            }
-
-            for (windowId, frame) in frames {
-                guard let element = windows.value[windowId] else { continue }
-                let axRef = AXWindowRef(id: UUID(), element: element)
-                try? AXWindowService.setFrame(axRef, frame: frame)
-            }
+            setFrameJobs[windowId] = batchJob
         }
     }
 

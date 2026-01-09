@@ -888,10 +888,9 @@ final class WMController {
                   let windows = windowsRef as? [AXUIElement] else { continue }
 
             for window in windows {
-                let axRef = AXWindowRef(id: UUID(), element: window)
-
-                guard let windowId = try? AXWindowService.windowId(axRef),
-                      windowIdSet.contains(UInt32(windowId)) else { continue }
+                guard let axRef = try? AXWindowRef(element: window),
+                      windowIdSet.contains(UInt32(axRef.windowId)) else { continue }
+                let windowId = axRef.windowId
 
                 let hasAlwaysFloatRule = app.bundleIdentifier.flatMap { appRulesByBundleId[$0]?.alwaysFloat } == true
                 let windowType = AXWindowService.windowType(

@@ -269,7 +269,7 @@ final class LayoutRefreshController {
                 if event.requiresFullEnumeration {
                     try await executeFullRefresh()
                 } else {
-                    executeIncrementalRefresh()
+                    await executeIncrementalRefresh()
                 }
             } catch {
                 return
@@ -277,7 +277,7 @@ final class LayoutRefreshController {
         }
     }
 
-    private func executeIncrementalRefresh() {
+    private func executeIncrementalRefresh() async {
         guard let controller else { return }
 
         if controller.internalLockScreenObserver.isFrontmostAppLockScreen() || controller.internalIsLockScreenActive {
@@ -291,7 +291,7 @@ final class LayoutRefreshController {
             }
         }
 
-        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: false)
+        await layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: false)
 
         if let focusedWorkspaceId = controller.activeWorkspace()?.id {
             controller.ensureFocusedHandleValid(in: focusedWorkspaceId)
@@ -320,6 +320,12 @@ final class LayoutRefreshController {
     }
 
     func executeLayoutRefreshImmediate() {
+        Task { @MainActor [weak self] in
+            await self?.executeLayoutRefreshImmediateCore()
+        }
+    }
+
+    private func executeLayoutRefreshImmediateCore() async {
         guard !isImmediateLayoutInProgress else { return }
         guard let controller else { return }
         isImmediateLayoutInProgress = true
@@ -332,7 +338,7 @@ final class LayoutRefreshController {
             }
         }
 
-        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: isScrollAnimationRunning)
+        await layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: isScrollAnimationRunning)
     }
 
     func resetState() {
@@ -401,7 +407,7 @@ final class LayoutRefreshController {
             }
         }
 
-        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: false)
+        await layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: false)
         controller.updateWorkspaceBar()
 
         if let focusedWorkspaceId {
@@ -412,7 +418,7 @@ final class LayoutRefreshController {
         controller.internalAXEventHandler?.subscribeToManagedWindows()
     }
 
-    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) {
+    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
         guard let controller else { return }
         guard let engine = controller.internalNiriEngine else { return }
         let workspaceManager = controller.internalWorkspaceManager
@@ -429,8 +435,11 @@ final class LayoutRefreshController {
             let wsId = workspace.id
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
-            let existingHandleIds = Set(engine.root(for: wsId)?.allWindows.map(\.handle.id) ?? [])
-            let currentHandleIds = Set(windowHandles.map(\.id))
+            let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []
+            var currentHandleIds = Set<UUID>(minimumCapacity: windowHandles.count)
+            for handle in windowHandles {
+                currentHandleIds.insert(handle.id)
+            }
             let currentSelection = workspaceManager.niriViewportState(for: wsId).selectedNodeId
             let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
 
@@ -527,7 +536,13 @@ final class LayoutRefreshController {
 
             for entry in workspaceManager.entries(in: wsId) {
                 let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
-                var constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
+                var constraints: WindowSizeConstraints
+                if let cached = workspaceManager.cachedConstraints(for: entry.handle) {
+                    constraints = cached
+                } else {
+                    constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
+                    workspaceManager.setCachedConstraints(constraints, for: entry.handle)
+                }
 
                 if let bundleId = NSRunningApplication(processIdentifier: entry.handle.pid)?.bundleIdentifier,
                    let rule = controller.internalAppRulesByBundleId[bundleId]
@@ -746,6 +761,8 @@ final class LayoutRefreshController {
             }
 
             workspaceManager.updateNiriViewportState(state, for: wsId)
+
+            await Task.yield()
         }
 
         updateTabbedColumnOverlays()

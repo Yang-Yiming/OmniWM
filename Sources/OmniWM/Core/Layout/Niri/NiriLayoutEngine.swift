@@ -687,20 +687,24 @@ final class NiriLayoutEngine {
         focusedHandle: WindowHandle? = nil
     ) -> Set<WindowHandle> {
         let root = ensureRoot(for: workspaceId)
-        let existing = Set(root.allWindows.map(\.handle.id))
-        let current = Set(handles.map(\.id))
+        let existingIdSet = root.windowIdSet
+
+        var currentIdSet = Set<UUID>(minimumCapacity: handles.count)
+        for handle in handles {
+            currentIdSet.insert(handle.id)
+        }
 
         var removedHandles = Set<WindowHandle>()
 
         for window in root.allWindows {
-            if !current.contains(window.windowId) {
+            if !currentIdSet.contains(window.windowId) {
                 removedHandles.insert(window.handle)
                 removeWindow(handle: window.handle)
             }
         }
 
         for handle in handles {
-            if !existing.contains(handle.id) {
+            if !existingIdSet.contains(handle.id) {
                 _ = addWindow(
                     handle: handle,
                     to: workspaceId,

@@ -19,6 +19,8 @@ final class AXManager {
     private let pollIntervalNanos: UInt64 = 250_000_000
     private let pollTimeout: TimeInterval = 30
 
+    private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
+
     init() {
         setupTerminationObserver()
         setupLaunchObserver()
@@ -104,7 +106,12 @@ final class AXManager {
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
         await AppAXContext.garbageCollect()
 
-        let apps = NSWorkspace.shared.runningApplications.filter { shouldTrack($0) }
+        let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
+        let pidsWithWindows = Set(visibleWindows.map { $0.pid })
+
+        let apps = NSWorkspace.shared.runningApplications.filter {
+            shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
+        }
 
         return await withTaskGroup(of: [(AXWindowRef, pid_t, Int)].self) { group in
             for app in apps {
@@ -136,17 +143,23 @@ final class AXManager {
     }
 
     func applyFramesParallel(_ frames: [(pid: pid_t, windowId: Int, frame: CGRect)]) {
-        var framesByPid: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
-
-        for (pid, windowId, frame) in frames {
-            framesByPid[pid, default: []].append((windowId, frame))
+        for key in framesByPidBuffer.keys {
+            framesByPidBuffer[key]?.removeAll(keepingCapacity: true)
         }
 
-        for (pid, appFrames) in framesByPid {
+        for (pid, windowId, frame) in frames {
+            if framesByPidBuffer[pid] == nil {
+                framesByPidBuffer[pid] = []
+                framesByPidBuffer[pid]?.reserveCapacity(8)
+            }
+            framesByPidBuffer[pid]?.append((windowId, frame))
+        }
+
+        for (pid, appFrames) in framesByPidBuffer where !appFrames.isEmpty {
             guard let context = AppAXContext.contexts[pid] else {
                 continue
             }
-            context.setFramesBatchSync(appFrames)
+            context.setFramesBatch(appFrames)
         }
     }
 

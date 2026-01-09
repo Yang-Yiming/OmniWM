@@ -255,6 +255,18 @@ final class WorkspaceManager {
         windows.windows(withLayoutReason: reason)
     }
 
+    func cachedConstraints(for handle: WindowHandle, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
+        windows.cachedConstraints(for: handle, maxAge: maxAge)
+    }
+
+    func setCachedConstraints(_ constraints: WindowSizeConstraints, for handle: WindowHandle) {
+        windows.setCachedConstraints(constraints, for: handle)
+    }
+
+    func invalidateConstraintsCache(for handle: WindowHandle) {
+        windows.invalidateConstraintsCache(for: handle)
+    }
+
     @discardableResult
     func moveWorkspaceToMonitor(_ workspaceId: WorkspaceDescriptor.ID, to targetMonitorId: Monitor.ID) -> Bool {
         guard let targetMonitor = monitors.first(where: { $0.id == targetMonitorId }) else { return false }

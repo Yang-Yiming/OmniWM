@@ -172,7 +172,9 @@ struct NodeId: Hashable, Equatable {
 class NiriNode {
     let id: NodeId
     weak var parent: NiriNode?
-    var children: [NiriNode] = []
+    var children: [NiriNode] = [] {
+        didSet { invalidateChildrenCache() }
+    }
 
     var size: CGFloat = 1.0
 
@@ -180,6 +182,10 @@ class NiriNode {
 
     init() {
         id = NodeId()
+    }
+
+    func invalidateChildrenCache() {
+        parent?.invalidateChildrenCache()
     }
 
     func findRoot() -> NiriRoot? {
@@ -387,8 +393,15 @@ class NiriContainer: NiriNode {
 
     var moveAnimation: MoveAnimation?
 
+    private var _cachedWindowNodes: [NiriWindow]?
+
     override init() {
         super.init()
+    }
+
+    override func invalidateChildrenCache() {
+        _cachedWindowNodes = nil
+        super.invalidateChildrenCache()
     }
 
     func animateMoveFrom(
@@ -490,7 +503,10 @@ class NiriContainer: NiriNode {
     }
 
     var windowNodes: [NiriWindow] {
-        children.compactMap { $0 as? NiriWindow }
+        if let cached = _cachedWindowNodes { return cached }
+        let result = children.compactMap { $0 as? NiriWindow }
+        _cachedWindowNodes = result
+        return result
     }
 
     var isTabbed: Bool {
@@ -717,18 +733,45 @@ class NiriRoot: NiriContainer {
     let workspaceId: WorkspaceDescriptor.ID
 
     private var nodeIndex: [NodeId: NiriNode]?
+    private var _cachedColumns: [NiriContainer]?
+    private var _cachedAllWindows: [NiriWindow]?
+    private var _cachedWindowIdSet: Set<UUID>?
 
     init(workspaceId: WorkspaceDescriptor.ID) {
         self.workspaceId = workspaceId
         super.init()
     }
 
+    override func invalidateChildrenCache() {
+        _cachedColumns = nil
+        _cachedAllWindows = nil
+        _cachedWindowIdSet = nil
+        super.invalidateChildrenCache()
+    }
+
     var columns: [NiriContainer] {
-        children.compactMap { $0 as? NiriContainer }
+        if let cached = _cachedColumns { return cached }
+        let result = children.compactMap { $0 as? NiriContainer }
+        _cachedColumns = result
+        return result
     }
 
     var allWindows: [NiriWindow] {
-        columns.flatMap(\.windowNodes)
+        if let cached = _cachedAllWindows { return cached }
+        let result = columns.flatMap(\.windowNodes)
+        _cachedAllWindows = result
+        return result
+    }
+
+    var windowIdSet: Set<UUID> {
+        if let cached = _cachedWindowIdSet { return cached }
+        let result = Set(allWindows.map(\.handle.id))
+        _cachedWindowIdSet = result
+        return result
+    }
+
+    func containsWindowId(_ id: UUID) -> Bool {
+        windowIdSet.contains(id)
     }
 
     func invalidateNodeIndex() {

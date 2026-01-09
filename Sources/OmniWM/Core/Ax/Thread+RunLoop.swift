@@ -8,21 +8,23 @@ extension Thread {
         _ body: @Sendable @escaping (RunLoopJob) -> Void
     ) -> RunLoopJob {
         let action = RunLoopAction(job: job, autoCheckCancelled: autoCheckCancelled, body)
+        job.action = action
         action.perform(#selector(action.action), on: self, with: nil, waitUntilDone: false)
         return job
     }
 
-    func runInLoopSync(_ body: @Sendable @escaping () -> Void) {
-        let job = RunLoopJob()
-        let action = RunLoopAction(job: job, autoCheckCancelled: false) { _ in
-            body()
-        }
-        action.perform(#selector(action.action), on: self, with: nil, waitUntilDone: true)
-    }
-
-    func runInLoop<T>(_ body: @Sendable @escaping (RunLoopJob) throws -> T) async throws -> T {
+    func runInLoop<T: Sendable>(
+        timeout: Duration = .seconds(2),
+        _ body: @Sendable @escaping (RunLoopJob) throws -> T
+    ) async throws -> T {
         try Task.checkCancellation()
         let job = RunLoopJob()
+
+        Task {
+            try? await Task.sleep(for: timeout)
+            job.cancel()
+        }
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in
                 self.runInLoopAsync(job: job, autoCheckCancelled: false) { job in
@@ -40,8 +42,8 @@ extension Thread {
     }
 }
 
-private final class RunLoopAction: NSObject, Sendable {
-    private let _action: @Sendable (RunLoopJob) -> Void
+final class RunLoopAction: NSObject, Sendable {
+    nonisolated(unsafe) private var _action: (@Sendable (RunLoopJob) -> Void)?
     let job: RunLoopJob
     private let autoCheckCancelled: Bool
 
@@ -52,7 +54,14 @@ private final class RunLoopAction: NSObject, Sendable {
     }
 
     @objc func action() {
+        guard let actionToRun = _action else { return }
+        _action = nil
+        job.action = nil
         if autoCheckCancelled, job.isCancelled { return }
-        _action(job)
+        actionToRun(job)
+    }
+
+    func clearAction() {
+        _action = nil
     }
 }

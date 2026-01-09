@@ -1,13 +1,21 @@
 import Foundation
+import Synchronization
 
 final class RunLoopJob: Sendable {
-    nonisolated(unsafe) private var _isCancelled: Int32 = 0
+    private let _cancelled = Atomic<Bool>(false)
+    nonisolated(unsafe) weak var action: RunLoopAction?
 
-    var isCancelled: Bool { _isCancelled == 1 }
+    var isCancelled: Bool { _cancelled.load(ordering: .acquiring) }
 
     func cancel() {
-        while !isCancelled {
-            OSAtomicCompareAndSwapInt(0, 1, &_isCancelled)
+        let (exchanged, _) = _cancelled.compareExchange(
+            expected: false,
+            desired: true,
+            ordering: .acquiringAndReleasing
+        )
+        if exchanged {
+            action?.clearAction()
+            action = nil
         }
     }
 
