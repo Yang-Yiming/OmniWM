@@ -478,8 +478,137 @@ final class DwindleLayoutEngine {
         return current
     }
 
+    func findGeometricNeighbor(
+        from handle: WindowHandle,
+        direction: Direction,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> WindowHandle? {
+        guard let currentNode = findNode(for: handle),
+              let currentFrame = currentNode.cachedFrame,
+              let root = roots[workspaceId] else { return nil }
+
+        var candidates: [(handle: WindowHandle, overlap: CGFloat)] = []
+
+        collectNavigationCandidates(
+            from: root,
+            current: currentNode,
+            currentFrame: currentFrame,
+            direction: direction,
+            innerGap: settings.innerGap,
+            candidates: &candidates
+        )
+
+        guard !candidates.isEmpty else { return nil }
+
+        let sorted = candidates.sorted { $0.overlap > $1.overlap }
+        return sorted.first?.handle
+    }
+
+    private func collectNavigationCandidates(
+        from node: DwindleNode,
+        current: DwindleNode,
+        currentFrame: CGRect,
+        direction: Direction,
+        innerGap: CGFloat,
+        candidates: inout [(handle: WindowHandle, overlap: CGFloat)]
+    ) {
+        if node.id == current.id {
+            for child in node.children {
+                collectNavigationCandidates(
+                    from: child,
+                    current: current,
+                    currentFrame: currentFrame,
+                    direction: direction,
+                    innerGap: innerGap,
+                    candidates: &candidates
+                )
+            }
+            return
+        }
+
+        if node.isLeaf, let handle = node.windowHandle, let candidateFrame = node.cachedFrame {
+            if let overlap = calculateDirectionalOverlap(
+                from: currentFrame,
+                to: candidateFrame,
+                direction: direction,
+                innerGap: innerGap
+            ) {
+                candidates.append((handle, overlap))
+            }
+            return
+        }
+
+        for child in node.children {
+            collectNavigationCandidates(
+                from: child,
+                current: current,
+                currentFrame: currentFrame,
+                direction: direction,
+                innerGap: innerGap,
+                candidates: &candidates
+            )
+        }
+    }
+
+    private func calculateDirectionalOverlap(
+        from source: CGRect,
+        to target: CGRect,
+        direction: Direction,
+        innerGap: CGFloat
+    ) -> CGFloat? {
+        let edgeThreshold = innerGap + 5.0
+        let minOverlapRatio: CGFloat = 0.1
+
+        switch direction {
+        case .up:
+            let edgesTouch = abs(source.maxY - target.minY) < edgeThreshold
+            guard edgesTouch else { return nil }
+
+            let overlapStart = max(source.minX, target.minX)
+            let overlapEnd = min(source.maxX, target.maxX)
+            let overlap = max(0, overlapEnd - overlapStart)
+
+            let minRequired = min(source.width, target.width) * minOverlapRatio
+            return overlap >= minRequired ? overlap : nil
+
+        case .down:
+            let edgesTouch = abs(source.minY - target.maxY) < edgeThreshold
+            guard edgesTouch else { return nil }
+
+            let overlapStart = max(source.minX, target.minX)
+            let overlapEnd = min(source.maxX, target.maxX)
+            let overlap = max(0, overlapEnd - overlapStart)
+
+            let minRequired = min(source.width, target.width) * minOverlapRatio
+            return overlap >= minRequired ? overlap : nil
+
+        case .left:
+            let edgesTouch = abs(source.minX - target.maxX) < edgeThreshold
+            guard edgesTouch else { return nil }
+
+            let overlapStart = max(source.minY, target.minY)
+            let overlapEnd = min(source.maxY, target.maxY)
+            let overlap = max(0, overlapEnd - overlapStart)
+
+            let minRequired = min(source.height, target.height) * minOverlapRatio
+            return overlap >= minRequired ? overlap : nil
+
+        case .right:
+            let edgesTouch = abs(source.maxX - target.minX) < edgeThreshold
+            guard edgesTouch else { return nil }
+
+            let overlapStart = max(source.minY, target.minY)
+            let overlapEnd = min(source.maxY, target.maxY)
+            let overlap = max(0, overlapEnd - overlapStart)
+
+            let minRequired = min(source.height, target.height) * minOverlapRatio
+            return overlap >= minRequired ? overlap : nil
+        }
+    }
+
     func moveFocus(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        guard let current = selectedNode(in: workspaceId) else {
+        guard let current = selectedNode(in: workspaceId),
+              let currentHandle = current.windowHandle else {
             if let root = roots[workspaceId] {
                 let firstLeaf = root.descendToFirstLeaf()
                 selectedNodeId[workspaceId] = firstLeaf.id
@@ -488,29 +617,35 @@ final class DwindleLayoutEngine {
             return nil
         }
 
-        guard let neighbor = findNeighbor(from: current, direction: direction) else {
+        guard let neighborHandle = findGeometricNeighbor(
+            from: currentHandle,
+            direction: direction,
+            in: workspaceId
+        ) else {
             return nil
         }
 
-        selectedNodeId[workspaceId] = neighbor.id
-        return neighbor.windowHandle
+        if let neighborNode = findNode(for: neighborHandle) {
+            selectedNodeId[workspaceId] = neighborNode.id
+        }
+        return neighborHandle
     }
 
     func swapWindows(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let current = selectedNode(in: workspaceId),
               case let .leaf(currentHandle, currentFullscreen) = current.kind,
-              let neighbor = findNeighbor(from: current, direction: direction),
-              case let .leaf(neighborHandle, neighborFullscreen) = neighbor.kind else {
+              let ch = currentHandle,
+              let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
+              let neighbor = findNode(for: neighborHandle),
+              case let .leaf(nh, neighborFullscreen) = neighbor.kind else {
             return false
         }
 
-        current.kind = .leaf(handle: neighborHandle, fullscreen: neighborFullscreen)
+        current.kind = .leaf(handle: nh, fullscreen: neighborFullscreen)
         neighbor.kind = .leaf(handle: currentHandle, fullscreen: currentFullscreen)
 
-        if let ch = currentHandle {
-            windowToNode[ch] = neighbor
-        }
-        if let nh = neighborHandle {
+        windowToNode[ch] = neighbor
+        if let nh {
             windowToNode[nh] = current
         }
 
