@@ -1,11 +1,10 @@
 import AppKit
-import SwiftUI
 
 @MainActor
-final class StatusBarController {
+final class StatusBarController: NSObject {
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
-    private var eventMonitor: Any?
+    private var menuBuilder: StatusBarMenuBuilder?
+    private var menu: NSMenu?
 
     private let settings: SettingsStore
     private weak var controller: WMController?
@@ -13,10 +12,11 @@ final class StatusBarController {
     init(settings: SettingsStore, controller: WMController) {
         self.settings = settings
         self.controller = controller
+        super.init()
     }
 
     func setup() {
-        guard statusItem == nil else { return }
+        guard statusItem == nil, let controller else { return }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -28,6 +28,9 @@ final class StatusBarController {
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
         statusItem?.autosaveName = "omniwm_main"
+
+        menuBuilder = StatusBarMenuBuilder(settings: settings, controller: controller)
+        menu = menuBuilder?.buildMenu()
     }
 
     @objc private func handleClick(_ sender: NSStatusBarButton) {
@@ -36,74 +39,25 @@ final class StatusBarController {
         if event.type == .rightMouseUp {
             handleRightClick()
         } else {
-            handleLeftClick()
+            showMenu()
         }
     }
 
-    private func handleLeftClick() {
-        togglePopover()
+    private func showMenu() {
+        guard let button = statusItem?.button, let menu else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
     }
 
     private func handleRightClick() {
         guard settings.hiddenBarEnabled else {
-            togglePopover()
+            showMenu()
             return
         }
         controller?.toggleHiddenBar()
     }
 
-    private func togglePopover() {
-        if let popover, popover.isShown {
-            closePopover()
-        } else {
-            showPopover()
-        }
-    }
-
-    private func showPopover() {
-        guard let button = statusItem?.button else { return }
-
-        if popover == nil {
-            createPopover()
-        }
-
-        popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
-            self?.closePopover()
-        }
-    }
-
-    private func closePopover() {
-        popover?.close()
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
-    }
-
-    private func createPopover() {
-        guard let controller else { return }
-
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = true
-
-        let settingsBinding = Binding<SettingsStore>(
-            get: { [settings] in settings },
-            set: { _ in }
-        )
-
-        let menuView = StatusBarMenuView(
-            settings: settingsBinding,
-            controller: controller
-        )
-        popover.contentViewController = NSHostingController(rootView: menuView)
-        popover.contentSize = NSSize(width: 280, height: 500)
-
-        self.popover = popover
+    func refreshMenu() {
+        menuBuilder?.updateToggles()
     }
 
     func cleanup() {
@@ -111,7 +65,7 @@ final class StatusBarController {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
         }
-        closePopover()
-        popover = nil
+        menuBuilder = nil
+        menu = nil
     }
 }

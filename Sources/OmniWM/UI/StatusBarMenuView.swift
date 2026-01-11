@@ -10,29 +10,32 @@ struct StatusBarMenuView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            headerSection
-            GlassMenuDivider()
+        ScrollView {
+            VStack(spacing: 0) {
+                headerSection
+                GlassMenuDivider()
 
-            GlassSectionLabel("CONTROLS")
-            controlsSection
-            GlassMenuDivider()
+                GlassSectionLabel("CONTROLS")
+                controlsSection
+                GlassMenuDivider()
 
-            GlassSectionLabel("SETTINGS")
-            settingsSection
-            GlassMenuDivider()
+                GlassSectionLabel("SETTINGS")
+                settingsSection
+                GlassMenuDivider()
 
-            GlassSectionLabel("LINKS")
-            linksSection
-            GlassMenuDivider()
+                GlassSectionLabel("LINKS")
+                linksSection
+                GlassMenuDivider()
 
-            sponsorsSection
-            GlassMenuDivider()
+                sponsorsSection
+                GlassMenuDivider()
 
-            quitSection
+                quitSection
+            }
+            .padding(.vertical, 8)
         }
-        .padding(.vertical, 8)
-        .frame(width: 280)
+        .frame(width: 280, height: 500)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var headerSection: some View {
