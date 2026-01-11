@@ -2,7 +2,10 @@
 
 A powerful tiling window manager for macOS.
 
-![macOS](https://img.shields.io/badge/macOS-26.0%2B-blue)
+![macOS](https://img.shields.io/badge/macOS-26.0%2B-green?logo=apple&logoColor=white)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-supported-green?logo=apple&logoColor=white)
+![Intel](https://img.shields.io/badge/X86/X64-supported-green?logo=intel&logoColor=white)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Assisted-green?logo=claude&logoColor=white)
 
 ![Image](https://github.com/BarutSRB/OmniWM/blob/f64cedf72a55c14758f5f18fed4ffae75f1b3bed/assets/tabs.gif)]
 ![Image](https://github.com/BarutSRB/OmniWM/blob/f64cedf72a55c14758f5f18fed4ffae75f1b3bed/assets/animation.gif)
