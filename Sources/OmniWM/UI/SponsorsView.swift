@@ -26,6 +26,14 @@ struct SponsorsView: View {
                     imageExtension: "png",
                     rank: .second
                 )
+
+                SponsorCardView(
+                    name: "captainpryce",
+                    githubUsername: "captainpryce",
+                    imageName: "captainpryce",
+                    imageExtension: "jpg",
+                    rank: .third
+                )
             }
             .padding(.horizontal, 24)
 
@@ -38,7 +46,7 @@ struct SponsorsView: View {
             .padding(.top, 8)
         }
         .padding(32)
-        .frame(width: 520, height: 380)
+        .frame(width: 700, height: 380)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .scaleEffect(appeared ? 1.0 : 0.95)
@@ -85,22 +93,30 @@ struct SponsorsView: View {
 enum SponsorRank {
     case first
     case second
+    case third
 
     var gradientColors: [Color] {
         switch self {
         case .first:
-            return [Color.yellow, Color.orange]
+            return [Color(red: 1.0, green: 0.84, blue: 0.0),
+                    Color(red: 1.0, green: 0.55, blue: 0.0)]
         case .second:
-            return [Color.gray.opacity(0.8), Color.white]
+            return [Color(red: 0.91, green: 0.91, blue: 0.91),
+                    Color(red: 0.66, green: 0.75, blue: 0.85)]
+        case .third:
+            return [Color(red: 0.82, green: 0.41, blue: 0.12),
+                    Color(red: 0.42, green: 0.24, blue: 0.10)]
         }
     }
 
     var glowColor: Color {
         switch self {
         case .first:
-            return .orange
+            return Color(red: 1.0, green: 0.7, blue: 0.0)
         case .second:
-            return .gray
+            return Color(red: 0.6, green: 0.7, blue: 0.85)
+        case .third:
+            return Color(red: 0.75, green: 0.38, blue: 0.12)
         }
     }
 
@@ -110,6 +126,8 @@ enum SponsorRank {
             return "1st"
         case .second:
             return "2nd"
+        case .third:
+            return "3rd"
         }
     }
 }
@@ -170,6 +188,7 @@ struct SponsorCardView: View {
                             )
                     )
             }
+            .frame(maxWidth: .infinity)
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: 16)
