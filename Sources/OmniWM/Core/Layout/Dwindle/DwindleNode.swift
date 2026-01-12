@@ -195,53 +195,74 @@ final class DwindleNode {
     func animateFrom(oldFrame: CGRect, newFrame: CGRect, clock: AnimationClock?, config: CubicConfig) {
         let now = clock?.now() ?? CACurrentMediaTime()
 
+        let velX = moveXAnimation?.currentVelocity(at: now) ?? 0
+        let velY = moveYAnimation?.currentVelocity(at: now) ?? 0
+        let velW = sizeWAnimation?.currentVelocity(at: now) ?? 0
+        let velH = sizeHAnimation?.currentVelocity(at: now) ?? 0
+
         let displacementX = oldFrame.origin.x - newFrame.origin.x
         let displacementY = oldFrame.origin.y - newFrame.origin.y
         let displacementW = oldFrame.width - newFrame.width
         let displacementH = oldFrame.height - newFrame.height
 
         if abs(displacementX) > 0.5 {
+            let normalizedVel = abs(displacementX) > 0.001 ? Double(velX / displacementX) : 0
             let anim = CubicAnimation(
                 from: 1.0,
                 to: 0.0,
                 startTime: now,
+                initialVelocity: normalizedVel,
                 config: config,
                 clock: clock
             )
             moveXAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementX)
+        } else {
+            moveXAnimation = nil
         }
 
         if abs(displacementY) > 0.5 {
+            let normalizedVel = abs(displacementY) > 0.001 ? Double(velY / displacementY) : 0
             let anim = CubicAnimation(
                 from: 1.0,
                 to: 0.0,
                 startTime: now,
+                initialVelocity: normalizedVel,
                 config: config,
                 clock: clock
             )
             moveYAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementY)
+        } else {
+            moveYAnimation = nil
         }
 
         if abs(displacementW) > 0.5 {
+            let normalizedVel = abs(displacementW) > 0.001 ? Double(velW / displacementW) : 0
             let anim = CubicAnimation(
                 from: 1.0,
                 to: 0.0,
                 startTime: now,
+                initialVelocity: normalizedVel,
                 config: config,
                 clock: clock
             )
             sizeWAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementW)
+        } else {
+            sizeWAnimation = nil
         }
 
         if abs(displacementH) > 0.5 {
+            let normalizedVel = abs(displacementH) > 0.001 ? Double(velH / displacementH) : 0
             let anim = CubicAnimation(
                 from: 1.0,
                 to: 0.0,
                 startTime: now,
+                initialVelocity: normalizedVel,
                 config: config,
                 clock: clock
             )
             sizeHAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementH)
+        } else {
+            sizeHAnimation = nil
         }
     }
 

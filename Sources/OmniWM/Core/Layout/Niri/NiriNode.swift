@@ -415,12 +415,14 @@ class NiriContainer: NiriNode {
     ) {
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentOffset = renderOffset(at: now)
+        let currentVel = moveAnimation?.currentVelocity(at: now) ?? 0
 
         if displacement.x != 0 {
             let totalOffsetX = displacement.x + currentOffset.x
             let anim = SpringAnimation(
                 from: 1,
                 to: 0,
+                initialVelocity: currentVel,
                 startTime: now,
                 config: config,
                 clock: clock,
@@ -468,10 +470,12 @@ class NiriContainer: NiriNode {
     ) {
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentWidth = cachedWidth > 0 ? cachedWidth : newWidth
+        let currentVel = widthAnimation?.velocity(at: now) ?? 0
 
         widthAnimation = SpringAnimation(
             from: Double(currentWidth),
             to: Double(newWidth),
+            initialVelocity: currentVel,
             startTime: now,
             config: config,
             clock: clock,
@@ -719,12 +723,15 @@ class NiriWindow: NiriNode {
     ) {
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentOffset = renderOffset(at: now)
+        let currentVelX = moveXAnimation?.currentVelocity(at: now) ?? 0
+        let currentVelY = moveYAnimation?.currentVelocity(at: now) ?? 0
 
         if displacement.x != 0 {
             let totalOffsetX = displacement.x + currentOffset.x
             let anim = SpringAnimation(
                 from: 1,
                 to: 0,
+                initialVelocity: currentVelX,
                 startTime: now,
                 config: config,
                 clock: clock,
@@ -737,6 +744,7 @@ class NiriWindow: NiriNode {
             let anim = SpringAnimation(
                 from: 1,
                 to: 0,
+                initialVelocity: currentVelY,
                 startTime: now,
                 config: config,
                 clock: clock,
