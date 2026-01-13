@@ -1104,28 +1104,6 @@ extension WMController {
         set { focusedHandle = newValue }
     }
 
-    func deriveFocusedHandle() -> WindowHandle? {
-        guard let engine = niriEngine,
-              let wsId = activeWorkspace()?.id else { return nil }
-        let state = workspaceManager.niriViewportState(for: wsId)
-        guard let nodeId = state.selectedNodeId,
-              let node = engine.findNode(by: nodeId) as? NiriWindow else { return nil }
-        return node.handle
-    }
-
-    func updateSelection(_ nodeId: NodeId, in workspaceId: WorkspaceDescriptor.ID) {
-        var state = workspaceManager.niriViewportState(for: workspaceId)
-        state.selectedNodeId = nodeId
-        workspaceManager.updateNiriViewportState(state, for: workspaceId)
-
-        if let engine = niriEngine,
-           let node = engine.findNode(by: nodeId) as? NiriWindow
-        {
-            focusedHandle = node.handle
-            lastFocusedByWorkspace[workspaceId] = node.handle
-        }
-    }
-
     var internalLastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] {
         get { lastFocusedByWorkspace }
         set { lastFocusedByWorkspace = newValue }

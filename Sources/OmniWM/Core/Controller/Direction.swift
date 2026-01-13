@@ -14,13 +14,6 @@ enum Direction: String, Codable {
 }
 
 extension ScrollModifierKey {
-    var eventModifierFlag: NSEvent.ModifierFlags {
-        switch self {
-        case .optionShift: [.option, .shift]
-        case .controlShift: [.control, .shift]
-        }
-    }
-
     var cgEventFlag: CGEventFlags {
         switch self {
         case .optionShift: [.maskAlternate, .maskShift]

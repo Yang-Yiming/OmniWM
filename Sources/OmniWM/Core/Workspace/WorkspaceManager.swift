@@ -6,7 +6,6 @@ struct WorkspaceDescriptor: Identifiable, Hashable {
     let id: ID
     var name: String
     var assignedMonitorPoint: CGPoint?
-    var hasUserContent: Bool = false
 
     init(name: String, assignedMonitorPoint: CGPoint? = nil) {
         id = UUID()
@@ -222,10 +221,6 @@ final class WorkspaceManager {
         windows.entry(for: handle)?.workspaceId
     }
 
-    func hiddenProportionalPosition(for handle: WindowHandle) -> CGPoint? {
-        windows.hiddenProportionalPosition(for: handle)
-    }
-
     func setHiddenProportionalPosition(_ position: CGPoint?, for handle: WindowHandle) {
         windows.setHiddenProportionalPosition(position, for: handle)
     }
@@ -238,28 +233,12 @@ final class WorkspaceManager {
         windows.layoutReason(for: handle)
     }
 
-    func parentKind(for handle: WindowHandle) -> ParentKind {
-        windows.parentKind(for: handle)
-    }
-
     func setLayoutReason(_ reason: LayoutReason, for handle: WindowHandle) {
         windows.setLayoutReason(reason, for: handle)
     }
 
-    func setParentKind(_ kind: ParentKind, for handle: WindowHandle) {
-        windows.setParentKind(kind, for: handle)
-    }
-
     func restoreFromNativeState(for handle: WindowHandle) -> ParentKind? {
         windows.restoreFromNativeState(for: handle)
-    }
-
-    func isInNativeState(_ handle: WindowHandle) -> Bool {
-        windows.isInNativeState(handle)
-    }
-
-    func windows(withLayoutReason reason: LayoutReason) -> [WindowModel.Entry] {
-        windows.windows(withLayoutReason: reason)
     }
 
     func cachedConstraints(for handle: WindowHandle, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
@@ -268,10 +247,6 @@ final class WorkspaceManager {
 
     func setCachedConstraints(_ constraints: WindowSizeConstraints, for handle: WindowHandle) {
         windows.setCachedConstraints(constraints, for: handle)
-    }
-
-    func invalidateConstraintsCache(for handle: WindowHandle) {
-        windows.invalidateConstraintsCache(for: handle)
     }
 
     @discardableResult
@@ -360,10 +335,6 @@ final class WorkspaceManager {
     func setActiveWorkspace(_ workspaceId: WorkspaceDescriptor.ID, on monitorId: Monitor.ID) -> Bool {
         guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return false }
         return setActiveWorkspace(workspaceId, on: monitor)
-    }
-
-    func activeWorkspaceId(on monitorId: Monitor.ID) -> WorkspaceDescriptor.ID? {
-        activeWorkspace(on: monitorId)?.id
     }
 
     @discardableResult

@@ -84,10 +84,6 @@ final class LayoutRefreshController {
         }
     }
 
-    func refreshRate(for displayId: CGDirectDisplayID) -> Double {
-        refreshRateByDisplay[displayId] ?? 60.0
-    }
-
     @objc private func displayLinkFired(_ displayLink: CADisplayLink) {
         tickScrollAnimation(targetTime: displayLink.targetTimestamp)
         tickDwindleAnimation(targetTime: displayLink.targetTimestamp)

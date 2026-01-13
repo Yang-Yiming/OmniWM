@@ -43,13 +43,6 @@ final class WindowModel {
         let windowId: Int
     }
 
-    func reset() {
-        entries.removeAll()
-        keyToHandle.removeAll()
-        handlesByWorkspace.removeAll()
-        windowIdToHandle.removeAll()
-    }
-
     func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle {
         let key = WindowKey(pid: pid, windowId: windowId)
         if let handle = keyToHandle[key] {
@@ -86,10 +79,6 @@ final class WindowModel {
         return handles.compactMap { entries[$0] }
     }
 
-    func windowHandles(in workspace: WorkspaceDescriptor.ID) -> [WindowHandle] {
-        handlesByWorkspace[workspace] ?? []
-    }
-
     func workspace(for handle: WindowHandle) -> WorkspaceDescriptor.ID? {
         entries[handle]?.workspaceId
     }
@@ -124,10 +113,6 @@ final class WindowModel {
         Array(entries.values)
     }
 
-    func hiddenProportionalPosition(for handle: WindowHandle) -> CGPoint? {
-        entries[handle]?.hiddenProportionalPosition
-    }
-
     func setHiddenProportionalPosition(_ position: CGPoint?, for handle: WindowHandle) {
         entries[handle]?.hiddenProportionalPosition = position
     }
@@ -140,20 +125,12 @@ final class WindowModel {
         entries[handle]?.layoutReason ?? .standard
     }
 
-    func parentKind(for handle: WindowHandle) -> ParentKind {
-        entries[handle]?.parentKind ?? .tilingContainer
-    }
-
     func setLayoutReason(_ reason: LayoutReason, for handle: WindowHandle) {
         guard let entry = entries[handle] else { return }
         if reason != .standard, entry.layoutReason == .standard {
             entry.prevParentKind = entry.parentKind
         }
         entry.layoutReason = reason
-    }
-
-    func setParentKind(_ kind: ParentKind, for handle: WindowHandle) {
-        entries[handle]?.parentKind = kind
     }
 
     func restoreFromNativeState(for handle: WindowHandle) -> ParentKind? {
@@ -164,15 +141,6 @@ final class WindowModel {
         entry.parentKind = prevKind
         entry.prevParentKind = nil
         return prevKind
-    }
-
-    func isInNativeState(_ handle: WindowHandle) -> Bool {
-        guard let entry = entries[handle] else { return false }
-        return entry.layoutReason != .standard
-    }
-
-    func windows(withLayoutReason reason: LayoutReason) -> [Entry] {
-        entries.values.filter { $0.layoutReason == reason }
     }
 
     func removeMissing(keys activeKeys: Set<WindowKey>) {
@@ -216,9 +184,4 @@ final class WindowModel {
         entry.constraintsCacheTime = Date()
     }
 
-    func invalidateConstraintsCache(for handle: WindowHandle) {
-        guard let entry = entries[handle] else { return }
-        entry.cachedConstraints = nil
-        entry.constraintsCacheTime = nil
-    }
 }
