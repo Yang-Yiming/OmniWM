@@ -126,6 +126,16 @@ enum DefaultHotkeyBindings {
                 id: "swap.right",
                 command: .swap(.right),
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey | controlKey))
+            ),
+            HotkeyBinding(
+                id: "swap.up",
+                command: .swap(.up),
+                binding: .unassigned
+            ),
+            HotkeyBinding(
+                id: "swap.down",
+                command: .swap(.down),
+                binding: .unassigned
             )
         ])
 
