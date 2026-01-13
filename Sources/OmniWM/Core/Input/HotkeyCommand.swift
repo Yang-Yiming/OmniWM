@@ -49,6 +49,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case moveToRoot
     case toggleSplit
     case swapSplit
+    case resizeInDirection(Direction, Bool)
+    case preselect(Direction)
+    case preselectClear
 
     case summonWorkspace(Int)
 
@@ -101,6 +104,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .moveToRoot: "moveToRoot"
         case .toggleSplit: "toggleSplit"
         case .swapSplit: "swapSplit"
+        case let .resizeInDirection(dir, grow): "resize\(grow ? "Grow" : "Shrink").\(dir.rawValue)"
+        case let .preselect(dir): "preselect.\(dir.rawValue)"
+        case .preselectClear: "preselectClear"
         case let .summonWorkspace(idx): "summonWorkspace.\(idx)"
         case .openWindowFinder: "openWindowFinder"
         case .raiseAllFloatingWindows: "raiseAllFloatingWindows"
@@ -150,6 +156,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .moveToRoot: "Move to Root"
         case .toggleSplit: "Toggle Split"
         case .swapSplit: "Swap Split"
+        case let .resizeInDirection(dir, grow): "\(grow ? "Grow" : "Shrink") \(dir.displayName)"
+        case let .preselect(dir): "Preselect \(dir.displayName)"
+        case .preselectClear: "Clear Preselection"
         case let .summonWorkspace(idx): "Summon Workspace \(idx + 1)"
         case .openWindowFinder: "Open Window Finder"
         case .raiseAllFloatingWindows: "Raise All Floating Windows"
@@ -161,7 +170,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
 
     var layoutCompatibility: LayoutCompatibility {
         switch self {
-        case .moveToRoot, .toggleSplit, .swapSplit:
+        case .moveToRoot, .toggleSplit, .swapSplit, .preselect, .preselectClear:
             .dwindle
 
         case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,

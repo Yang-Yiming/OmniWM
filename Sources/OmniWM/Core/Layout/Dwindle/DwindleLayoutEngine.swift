@@ -6,6 +6,7 @@ final class DwindleLayoutEngine {
     private var roots: [WorkspaceDescriptor.ID: DwindleNode] = [:]
     private var windowToNode: [WindowHandle: DwindleNode] = [:]
     private var selectedNodeId: [WorkspaceDescriptor.ID: DwindleNodeId] = [:]
+    private var preselection: [WorkspaceDescriptor.ID: Direction] = [:]
 
     var settings: DwindleSettings = DwindleSettings()
     private var monitorSettings: [Monitor.ID: ResolvedDwindleSettings] = [:]
@@ -83,6 +84,18 @@ final class DwindleLayoutEngine {
         selectedNodeId[workspaceId] = node?.id
     }
 
+    func setPreselection(_ direction: Direction?, in workspaceId: WorkspaceDescriptor.ID) {
+        if let direction {
+            preselection[workspaceId] = direction
+        } else {
+            preselection.removeValue(forKey: workspaceId)
+        }
+    }
+
+    func getPreselection(in workspaceId: WorkspaceDescriptor.ID) -> Direction? {
+        preselection[workspaceId]
+    }
+
     private func findNodeById(_ nodeId: DwindleNodeId, in root: DwindleNode) -> DwindleNode? {
         if root.id == nodeId { return root }
         for child in root.children {
@@ -115,12 +128,15 @@ final class DwindleLayoutEngine {
             targetNode = root.descendToFirstLeaf()
         }
 
+        let preselectedDir = preselection[workspaceId]
         let newLeaf = splitLeaf(
             targetNode,
             newWindow: handle,
             workspaceId: workspaceId,
-            activeWindowFrame: activeWindowFrame
+            activeWindowFrame: activeWindowFrame,
+            preselectedDirection: preselectedDir
         )
+        preselection.removeValue(forKey: workspaceId)
 
         windowToNode[handle] = newLeaf
         selectedNodeId[workspaceId] = newLeaf.id
@@ -131,7 +147,8 @@ final class DwindleLayoutEngine {
         _ leaf: DwindleNode,
         newWindow: WindowHandle,
         workspaceId: WorkspaceDescriptor.ID,
-        activeWindowFrame: CGRect?
+        activeWindowFrame: CGRect?,
+        preselectedDirection: Direction? = nil
     ) -> DwindleNode {
         guard case let .leaf(existingHandle, fullscreen) = leaf.kind else {
             let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
@@ -140,10 +157,16 @@ final class DwindleLayoutEngine {
         }
 
         let targetRect = leaf.cachedFrame
-        let (orientation, newFirst) = planSplit(
-            targetRect: targetRect,
-            activeWindowFrame: activeWindowFrame
-        )
+        let (orientation, newFirst): (DwindleOrientation, Bool)
+        if let dir = preselectedDirection {
+            orientation = dir.dwindleOrientation
+            newFirst = dir == .left || dir == .up
+        } else {
+            (orientation, newFirst) = planSplit(
+                targetRect: targetRect,
+                activeWindowFrame: activeWindowFrame
+            )
+        }
 
         let existingLeaf = DwindleNode(kind: .leaf(handle: existingHandle, fullscreen: fullscreen))
         let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))

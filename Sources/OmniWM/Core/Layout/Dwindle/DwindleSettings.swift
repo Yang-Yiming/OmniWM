@@ -5,6 +5,7 @@ struct DwindleSettings {
     var defaultSplitRatio: CGFloat = 1.0
     var splitWidthMultiplier: CGFloat = 1.0
     var smartSplit: Bool = true
+    var resizeStep: CGFloat = 0.1
 
     var singleWindowAspectRatio: CGSize = CGSize(width: 4, height: 3)
     var singleWindowAspectRatioTolerance: CGFloat = 0.1

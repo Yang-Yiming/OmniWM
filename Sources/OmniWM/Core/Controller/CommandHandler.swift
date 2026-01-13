@@ -165,6 +165,18 @@ final class CommandHandler {
             if layoutType == .dwindle {
                 swapSplitInDwindle()
             }
+        case let .resizeInDirection(direction, grow):
+            if layoutType == .dwindle {
+                resizeInDirectionInDwindle(direction: direction, grow: grow)
+            }
+        case let .preselect(direction):
+            if layoutType == .dwindle {
+                preselectInDwindle(direction: direction)
+            }
+        case .preselectClear:
+            if layoutType == .dwindle {
+                clearPreselectInDwindle()
+            }
         case let .summonWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.summonWorkspace(index: index)
         case .openWindowFinder:
@@ -885,5 +897,29 @@ final class CommandHandler {
 
         engine.cycleSplitRatio(forward: forward, in: wsId)
         controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+    }
+
+    private func resizeInDirectionInDwindle(direction: Direction, grow: Bool) {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        let delta = grow ? engine.settings.resizeStep : -engine.settings.resizeStep
+        engine.resizeSelected(by: delta, direction: direction, in: wsId)
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+    }
+
+    private func preselectInDwindle(direction: Direction) {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+        engine.setPreselection(direction, in: wsId)
+    }
+
+    private func clearPreselectInDwindle() {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+        engine.setPreselection(nil, in: wsId)
     }
 }

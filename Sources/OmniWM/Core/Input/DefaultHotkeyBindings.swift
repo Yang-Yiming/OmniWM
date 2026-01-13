@@ -385,6 +385,25 @@ enum DefaultHotkeyBindings {
             binding: .unassigned
         ))
 
+        bindings.append(contentsOf: [
+            HotkeyBinding(id: "resizeGrow.left", command: .resizeInDirection(.left, true), binding: .unassigned),
+            HotkeyBinding(id: "resizeGrow.right", command: .resizeInDirection(.right, true), binding: .unassigned),
+            HotkeyBinding(id: "resizeGrow.up", command: .resizeInDirection(.up, true), binding: .unassigned),
+            HotkeyBinding(id: "resizeGrow.down", command: .resizeInDirection(.down, true), binding: .unassigned),
+            HotkeyBinding(id: "resizeShrink.left", command: .resizeInDirection(.left, false), binding: .unassigned),
+            HotkeyBinding(id: "resizeShrink.right", command: .resizeInDirection(.right, false), binding: .unassigned),
+            HotkeyBinding(id: "resizeShrink.up", command: .resizeInDirection(.up, false), binding: .unassigned),
+            HotkeyBinding(id: "resizeShrink.down", command: .resizeInDirection(.down, false), binding: .unassigned)
+        ])
+
+        bindings.append(contentsOf: [
+            HotkeyBinding(id: "preselect.left", command: .preselect(.left), binding: .unassigned),
+            HotkeyBinding(id: "preselect.right", command: .preselect(.right), binding: .unassigned),
+            HotkeyBinding(id: "preselect.up", command: .preselect(.up), binding: .unassigned),
+            HotkeyBinding(id: "preselect.down", command: .preselect(.down), binding: .unassigned),
+            HotkeyBinding(id: "preselectClear", command: .preselectClear, binding: .unassigned)
+        ])
+
         for (idx, code) in digitCodes.enumerated() {
             bindings.append(HotkeyBinding(
                 id: "summonWorkspace.\(idx)",

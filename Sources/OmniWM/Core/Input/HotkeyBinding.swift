@@ -45,7 +45,7 @@ struct HotkeyBinding: Codable, Identifiable {
              .moveToMonitor, .moveWorkspaceToMonitor:
             .monitor
         case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen,
-             .toggleSplit, .swapSplit:
+             .toggleSplit, .swapSplit, .resizeInDirection, .preselect, .preselectClear:
             .layout
         case .consumeWindow, .cycleColumnWidthBackward, .cycleColumnWidthForward, .expelWindow,
              .moveColumn, .toggleColumnFullWidth, .toggleColumnTabbed:
