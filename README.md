@@ -22,18 +22,6 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, fea
 - Niri and Dwindle layout (some animations shown)
 A lot more features not show in the gif.
 
-## Features
-
-- **Column-based tiling** - Niri-inspired layout engine that automatically arranges windows in columns
-- **Multiple workspaces** - Create and manage virtual workspaces with per-monitor assignment
-- **40+ keyboard shortcuts** - Navigate, move, and resize windows efficiently (all customizable)
-- **App rules** - Configure per-application behavior (floating, workspace assignment, minimum size)
-- **Window borders** - Visual indicator for the focused window
-- **Fuzzy finder** - Press `Option + Space` to search through all windows and navigate directly to them
-- **Window tabs** - Group multiple windows into tabbed containers for better organization
-- **Workspace bar** - Menu bar widget with sorted app icons; click any icon to navigate to that window
-- **Focus follows mouse** - Optionally focus windows when hovering over them
-
 ## Known Limitations
 
 - **Multi-monitor support** - Not fully tested (developer lacks multi-monitor setup)
@@ -41,8 +29,8 @@ A lot more features not show in the gif.
 
 ## Requirements
 
-- macOS 26.0 (Sequoia) or later
-- Accessibility permissions (prompted on first launch)
+- macOS 26+ (Tahoe)
+- Accessibility permissions (prompted on launch)
 
 ## Installation
 
@@ -88,7 +76,7 @@ Configure per-application behavior in Settings > App Rules:
 ## Building from Source
 
 Requirements:
-- Xcode with Swift 6.2+
+- SwiftPM with Swift 6.2+
 - macOS 26.0+
 
 ## Support
