@@ -31,8 +31,6 @@ enum HorizontalSide: Equatable {
 }
 
 struct MoveConfiguration {
-    var edgeDropZone: CGFloat = 50.0
-    var showPreview: Bool = true
     var dragThreshold: CGFloat = 10.0
 
     static let `default` = MoveConfiguration()

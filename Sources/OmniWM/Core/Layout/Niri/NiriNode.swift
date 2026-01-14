@@ -153,12 +153,6 @@ struct PresetSize: Equatable {
         }
     }
 
-    var asWindowHeight: WindowHeight {
-        switch kind {
-        case let .proportion(p): .auto(weight: p)
-        case let .fixed(f): .fixed(f)
-        }
-    }
 }
 
 struct NodeId: Hashable, Equatable {
@@ -310,10 +304,6 @@ class NiriNode {
         }
         return nil
     }
-
-    var descendantCount: Int {
-        children.reduce(children.count) { $0 + $1.descendantCount }
-    }
 }
 
 enum ContainerHeight: Equatable {
@@ -384,8 +374,6 @@ class NiriContainer: NiriNode {
     var height: ContainerHeight = .default
 
     var cachedHeight: CGFloat = 0
-
-    var presetHeightIdx: Int?
 
     var isFullHeight: Bool = false
 
@@ -585,23 +573,6 @@ class NiriContainer: NiriNode {
         }
     }
 
-    func resolveWidth(
-        workingAreaWidth: CGFloat,
-        totalProportionalWeight: CGFloat,
-        gaps: CGFloat
-    ) -> CGFloat {
-        if isFullWidth {
-            return workingAreaWidth - gaps
-        }
-
-        switch width {
-        case let .proportion(p):
-            guard totalProportionalWeight > 0 else { return workingAreaWidth - gaps }
-            return (workingAreaWidth - gaps) * (p / totalProportionalWeight)
-        case let .fixed(f):
-            return min(f, workingAreaWidth - gaps)
-        }
-    }
 }
 
 class NiriWindow: NiriNode {
@@ -611,19 +582,9 @@ class NiriWindow: NiriNode {
 
     var height: WindowHeight = .default
 
-    var presetHeightIdx: Int?
-
     var savedHeight: WindowHeight?
 
-    var savedColumnWidth: ColumnWidth?
-
     var windowWidth: WindowWidth = .default
-
-    var presetWidthIdx: Int?
-
-    var savedWindowWidth: WindowWidth?
-
-    var savedContainerHeight: ContainerHeight?
 
     var constraints: WindowSizeConstraints = .unconstrained
 
@@ -673,26 +634,6 @@ class NiriWindow: NiriNode {
         switch windowWidth {
         case let .auto(weight): weight
         case .fixed: 1.0
-        }
-    }
-
-    func resolveHeight(availableHeight: CGFloat, totalWeight: CGFloat) -> CGFloat {
-        switch height {
-        case let .auto(weight):
-            guard totalWeight > 0 else { return availableHeight }
-            return availableHeight * (weight / totalWeight)
-        case let .fixed(f):
-            return min(f, availableHeight)
-        }
-    }
-
-    func resolveWidth(availableWidth: CGFloat, totalWeight: CGFloat) -> CGFloat {
-        switch windowWidth {
-        case let .auto(weight):
-            guard totalWeight > 0 else { return availableWidth }
-            return availableWidth * (weight / totalWeight)
-        case let .fixed(f):
-            return min(f, availableWidth)
         }
     }
 

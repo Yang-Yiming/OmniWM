@@ -566,63 +566,6 @@ final class DwindleLayoutEngine {
         )
     }
 
-    func findNeighbor(from node: DwindleNode, direction: Direction) -> DwindleNode? {
-        let targetOrientation = direction.dwindleOrientation
-        let goToSecond = direction.isPositive
-
-        var current = node
-        while let parent = current.parent {
-            guard case let .split(orientation, _) = parent.kind else {
-                current = parent
-                continue
-            }
-
-            if orientation == targetOrientation {
-                let isFirst = current.isFirstChild(of: parent)
-                if goToSecond && isFirst {
-                    if let second = parent.secondChild() {
-                        return descendInDirection(second, direction: direction.opposite)
-                    }
-                } else if !goToSecond && !isFirst {
-                    if let first = parent.firstChild() {
-                        return descendInDirection(first, direction: direction.opposite)
-                    }
-                }
-            }
-            current = parent
-        }
-
-        return nil
-    }
-
-    private func descendInDirection(_ node: DwindleNode, direction: Direction) -> DwindleNode {
-        var current = node
-        let targetOrientation = direction.dwindleOrientation
-        let preferSecond = direction.isPositive
-
-        while !current.isLeaf {
-            guard case let .split(orientation, _) = current.kind else { break }
-
-            if orientation == targetOrientation {
-                if preferSecond, let second = current.secondChild() {
-                    current = second
-                } else if let first = current.firstChild() {
-                    current = first
-                } else {
-                    break
-                }
-            } else {
-                if let first = current.firstChild() {
-                    current = first
-                } else {
-                    break
-                }
-            }
-        }
-
-        return current
-    }
-
     func findGeometricNeighbor(
         from handle: WindowHandle,
         direction: Direction,
@@ -938,75 +881,6 @@ final class DwindleLayoutEngine {
         let first = parent.children[0]
         let second = parent.children[1]
         parent.children = [second, first]
-    }
-
-    func moveWindow(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let selected = selectedNode(in: workspaceId),
-              case let .leaf(handle, fullscreen) = selected.kind,
-              let windowHandle = handle else { return false }
-
-        guard let neighbor = findGeometricNeighbor(
-            from: windowHandle,
-            direction: direction,
-            in: workspaceId
-        ) else { return false }
-
-        guard let neighborNode = findNode(for: neighbor) else { return false }
-
-        let targetNode: DwindleNode
-        if neighborNode.isLeaf {
-            targetNode = neighborNode
-        } else {
-            targetNode = neighborNode.descendToFirstLeaf()
-        }
-
-        removeWindow(handle: windowHandle, from: workspaceId)
-
-        guard case let .leaf(targetHandle, targetFullscreen) = targetNode.kind else {
-            addWindow(handle: windowHandle, to: workspaceId, activeWindowFrame: nil)
-            return true
-        }
-
-        let targetRect = targetNode.cachedFrame
-        let (orientation, newFirst) = determineSplitOrientation(
-            for: direction,
-            targetRect: targetRect
-        )
-
-        let existingLeaf = DwindleNode(kind: .leaf(handle: targetHandle, fullscreen: targetFullscreen))
-        let newLeaf = DwindleNode(kind: .leaf(handle: windowHandle, fullscreen: fullscreen))
-
-        targetNode.kind = .split(orientation: orientation, ratio: settings.defaultSplitRatio)
-
-        if newFirst {
-            targetNode.replaceChildren(first: newLeaf, second: existingLeaf)
-        } else {
-            targetNode.replaceChildren(first: existingLeaf, second: newLeaf)
-        }
-
-        if let targetHandle {
-            windowToNode[targetHandle] = existingLeaf
-        }
-        windowToNode[windowHandle] = newLeaf
-        selectedNodeId[workspaceId] = newLeaf.id
-
-        return true
-    }
-
-    private func determineSplitOrientation(
-        for direction: Direction,
-        targetRect: CGRect?
-    ) -> (orientation: DwindleOrientation, newFirst: Bool) {
-        switch direction {
-        case .left:
-            return (.horizontal, true)
-        case .right:
-            return (.horizontal, false)
-        case .up:
-            return (.vertical, true)
-        case .down:
-            return (.vertical, false)
-        }
     }
 
     func cycleSplitRatio(forward: Bool, in workspaceId: WorkspaceDescriptor.ID) {

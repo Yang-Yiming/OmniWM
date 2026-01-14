@@ -9,14 +9,6 @@ struct ResizeEdge: OptionSet, Hashable {
     static let left = ResizeEdge(rawValue: 0b0100)
     static let right = ResizeEdge(rawValue: 0b1000)
 
-    static let topLeft: ResizeEdge = [.top, .left]
-    static let topRight: ResizeEdge = [.top, .right]
-    static let bottomLeft: ResizeEdge = [.bottom, .left]
-    static let bottomRight: ResizeEdge = [.bottom, .right]
-
-    static let horizontal: ResizeEdge = [.left, .right]
-    static let vertical: ResizeEdge = [.top, .bottom]
-
     var hasHorizontal: Bool {
         !intersection([.left, .right]).isEmpty
     }
@@ -108,8 +100,6 @@ struct ResizeHitTestResult {
 
 struct ResizeConfiguration {
     var edgeThreshold: CGFloat = 8.0
-    var minColumnWeight: CGFloat = 0.3
-    var maxColumnWeight: CGFloat = 3.0
     var minWindowWeight: CGFloat = 0.3
     var maxWindowWeight: CGFloat = 3.0
 
@@ -141,12 +131,6 @@ struct LayoutGaps {
         self.horizontal = horizontal
         self.vertical = vertical
         self.outer = outer
-    }
-
-    init(_ tuple: (horizontal: CGFloat, vertical: CGFloat)) {
-        horizontal = tuple.horizontal
-        vertical = tuple.vertical
-        outer = .zero
     }
 
     var asTuple: (horizontal: CGFloat, vertical: CGFloat) {

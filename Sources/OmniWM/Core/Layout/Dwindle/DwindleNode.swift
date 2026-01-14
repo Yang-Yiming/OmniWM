@@ -24,15 +24,6 @@ extension Direction {
         }
     }
 
-    var opposite: Direction {
-        switch self {
-        case .left: .right
-        case .right: .left
-        case .up: .down
-        case .down: .up
-        }
-    }
-
     var isPositive: Bool {
         switch self {
         case .right, .up: true
@@ -133,20 +124,8 @@ final class DwindleNode {
         return node
     }
 
-    func descendToLastLeaf() -> DwindleNode {
-        var node = self
-        while let child = node.children.last {
-            node = child
-        }
-        return node
-    }
-
     func isFirstChild(of parent: DwindleNode) -> Bool {
         parent.firstChild()?.id == id
-    }
-
-    func isSecondChild(of parent: DwindleNode) -> Bool {
-        parent.secondChild()?.id == id
     }
 
     func sibling() -> DwindleNode? {

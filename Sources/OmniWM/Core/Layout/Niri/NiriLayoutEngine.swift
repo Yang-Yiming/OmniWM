@@ -90,11 +90,9 @@ func computeWorkingArea(
 }
 
 struct NiriRenderStyle {
-    var borderWidth: CGFloat
     var tabIndicatorWidth: CGFloat
 
     static let `default` = NiriRenderStyle(
-        borderWidth: 0,
         tabIndicatorWidth: 0
     )
 }
@@ -139,12 +137,6 @@ final class NiriLayoutEngine {
     var displayRefreshRate: Double = 60.0
 
     var presetColumnWidths: [PresetSize] = [
-        .proportion(1.0 / 3.0),
-        .proportion(0.5),
-        .proportion(2.0 / 3.0)
-    ]
-
-    var presetWindowHeights: [PresetSize] = [
         .proportion(1.0 / 3.0),
         .proportion(0.5),
         .proportion(2.0 / 3.0)
@@ -213,10 +205,6 @@ final class NiriLayoutEngine {
 
     func effectiveAlwaysCenterSingleColumn(for monitorId: Monitor.ID) -> Bool {
         monitors[monitorId]?.resolvedSettings?.alwaysCenterSingleColumn ?? alwaysCenterSingleColumn
-    }
-
-    func effectiveSingleWindowAspectRatio(for monitorId: Monitor.ID) -> SingleWindowAspectRatio {
-        monitors[monitorId]?.resolvedSettings?.singleWindowAspectRatio ?? singleWindowAspectRatio
     }
 
     func effectiveInfiniteLoop(for monitorId: Monitor.ID) -> Bool {
@@ -2425,7 +2413,6 @@ final class NiriLayoutEngine {
 
     func setWindowHeight(_ window: NiriWindow, height: WindowHeight) {
         window.height = height
-        window.presetHeightIdx = nil
     }
 
     @discardableResult
