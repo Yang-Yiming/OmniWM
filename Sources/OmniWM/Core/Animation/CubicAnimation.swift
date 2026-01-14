@@ -23,8 +23,7 @@ final class CubicAnimation {
         to: Double,
         startTime: TimeInterval,
         initialVelocity: Double = 0,
-        config: CubicConfig = .default,
-        clock: AnimationClock? = nil
+        config: CubicConfig = .default
     ) {
         self.from = from
         target = to

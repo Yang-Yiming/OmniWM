@@ -232,7 +232,6 @@ struct ViewportState {
             initialVelocity: velocity,
             startTime: now,
             config: config ?? springConfig,
-            clock: animationClock,
             displayRefreshRate: displayRefreshRate
         )
         viewOffsetPixels = .spring(animation)
@@ -263,7 +262,6 @@ struct ViewportState {
             initialVelocity: velocity,
             startTime: now,
             config: springConfig,
-            clock: animationClock,
             displayRefreshRate: displayRefreshRate
         )
         viewOffsetPixels = .spring(animation)
@@ -674,7 +672,6 @@ struct ViewportState {
                 initialVelocity: velocity,
                 startTime: now,
                 config: springConfig,
-                clock: animationClock,
                 displayRefreshRate: displayRefreshRate
             )
             viewOffsetPixels = .spring(animation)
@@ -959,7 +956,6 @@ struct ViewportState {
                 initialVelocity: currentVelocity,
                 startTime: now,
                 config: config,
-                clock: animationClock,
                 displayRefreshRate: displayRefreshRate
             )
             viewOffsetPixels = .spring(animation)
@@ -1196,7 +1192,6 @@ extension ViewportState {
                 initialVelocity: currentVelocity,
                 startTime: now,
                 config: config,
-                clock: animationClock,
                 displayRefreshRate: displayRefreshRate
             )
             viewOffsetPixels = .spring(animation)

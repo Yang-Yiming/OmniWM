@@ -38,7 +38,6 @@ final class SpringAnimation {
         initialVelocity: Double = 0,
         startTime: TimeInterval,
         config: SpringConfig = .default,
-        clock: AnimationClock? = nil,
         displayRefreshRate: Double = 60.0
     ) {
         self.from = from

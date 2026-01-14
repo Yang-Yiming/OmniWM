@@ -193,8 +193,7 @@ final class DwindleNode {
                 to: 0.0,
                 startTime: now,
                 initialVelocity: normalizedVel,
-                config: config,
-                clock: clock
+                config: config
             )
             moveXAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementX)
         } else {
@@ -208,8 +207,7 @@ final class DwindleNode {
                 to: 0.0,
                 startTime: now,
                 initialVelocity: normalizedVel,
-                config: config,
-                clock: clock
+                config: config
             )
             moveYAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementY)
         } else {
@@ -223,8 +221,7 @@ final class DwindleNode {
                 to: 0.0,
                 startTime: now,
                 initialVelocity: normalizedVel,
-                config: config,
-                clock: clock
+                config: config
             )
             sizeWAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementW)
         } else {
@@ -238,8 +235,7 @@ final class DwindleNode {
                 to: 0.0,
                 startTime: now,
                 initialVelocity: normalizedVel,
-                config: config,
-                clock: clock
+                config: config
             )
             sizeHAnimation = CubicMoveAnimation(animation: anim, fromOffset: displacementH)
         } else {

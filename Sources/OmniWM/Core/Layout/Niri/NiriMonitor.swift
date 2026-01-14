@@ -170,8 +170,7 @@ extension NiriMonitor {
             from: currentRenderIdx,
             to: Double(targetIdx),
             startTime: now,
-            config: workspaceSwitchConfig,
-            clock: animationClock
+            config: workspaceSwitchConfig
         )
         workspaceSwitch = .animation(animation)
     }

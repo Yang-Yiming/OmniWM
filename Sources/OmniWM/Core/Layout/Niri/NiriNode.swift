@@ -414,7 +414,6 @@ class NiriContainer: NiriNode {
                 initialVelocity: currentVel,
                 startTime: now,
                 config: config,
-                clock: clock,
                 displayRefreshRate: displayRefreshRate
             )
             moveAnimation = MoveAnimation(animation: anim, fromOffset: totalOffsetX)
@@ -468,7 +467,6 @@ class NiriContainer: NiriNode {
             initialVelocity: currentVel,
             startTime: now,
             config: config,
-            clock: clock,
             displayRefreshRate: displayRefreshRate
         )
         targetWidth = newWidth
@@ -678,7 +676,6 @@ class NiriWindow: NiriNode {
                 initialVelocity: currentVelX,
                 startTime: now,
                 config: config,
-                clock: clock,
                 displayRefreshRate: displayRefreshRate
             )
             moveXAnimation = MoveAnimation(animation: anim, fromOffset: totalOffsetX)
@@ -691,7 +688,6 @@ class NiriWindow: NiriNode {
                 initialVelocity: currentVelY,
                 startTime: now,
                 config: config,
-                clock: clock,
                 displayRefreshRate: displayRefreshRate
             )
             moveYAnimation = MoveAnimation(animation: anim, fromOffset: totalOffsetY)
@@ -748,7 +744,6 @@ class NiriWindow: NiriNode {
             to: 1,
             startTime: now,
             config: config,
-            clock: clock,
             displayRefreshRate: displayRefreshRate
         )
         alphaAnimation = AlphaAnimation(animation: anim, fromAlpha: from, toAlpha: to)
