@@ -26,6 +26,10 @@ final class DwindleLayoutEngine {
         monitorSettings[monitorId] = resolved
     }
 
+    func cleanupRemovedMonitor(_ monitorId: Monitor.ID) {
+        monitorSettings.removeValue(forKey: monitorId)
+    }
+
     func effectiveSettings(for monitorId: Monitor.ID) -> DwindleSettings {
         guard let resolved = monitorSettings[monitorId] else { return settings }
 

@@ -150,18 +150,18 @@ final class MenuPaletteController: ObservableObject {
     private func positionPanel(_ panel: NSPanel, at position: MenuAnywherePosition) {
         let panelWidth: CGFloat = 600
         let panelHeight: CGFloat = 400
+        let mouseLocation = NSEvent.mouseLocation
 
         let point: NSPoint
         switch position {
         case .cursor:
-            let mouseLocation = NSEvent.mouseLocation
             point = NSPoint(
                 x: mouseLocation.x - panelWidth / 2,
                 y: mouseLocation.y - panelHeight / 2
             )
         case .centered, .menuBarLocation:
-            guard let screen = NSScreen.main else {
-                point = NSEvent.mouseLocation
+            guard let screen = NSScreen.screen(containing: mouseLocation) ?? NSScreen.main else {
+                point = mouseLocation
                 break
             }
             point = NSPoint(

@@ -33,7 +33,7 @@ struct HotkeyBinding: Codable, Identifiable {
         switch command {
         case .moveColumnToWorkspace, .moveColumnToWorkspaceDown, .moveColumnToWorkspaceUp, .moveToWorkspace,
              .moveWindowToWorkspaceDown, .moveWindowToWorkspaceUp, .summonWorkspace,
-             .switchWorkspace:
+             .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious, .workspaceBackAndForth:
             .workspace
         case .focus, .focusColumn, .focusColumnFirst, .focusColumnLast,
              .focusDownOrLeft, .focusPrevious, .focusUpOrRight, .focusWindowBottom, .focusWindowTop,
@@ -42,7 +42,7 @@ struct HotkeyBinding: Codable, Identifiable {
         case .move, .swap:
             .move
         case .focusMonitor, .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious, .moveColumnToMonitor,
-             .moveToMonitor, .moveWorkspaceToMonitor:
+             .moveToMonitor, .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious:
             .monitor
         case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen,
              .toggleSplit, .swapSplit, .resizeInDirection, .preselect, .preselectClear:

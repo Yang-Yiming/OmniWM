@@ -18,6 +18,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case moveColumnToWorkspaceUp
     case moveColumnToWorkspaceDown
     case switchWorkspace(Int)
+    case switchWorkspaceNext
+    case switchWorkspacePrevious
     case moveToMonitor(Direction)
     case focusMonitor(Direction)
     case focusMonitorPrevious
@@ -44,6 +46,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case toggleColumnFullWidth
 
     case moveWorkspaceToMonitor(Direction)
+    case moveWorkspaceToMonitorNext
+    case moveWorkspaceToMonitorPrevious
 
     case balanceSizes
     case moveToRoot
@@ -54,6 +58,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case preselectClear
 
     case summonWorkspace(Int)
+    case workspaceBackAndForth
 
     case openWindowFinder
 
@@ -78,6 +83,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .moveColumnToWorkspaceUp: "Move Column to Workspace Up"
         case .moveColumnToWorkspaceDown: "Move Column to Workspace Down"
         case let .switchWorkspace(idx): "Switch to Workspace \(idx + 1)"
+        case .switchWorkspaceNext: "Switch to Next Workspace"
+        case .switchWorkspacePrevious: "Switch to Previous Workspace"
         case let .moveToMonitor(dir): "Move to \(dir.displayName) Monitor"
         case let .focusMonitor(dir): "Focus \(dir.displayName) Monitor"
         case .focusMonitorPrevious: "Focus Previous Monitor"
@@ -101,6 +108,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .cycleColumnWidthBackward: "Cycle Column Width Backward"
         case .toggleColumnFullWidth: "Toggle Column Full Width"
         case let .moveWorkspaceToMonitor(dir): "Move Workspace to \(dir.displayName) Monitor"
+        case .moveWorkspaceToMonitorNext: "Move Workspace to Next Monitor"
+        case .moveWorkspaceToMonitorPrevious: "Move Workspace to Previous Monitor"
         case .balanceSizes: "Balance Sizes"
         case .moveToRoot: "Move to Root"
         case .toggleSplit: "Toggle Split"
@@ -109,6 +118,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case let .preselect(dir): "Preselect \(dir.displayName)"
         case .preselectClear: "Clear Preselection"
         case let .summonWorkspace(idx): "Summon Workspace \(idx + 1)"
+        case .workspaceBackAndForth: "Switch to Previous Workspace"
         case .openWindowFinder: "Open Window Finder"
         case .raiseAllFloatingWindows: "Raise All Floating Windows"
         case .openMenuAnywhere: "Open Menu Anywhere"

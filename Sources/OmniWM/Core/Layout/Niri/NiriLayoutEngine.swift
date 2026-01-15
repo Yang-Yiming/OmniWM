@@ -182,6 +182,16 @@ final class NiriLayoutEngine {
         monitors = monitors.filter { newIds.contains($0.key) }
     }
 
+    func cleanupRemovedMonitor(_ monitorId: Monitor.ID) {
+        guard let niriMonitor = monitors[monitorId] else { return }
+
+        for workspaceId in niriMonitor.workspaceRoots.keys {
+            roots.removeValue(forKey: workspaceId)
+        }
+
+        monitors.removeValue(forKey: monitorId)
+    }
+
     func updateMonitorOrientations(_ orientations: [Monitor.ID: Monitor.Orientation]) {
         for (monitorId, orientation) in orientations {
             monitors[monitorId]?.updateOrientation(orientation)

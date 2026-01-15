@@ -30,14 +30,17 @@ final class BorderWindow {
 
     func update(frame targetFrame: CGRect, targetWid: UInt32) {
         let borderWidth = config.width
-        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let targetScreen = NSScreen.screens.first(where: {
+            $0.frame.contains(targetFrame.center)
+        }) ?? NSScreen.main ?? NSScreen.screens.first
+        let scale = targetScreen?.backingScaleFactor ?? 2.0
 
         let borderOffset = -borderWidth - padding
         var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
             .roundedToPhysicalPixels(scale: scale)
 
         origin = frame.origin
-        if let screen = NSScreen.main {
+        if let screen = targetScreen {
             origin.y = screen.frame.height - origin.y - frame.height
         }
         frame.origin = .zero
@@ -50,7 +53,7 @@ final class BorderWindow {
         )
 
         if wid == 0 {
-            createWindow(frame: frame)
+            createWindow(frame: frame, scale: scale)
         }
 
         if frame.size != currentFrame.size {
@@ -68,11 +71,10 @@ final class BorderWindow {
         moveAndOrder(relativeTo: targetWid)
     }
 
-    private func createWindow(frame: CGRect) {
+    private func createWindow(frame: CGRect, scale: CGFloat) {
         wid = SkyLight.shared.createBorderWindow(frame: frame)
         guard wid != 0 else { return }
 
-        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
         SkyLight.shared.configureWindow(wid, resolution: Float(scale), opaque: false)
 
         let tags: UInt64 = (1 << 1) | (1 << 9)

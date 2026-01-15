@@ -11,13 +11,9 @@ final class LayoutRefreshController {
     private var isImmediateLayoutInProgress: Bool = false
     private var isFullEnumerationInProgress: Bool = false
 
-    private var activeDisplayLink: CADisplayLink?
-    private var activeDisplayId: CGDirectDisplayID?
-    private var scrollAnimationWorkspaceId: WorkspaceDescriptor.ID?
-    private var isScrollAnimationRunning: Bool = false
-    private var dwindleAnimationWorkspaceId: WorkspaceDescriptor.ID?
-    private var isDwindleAnimationRunning: Bool = false
-    private var dwindleAnimationMonitor: Monitor?
+    private var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
+    private var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
+    private var dwindleAnimationByDisplay: [CGDirectDisplayID: (WorkspaceDescriptor.ID, Monitor)] = [:]
     private var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
     private var screenChangeObserver: NSObjectProtocol?
     private var hasCompletedInitialRefresh: Bool = false
@@ -37,37 +33,34 @@ final class LayoutRefreshController {
     }
 
     private func getOrCreateDisplayLink(for displayId: CGDirectDisplayID) -> CADisplayLink? {
-        if activeDisplayId == displayId, let link = activeDisplayLink {
-            return link
+        if let existing = displayLinksByDisplay[displayId] {
+            return existing
         }
-        activeDisplayLink?.invalidate()
-        activeDisplayLink = nil
-        activeDisplayId = nil
 
         guard let screen = NSScreen.screens.first(where: { $0.displayId == displayId }) else {
             return nil
         }
         let link = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
-        activeDisplayLink = link
-        activeDisplayId = displayId
+        displayLinksByDisplay[displayId] = link
         return link
     }
 
     private func handleScreenParametersChanged() {
         detectRefreshRates()
 
-        guard let activeId = activeDisplayId else { return }
+        let currentDisplayIds = Set(NSScreen.screens.compactMap(\.displayId))
 
-        let displayStillExists = NSScreen.screens.contains(where: { $0.displayId == activeId })
-        if !displayStillExists {
-            activeDisplayLink?.invalidate()
-            activeDisplayLink = nil
-            activeDisplayId = nil
+        let removedDisplayIds = displayLinksByDisplay.keys.filter { !currentDisplayIds.contains($0) }
 
-            if let wsId = scrollAnimationWorkspaceId {
-                isScrollAnimationRunning = false
+        for displayId in removedDisplayIds {
+            if let link = displayLinksByDisplay.removeValue(forKey: displayId) {
+                link.invalidate()
+            }
+
+            if let wsId = scrollAnimationByDisplay.removeValue(forKey: displayId) {
                 startScrollAnimation(for: wsId)
             }
+            dwindleAnimationByDisplay.removeValue(forKey: displayId)
         }
     }
 
@@ -85,79 +78,97 @@ final class LayoutRefreshController {
     }
 
     @objc private func displayLinkFired(_ displayLink: CADisplayLink) {
-        tickScrollAnimation(targetTime: displayLink.targetTimestamp)
-        tickDwindleAnimation(targetTime: displayLink.targetTimestamp)
+        guard let displayId = displayLinksByDisplay.first(where: { $0.value === displayLink })?.key
+        else { return }
+
+        tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
+        tickDwindleAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
     }
 
     func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
-        scrollAnimationWorkspaceId = workspaceId
-        if isScrollAnimationRunning { return }
-        isScrollAnimationRunning = true
-
         let targetDisplayId: CGDirectDisplayID
         if let controller,
            let monitor = controller.internalWorkspaceManager.monitor(for: workspaceId)
         {
-            targetDisplayId = monitor.id.displayId
+            targetDisplayId = monitor.displayId
         } else if let mainDisplayId = NSScreen.main?.displayId {
             targetDisplayId = mainDisplayId
         } else {
             return
         }
 
+        if scrollAnimationByDisplay[targetDisplayId] == workspaceId {
+            return
+        }
+
+        scrollAnimationByDisplay[targetDisplayId] = workspaceId
+
         if let displayLink = getOrCreateDisplayLink(for: targetDisplayId) {
             displayLink.add(to: .main, forMode: .common)
         }
     }
 
-    func stopScrollAnimation() {
-        isScrollAnimationRunning = false
-        scrollAnimationWorkspaceId = nil
-        stopDisplayLinkIfIdle()
+    func stopScrollAnimation(for displayId: CGDirectDisplayID) {
+        scrollAnimationByDisplay.removeValue(forKey: displayId)
+        stopDisplayLinkIfIdle(for: displayId)
+    }
+
+    func stopAllScrollAnimations() {
+        let displayIds = Array(scrollAnimationByDisplay.keys)
+        scrollAnimationByDisplay.removeAll()
+        for displayId in displayIds {
+            stopDisplayLinkIfIdle(for: displayId)
+        }
     }
 
     func startDwindleAnimation(for workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
-        dwindleAnimationWorkspaceId = workspaceId
-        dwindleAnimationMonitor = monitor
-        if isDwindleAnimationRunning { return }
-        isDwindleAnimationRunning = true
+        let targetDisplayId = monitor.displayId
 
-        let targetDisplayId = monitor.id.displayId
+        if dwindleAnimationByDisplay[targetDisplayId]?.0 == workspaceId {
+            return
+        }
+
+        dwindleAnimationByDisplay[targetDisplayId] = (workspaceId, monitor)
+
         if let displayLink = getOrCreateDisplayLink(for: targetDisplayId) {
             displayLink.add(to: .main, forMode: .common)
         }
     }
 
-    func stopDwindleAnimation() {
-        isDwindleAnimationRunning = false
-        dwindleAnimationWorkspaceId = nil
-        dwindleAnimationMonitor = nil
-        stopDisplayLinkIfIdle()
+    func stopDwindleAnimation(for displayId: CGDirectDisplayID) {
+        dwindleAnimationByDisplay.removeValue(forKey: displayId)
+        stopDisplayLinkIfIdle(for: displayId)
     }
 
-    func hasDwindleAnimationRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        isDwindleAnimationRunning && dwindleAnimationWorkspaceId == workspaceId
-    }
-
-    private func stopDisplayLinkIfIdle() {
-        if !isScrollAnimationRunning && !isDwindleAnimationRunning {
-            activeDisplayLink?.remove(from: .main, forMode: .common)
+    func stopAllDwindleAnimations() {
+        let displayIds = Array(dwindleAnimationByDisplay.keys)
+        dwindleAnimationByDisplay.removeAll()
+        for displayId in displayIds {
+            stopDisplayLinkIfIdle(for: displayId)
         }
     }
 
-    private func tickDwindleAnimation(targetTime: CFTimeInterval) {
-        guard isDwindleAnimationRunning else { return }
+    func hasDwindleAnimationRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        dwindleAnimationByDisplay.values.contains { $0.0 == workspaceId }
+    }
+
+    private func stopDisplayLinkIfIdle(for displayId: CGDirectDisplayID) {
+        if scrollAnimationByDisplay[displayId] == nil && dwindleAnimationByDisplay[displayId] == nil {
+            displayLinksByDisplay[displayId]?.remove(from: .main, forMode: .common)
+        }
+    }
+
+    private func tickDwindleAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
+        guard let (wsId, monitor) = dwindleAnimationByDisplay[displayId] else { return }
         guard let controller,
-              let wsId = dwindleAnimationWorkspaceId,
-              let monitor = dwindleAnimationMonitor,
               let engine = controller.internalDwindleEngine else {
-            stopDwindleAnimation()
+            stopDwindleAnimation(for: displayId)
             return
         }
 
         engine.tickAnimations(at: targetTime, in: wsId)
 
-        let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
         let baseFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
         let animatedFrames = engine.calculateAnimatedFrames(
             baseFrames: baseFrames,
@@ -182,18 +193,18 @@ final class LayoutRefreshController {
                let entry = workspaceManager.entry(for: focusedHandle) {
                 controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
             }
-            stopDwindleAnimation()
+            stopDwindleAnimation(for: displayId)
         }
     }
 
-    private func tickScrollAnimation(targetTime: CFTimeInterval) {
-        guard isScrollAnimationRunning else { return }
-        guard let controller, let wsId = scrollAnimationWorkspaceId else {
-            stopScrollAnimation()
+    private func tickScrollAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
+        guard let wsId = scrollAnimationByDisplay[displayId] else { return }
+        guard let controller else {
+            stopScrollAnimation(for: displayId)
             return
         }
         guard let engine = controller.internalNiriEngine else {
-            stopScrollAnimation()
+            stopScrollAnimation(for: displayId)
             return
         }
 
@@ -205,7 +216,7 @@ final class LayoutRefreshController {
 
         guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else {
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-            stopScrollAnimation()
+            stopScrollAnimation(for: displayId)
             return
         }
 
@@ -223,7 +234,7 @@ final class LayoutRefreshController {
 
         if !animationsOngoing {
             finalizeAnimation()
-            stopScrollAnimation()
+            stopScrollAnimation(for: displayId)
         }
     }
 
@@ -243,7 +254,7 @@ final class LayoutRefreshController {
             outer: workspaceManager.outerGaps
         )
 
-        let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
         let area = WorkingAreaContext(
             workingFrame: insetFrame,
             viewFrame: monitor.frame,
@@ -320,8 +331,8 @@ final class LayoutRefreshController {
     }
 
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
-        if scrollAnimationWorkspaceId == workspaceId || scrollAnimationWorkspaceId == nil {
-            stopScrollAnimation()
+        for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
+            stopScrollAnimation(for: displayId)
         }
 
         guard let controller else { return }
@@ -446,7 +457,7 @@ final class LayoutRefreshController {
         let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(activeWorkspaceIds)
 
         if !niriWorkspaces.isEmpty {
-            await layoutWithNiriEngine(activeWorkspaces: niriWorkspaces, useScrollAnimationPath: isScrollAnimationRunning)
+            await layoutWithNiriEngine(activeWorkspaces: niriWorkspaces, useScrollAnimationPath: !scrollAnimationByDisplay.isEmpty)
         }
         if !dwindleWorkspaces.isEmpty {
             await layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
@@ -457,10 +468,14 @@ final class LayoutRefreshController {
         activeRefreshTask?.cancel()
         activeRefreshTask = nil
         isInLightSession = false
-        stopScrollAnimation()
-        activeDisplayLink?.invalidate()
-        activeDisplayLink = nil
-        activeDisplayId = nil
+
+        for (_, link) in displayLinksByDisplay {
+            link.invalidate()
+        }
+        displayLinksByDisplay.removeAll()
+        scrollAnimationByDisplay.removeAll()
+        dwindleAnimationByDisplay.removeAll()
+
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
@@ -607,7 +622,7 @@ final class LayoutRefreshController {
             let newHandles = windowHandles.filter { !existingHandleIds.contains($0.id) }
 
             let earlyGap = CGFloat(workspaceManager.gaps)
-            let earlyInsetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let earlyInsetFrame = controller.insetWorkingFrame(for: monitor)
             for col in engine.columns(in: wsId) {
                 if col.cachedWidth <= 0 {
                     col.resolveAndCacheWidth(workingAreaWidth: earlyInsetFrame.width, gaps: earlyGap)
@@ -677,7 +692,7 @@ final class LayoutRefreshController {
                 engine.updateWindowConstraints(for: entry.handle, constraints: constraints)
             }
 
-            state.displayRefreshRate = refreshRateByDisplay[monitor.id.displayId] ?? 60.0
+            state.displayRefreshRate = refreshRateByDisplay[monitor.displayId] ?? 60.0
 
             if let result = columnRemovalResult {
                 if let prevOffset = state.activatePrevColumnOnRemoval {
@@ -714,7 +729,7 @@ final class LayoutRefreshController {
             let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
 
             let gap = CGFloat(workspaceManager.gaps)
-            let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let insetFrame = controller.insetWorkingFrame(for: monitor)
 
             for col in engine.columns(in: wsId) {
                 if col.cachedWidth <= 0 {
@@ -934,7 +949,7 @@ final class LayoutRefreshController {
                 engine.updateWindowConstraints(for: entry.handle, constraints: constraints)
             }
 
-            let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let insetFrame = controller.insetWorkingFrame(for: monitor)
 
             let newFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
 
@@ -1020,7 +1035,7 @@ final class LayoutRefreshController {
     }
 
     private func backingScale(for monitor: Monitor) -> CGFloat {
-        NSScreen.screens.first(where: { $0.displayId == monitor.id.displayId })?.backingScaleFactor ?? 2.0
+        NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 2.0
     }
 
     private func unhideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {

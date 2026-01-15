@@ -12,7 +12,7 @@ struct OutputId: Hashable, Codable {
     }
 
     init(from monitor: Monitor) {
-        displayId = monitor.id.displayId
+        displayId = monitor.displayId
         name = monitor.name
     }
 }

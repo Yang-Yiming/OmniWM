@@ -82,7 +82,7 @@ final class WindowFinderController: ObservableObject {
 
         guard let panel else { return }
 
-        if let screen = NSScreen.main {
+        if let screen = NSScreen.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main {
             let panelWidth: CGFloat = 500
             let panelHeight: CGFloat = 400
             let x = (screen.frame.width - panelWidth) / 2 + screen.frame.origin.x

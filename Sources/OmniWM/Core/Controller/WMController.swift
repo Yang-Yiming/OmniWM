@@ -18,13 +18,26 @@ final class WMController {
     private var isLockScreenActive: Bool = false
     private let axManager = AXManager()
     let appInfoCache = AppInfoCache()
-    private var focusedHandle: WindowHandle?
+    private var focusedHandle: WindowHandle? {
+        didSet {
+            notifyFocusChangesIfNeeded()
+        }
+    }
     private var isNonManagedFocusActive: Bool = false
     private var isAppFullscreenActive: Bool = false
     private var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] = [:]
 
-    private var activeMonitorId: Monitor.ID?
+    private var activeMonitorId: Monitor.ID? {
+        didSet {
+            notifyFocusChangesIfNeeded()
+        }
+    }
     private var previousMonitorId: Monitor.ID?
+
+    private var lastNotifiedWorkspaceId: WorkspaceDescriptor.ID?
+    private var lastNotifiedMonitorId: Monitor.ID?
+    private var lastNotifiedFocusedHandleId: UUID?
+    private var lastNotifiedFocusedWindowId: Int?
 
     private var niriEngine: NiriLayoutEngine?
     private var dwindleEngine: DwindleLayoutEngine?
@@ -443,6 +456,11 @@ final class WMController {
         moveMouseToFocusedWindowEnabled = enabled
     }
 
+    func insetWorkingFrame(for monitor: Monitor) -> CGRect {
+        let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 2.0
+        return insetWorkingFrame(from: monitor.visibleFrame, scale: scale)
+    }
+
     func insetWorkingFrame(from frame: CGRect, scale: CGFloat = 2.0) -> CGRect {
         let outer = workspaceManager.outerGaps
         let struts = Struts(
@@ -598,19 +616,47 @@ final class WMController {
 
     private func setupDisplayObserver() {
         displayObserver = DisplayConfigurationObserver()
-        displayObserver?.setEventHandler { [weak self] _ in
+        displayObserver?.setEventHandler { [weak self] event in
             Task { @MainActor in
-                self?.handleDisplayEvent()
+                self?.handleDisplayEvent(event)
             }
         }
     }
 
-    private func handleDisplayEvent() {
+    private func handleDisplayEvent(_ event: DisplayConfigurationObserver.DisplayEvent) {
+        switch event {
+        case let .disconnected(monitorId, outputId):
+            handleMonitorDisconnect(monitorId: monitorId, outputId: outputId)
+        case let .connected(monitor):
+            handleMonitorConnect(monitor: monitor)
+        case .reconfigured:
+            break
+        }
         handleMonitorConfigurationChanged()
+    }
+
+    private func handleMonitorDisconnect(monitorId: Monitor.ID, outputId: OutputId) {
+        layoutRefreshController?.stopScrollAnimation(for: outputId.displayId)
+        layoutRefreshController?.stopDwindleAnimation(for: outputId.displayId)
+
+        if activeMonitorId == monitorId {
+            activeMonitorId = workspaceManager.monitors.first?.id
+        }
+        if previousMonitorId == monitorId {
+            previousMonitorId = nil
+        }
+
+        niriEngine?.cleanupRemovedMonitor(monitorId)
+        dwindleEngine?.cleanupRemovedMonitor(monitorId)
+    }
+
+    private func handleMonitorConnect(monitor: Monitor) {
+        _ = monitor
     }
 
     private func handleMonitorConfigurationChanged() {
         workspaceManager.updateMonitors(Monitor.current())
+        workspaceManager.reconcileAfterMonitorChange()
         syncMonitorsToNiriEngine()
 
         if let activeMonitorId, !workspaceManager.monitors.contains(where: { $0.id == activeMonitorId }) {
@@ -619,6 +665,9 @@ final class WMController {
         if let previousMonitorId, !workspaceManager.monitors.contains(where: { $0.id == previousMonitorId }) {
             self.previousMonitorId = nil
         }
+
+        let focusedWsId = focusedHandle.flatMap { workspaceManager.workspace(for: $0) }
+        workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWsId)
 
         layoutRefreshController?.refreshWindowsAndLayout()
     }
@@ -811,6 +860,91 @@ final class WMController {
         layoutRefreshController?.refreshWindowsAndLayout()
     }
 
+    private func notifyFocusChangesIfNeeded() {
+        let currentWorkspaceId = focusedHandle
+            .flatMap { workspaceManager.workspace(for: $0) }
+            ?? activeWorkspace()?.id
+        let currentMonitorId = activeMonitorId ?? monitorForInteraction()?.id
+
+        let currentHandleId = focusedHandle?.id
+        let currentWindowId = focusedHandle.flatMap { workspaceManager.entry(for: $0)?.windowId }
+
+        if currentHandleId != lastNotifiedFocusedHandleId ||
+            currentWindowId != lastNotifiedFocusedWindowId
+        {
+            var info: [AnyHashable: Any] = [:]
+            if let oldHandleId = lastNotifiedFocusedHandleId {
+                info[OmniWMFocusNotificationKey.oldHandleId] = oldHandleId
+            }
+            if let newHandleId = currentHandleId {
+                info[OmniWMFocusNotificationKey.newHandleId] = newHandleId
+            }
+            if let oldWindowId = lastNotifiedFocusedWindowId {
+                info[OmniWMFocusNotificationKey.oldWindowId] = oldWindowId
+            }
+            if let newWindowId = currentWindowId {
+                info[OmniWMFocusNotificationKey.newWindowId] = newWindowId
+            }
+
+            NotificationCenter.default.post(
+                name: .omniwmFocusChanged,
+                object: self,
+                userInfo: info.isEmpty ? nil : info
+            )
+
+            lastNotifiedFocusedHandleId = currentHandleId
+            lastNotifiedFocusedWindowId = currentWindowId
+        }
+
+        if currentWorkspaceId != lastNotifiedWorkspaceId {
+            var info: [AnyHashable: Any] = [:]
+            if let oldWorkspaceId = lastNotifiedWorkspaceId {
+                info[OmniWMFocusNotificationKey.oldWorkspaceId] = oldWorkspaceId
+                if let oldName = workspaceManager.descriptor(for: oldWorkspaceId)?.name {
+                    info[OmniWMFocusNotificationKey.oldWorkspaceName] = oldName
+                }
+            }
+            if let newWorkspaceId = currentWorkspaceId {
+                info[OmniWMFocusNotificationKey.newWorkspaceId] = newWorkspaceId
+                if let newName = workspaceManager.descriptor(for: newWorkspaceId)?.name {
+                    info[OmniWMFocusNotificationKey.newWorkspaceName] = newName
+                }
+            }
+
+            NotificationCenter.default.post(
+                name: .omniwmFocusedWorkspaceChanged,
+                object: self,
+                userInfo: info.isEmpty ? nil : info
+            )
+
+            lastNotifiedWorkspaceId = currentWorkspaceId
+        }
+
+        if currentMonitorId != lastNotifiedMonitorId {
+            var info: [AnyHashable: Any] = [:]
+            if let oldMonitorId = lastNotifiedMonitorId {
+                info[OmniWMFocusNotificationKey.oldMonitorIndex] = oldMonitorId.screenIndex
+                if let oldName = workspaceManager.monitors.first(where: { $0.id == oldMonitorId })?.name {
+                    info[OmniWMFocusNotificationKey.oldMonitorName] = oldName
+                }
+            }
+            if let newMonitorId = currentMonitorId {
+                info[OmniWMFocusNotificationKey.newMonitorIndex] = newMonitorId.screenIndex
+                if let newName = workspaceManager.monitors.first(where: { $0.id == newMonitorId })?.name {
+                    info[OmniWMFocusNotificationKey.newMonitorName] = newName
+                }
+            }
+
+            NotificationCenter.default.post(
+                name: .omniwmFocusedMonitorChanged,
+                object: self,
+                userInfo: info.isEmpty ? nil : info
+            )
+
+            lastNotifiedMonitorId = currentMonitorId
+        }
+    }
+
     func monitorForInteraction() -> Monitor? {
         if let focused = focusedHandle,
            let workspaceId = workspaceManager.workspace(for: focused),
@@ -947,7 +1081,7 @@ final class WMController {
         let allWindows = SkyLight.shared.queryAllVisibleWindows()
 
         let windowsOnMonitor = allWindows.filter { info in
-            let center = info.frame.center
+            let center = ScreenCoordinateSpace.toAppKit(rect: info.frame).center
             return monitor.visibleFrame.contains(center)
         }
 

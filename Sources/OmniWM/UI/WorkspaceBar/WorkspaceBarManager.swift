@@ -211,7 +211,7 @@ final class WorkspaceBarManager {
 
     private func updateBarFrameAndPosition(for monitor: Monitor, instance: MonitorBarInstance) {
         guard let settings else { return }
-        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.id.displayId }) else { return }
+        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) else { return }
 
         let resolved = settings.resolvedBarSettings(for: monitor.name)
         let fittingSize = instance.hostingView.fittingSize
@@ -298,7 +298,7 @@ final class WorkspaceBarManager {
     }
 
     private func menuBarHeight(for monitor: Monitor) -> Double {
-        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.id.displayId }) else {
+        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) else {
             return 28
         }
         let h = screen.frame.maxY - screen.visibleFrame.maxY

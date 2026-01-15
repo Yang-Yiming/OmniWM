@@ -52,7 +52,7 @@ final class MouseEventHandler {
             }
 
             let location = event.location
-            let screenLocation = NSScreen.screens.first.map { location.flipY(maxY: $0.frame.maxY) } ?? location
+            let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
 
             switch type {
             case .mouseMoved:
@@ -248,7 +248,7 @@ final class MouseEventHandler {
             vertical: CGFloat(controller.internalWorkspaceManager.gaps),
             outer: controller.internalWorkspaceManager.outerGaps
         )
-        let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
 
         if engine.interactiveResizeUpdate(
             currentLocation: location,
@@ -268,7 +268,7 @@ final class MouseEventHandler {
                let monitor = controller.internalWorkspaceManager.monitor(for: wsId)
             {
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-                let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+                let workingFrame = controller.insetWorkingFrame(for: monitor)
                 let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
                 if engine.interactiveMoveEnd(
                     at: location,
@@ -294,7 +294,7 @@ final class MouseEventHandler {
            let monitor = controller.internalWorkspaceManager.monitor(for: wsId)
         {
             var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             engine.interactiveResizeEnd(
@@ -362,7 +362,7 @@ final class MouseEventHandler {
         }
 
         guard let monitor = controller.monitorForInteraction() else { return }
-        let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportWidth = insetFrame.width
         let gap = CGFloat(controller.internalWorkspaceManager.gaps)
         let columns = engine.columns(in: wsId)
@@ -454,7 +454,7 @@ final class MouseEventHandler {
                     resetGestureState()
                     return
                 }
-                let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+                let insetFrame = controller.insetWorkingFrame(for: monitor)
                 let columns = engine.columns(in: wsId)
                 let gap = CGFloat(controller.internalWorkspaceManager.gaps)
 
@@ -554,7 +554,7 @@ final class MouseEventHandler {
             }
 
             guard let monitor = controller.monitorForInteraction() else { return }
-            let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let insetFrame = controller.insetWorkingFrame(for: monitor)
             let viewportWidth = insetFrame.width
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
             let columns = engine.columns(in: wsId)

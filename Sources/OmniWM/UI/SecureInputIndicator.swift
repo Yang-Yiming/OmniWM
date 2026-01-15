@@ -67,7 +67,9 @@ final class SecureInputIndicatorController {
     }
 
     private func updateFrame() {
-        guard let panel, let screen = NSScreen.main else { return }
+        guard let panel,
+              let screen = NSScreen.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main
+        else { return }
 
         let size = isExpanded ? expandedSize : iconSize
         let x = screen.frame.maxX - size.width - 20

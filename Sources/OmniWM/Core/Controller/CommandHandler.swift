@@ -56,6 +56,10 @@ final class CommandHandler {
             }
         case let .switchWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.switchWorkspace(index: index)
+        case .switchWorkspaceNext:
+            controller.internalWorkspaceNavigationHandler?.switchWorkspaceRelative(isNext: true)
+        case .switchWorkspacePrevious:
+            controller.internalWorkspaceNavigationHandler?.switchWorkspaceRelative(isNext: false)
         case let .moveToMonitor(direction):
             controller.internalWorkspaceNavigationHandler?.moveFocusedWindowToMonitor(direction: direction)
         case let .focusMonitor(direction):
@@ -143,6 +147,10 @@ final class CommandHandler {
             }
         case let .moveWorkspaceToMonitor(direction):
             controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitor(direction: direction)
+        case .moveWorkspaceToMonitorNext:
+            controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitorRelative(previous: false)
+        case .moveWorkspaceToMonitorPrevious:
+            controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitorRelative(previous: true)
         case .balanceSizes:
             switch layoutType {
             case .dwindle:
@@ -176,6 +184,8 @@ final class CommandHandler {
             }
         case let .summonWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.summonWorkspace(index: index)
+        case .workspaceBackAndForth:
+            controller.internalWorkspaceNavigationHandler?.workspaceBackAndForth()
         case .openWindowFinder:
             controller.openWindowFinder()
         case .raiseAllFloatingWindows:
@@ -223,7 +233,7 @@ final class CommandHandler {
 
         guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
         let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-        let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
 
         for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
             col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
@@ -274,7 +284,7 @@ final class CommandHandler {
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
 
             guard let previousWindow = engine.focusPrevious(
                 currentNodeId: state.selectedNodeId,
@@ -407,7 +417,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             engine.toggleColumnWidth(
@@ -439,7 +449,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             engine.toggleFullWidth(
@@ -471,7 +481,7 @@ final class CommandHandler {
         }
 
         let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-        let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
         guard let newNode = navigationAction(engine, currentNode, wsId, &state, workingFrame, gap) else {
             return
         }
@@ -514,7 +524,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             let oldFrames = engine.captureWindowFrames(in: wsId)
@@ -563,7 +573,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             let oldFrames = engine.captureWindowFrames(in: wsId)
@@ -649,7 +659,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             let oldFrames = engine.captureWindowFrames(in: wsId)
@@ -698,7 +708,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             if engine.consumeWindow(
@@ -742,7 +752,7 @@ final class CommandHandler {
             }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             if engine.expelWindow(
@@ -790,7 +800,7 @@ final class CommandHandler {
             guard let wsId = controller.activeWorkspace()?.id else { return }
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
             engine.balanceSizes(

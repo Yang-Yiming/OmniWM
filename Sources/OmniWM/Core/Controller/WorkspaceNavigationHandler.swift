@@ -94,6 +94,27 @@ final class WorkspaceNavigationHandler {
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
     }
 
+    func moveCurrentWorkspaceToMonitorRelative(previous: Bool) {
+        guard let controller else { return }
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        let targetMonitor: Monitor? = if previous {
+            controller.internalWorkspaceManager.previousMonitor(from: currentMonitorId)
+        } else {
+            controller.internalWorkspaceManager.nextMonitor(from: currentMonitorId)
+        }
+
+        guard let targetMonitor, targetMonitor.id != currentMonitorId else { return }
+        guard controller.internalWorkspaceManager.moveWorkspaceToMonitor(wsId, to: targetMonitor.id) else { return }
+
+        controller.internalPreviousMonitorId = currentMonitorId
+        controller.internalActiveMonitorId = targetMonitor.id
+
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+    }
+
     func moveColumnToMonitorInDirection(_ direction: Direction) {
         guard let controller else { return }
         guard let engine = controller.internalNiriEngine else { return }
@@ -157,11 +178,18 @@ final class WorkspaceNavigationHandler {
         guard let controller else { return }
         controller.internalBorderManager.hideBorder()
 
+        let targetName = String(max(0, index) + 1)
+        if let currentWorkspace = controller.activeWorkspace(),
+           currentWorkspace.name == targetName
+        {
+            workspaceBackAndForth()
+            return
+        }
+
         if let currentWorkspace = controller.activeWorkspace() {
             saveNiriViewportState(for: currentWorkspace.id)
         }
 
-        let targetName = String(max(0, index) + 1)
         guard let result = controller.internalWorkspaceManager.focusWorkspace(named: targetName) else { return }
 
         let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
@@ -172,6 +200,46 @@ final class WorkspaceNavigationHandler {
 
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[result.workspace.id]
             ?? controller.internalWorkspaceManager.entries(in: result.workspace.id).first?.handle
+
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        if let handle = controller.internalFocusedHandle {
+            controller.focusWindow(handle)
+        }
+    }
+
+    func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
+        guard let controller else { return }
+        controller.internalBorderManager.hideBorder()
+
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
+        guard let currentWorkspace = controller.activeWorkspace() else { return }
+
+        let targetWorkspace: WorkspaceDescriptor? = if isNext {
+            controller.internalWorkspaceManager.nextWorkspaceInOrder(
+                on: currentMonitorId,
+                from: currentWorkspace.id,
+                wrapAround: wrapAround
+            )
+        } else {
+            controller.internalWorkspaceManager.previousWorkspaceInOrder(
+                on: currentMonitorId,
+                from: currentWorkspace.id,
+                wrapAround: wrapAround
+            )
+        }
+
+        guard let targetWorkspace else { return }
+
+        saveNiriViewportState(for: currentWorkspace.id)
+        guard controller.internalWorkspaceManager.setActiveWorkspace(targetWorkspace.id, on: currentMonitorId) else {
+            return
+        }
+
+        controller.internalActiveMonitorId = currentMonitorId
+
+        controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWorkspace.id]
+            ?? controller.internalWorkspaceManager.entries(in: targetWorkspace.id).first?.handle
 
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
         if let handle = controller.internalFocusedHandle {
@@ -216,6 +284,36 @@ final class WorkspaceNavigationHandler {
 
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWsId]
             ?? controller.internalWorkspaceManager.entries(in: targetWsId).first?.handle
+
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        if let handle = controller.internalFocusedHandle {
+            controller.focusWindow(handle)
+        }
+    }
+
+    func workspaceBackAndForth() {
+        guard let controller else { return }
+        controller.internalBorderManager.hideBorder()
+
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
+
+        guard let prevWorkspace = controller.internalWorkspaceManager.previousWorkspace(on: currentMonitorId) else {
+            return
+        }
+
+        if let currentWorkspace = controller.activeWorkspace() {
+            saveNiriViewportState(for: currentWorkspace.id)
+        }
+
+        guard controller.internalWorkspaceManager.setActiveWorkspace(prevWorkspace.id, on: currentMonitorId) else {
+            return
+        }
+
+        controller.internalActiveMonitorId = currentMonitorId
+
+        controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[prevWorkspace.id]
+            ?? controller.internalWorkspaceManager.entries(in: prevWorkspace.id).first?.handle
 
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
         if let handle = controller.internalFocusedHandle {
@@ -408,6 +506,10 @@ final class WorkspaceNavigationHandler {
         }
 
         controller.internalWorkspaceManager.setWorkspace(for: handle, to: target.id)
+
+        if let targetMonitor = controller.internalWorkspaceManager.monitorForWorkspace(target.id) {
+            _ = controller.internalWorkspaceManager.setActiveWorkspace(target.id, on: targetMonitor.id)
+        }
 
         if target.id != controller.activeWorkspace()?.id, let currentWorkspaceId {
             if let engine = controller.internalNiriEngine {

@@ -157,7 +157,9 @@ final class AXManager {
     }
 
     func applyPositionsViaSkyLight(_ positions: [(windowId: Int, origin: CGPoint)]) {
-        let batchPositions = positions.map { (windowId: UInt32($0.windowId), origin: $0.origin) }
+        let batchPositions = positions.map {
+            (windowId: UInt32($0.windowId), origin: ScreenCoordinateSpace.toWindowServer(point: $0.origin))
+        }
         SkyLight.shared.batchMoveWindows(batchPositions)
     }
 

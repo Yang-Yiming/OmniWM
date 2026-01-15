@@ -43,17 +43,20 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
     }
 
     private func menuLocation(for position: MenuAnywherePosition) -> NSPoint {
+        let mouseLocation = NSEvent.mouseLocation
         switch position {
         case .cursor:
-            return NSEvent.mouseLocation
+            return mouseLocation
         case .centered:
-            guard let screen = NSScreen.main else { return NSEvent.mouseLocation }
+            guard let screen = NSScreen.screen(containing: mouseLocation) ?? NSScreen.main
+            else { return mouseLocation }
             return NSPoint(
                 x: screen.frame.midX,
                 y: screen.frame.midY
             )
         case .menuBarLocation:
-            guard let screen = NSScreen.main else { return NSEvent.mouseLocation }
+            guard let screen = NSScreen.screen(containing: mouseLocation) ?? NSScreen.main
+            else { return mouseLocation }
             return NSPoint(
                 x: screen.frame.origin.x + 100,
                 y: screen.frame.maxY - 22

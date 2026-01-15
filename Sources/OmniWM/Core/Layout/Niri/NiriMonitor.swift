@@ -66,13 +66,13 @@ final class NiriMonitor {
 
     init(monitor: Monitor, orientation: Monitor.Orientation? = nil) {
         id = monitor.id
-        displayId = monitor.id.displayId
+        displayId = monitor.displayId
         outputName = monitor.name
         frame = monitor.frame
         visibleFrame = monitor.visibleFrame
         self.orientation = orientation ?? monitor.autoOrientation
 
-        if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.id.displayId }) {
+        if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
             scale = screen.backingScaleFactor
         } else {
             scale = 2.0

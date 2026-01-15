@@ -22,6 +22,17 @@ enum DefaultHotkeyBindings {
             ))
         }
 
+        bindings.append(HotkeyBinding(
+            id: "workspaceBackAndForth",
+            command: .workspaceBackAndForth,
+            binding: KeyBinding(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey | controlKey))
+        ))
+
+        bindings.append(contentsOf: [
+            HotkeyBinding(id: "switchWorkspace.next", command: .switchWorkspaceNext, binding: .unassigned),
+            HotkeyBinding(id: "switchWorkspace.previous", command: .switchWorkspacePrevious, binding: .unassigned)
+        ])
+
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "focus.left",
@@ -238,6 +249,15 @@ enum DefaultHotkeyBindings {
             HotkeyBinding(
                 id: "moveWorkspaceToMonitor.down",
                 command: .moveWorkspaceToMonitor(.down),
+                binding: .unassigned
+            )
+        ])
+
+        bindings.append(contentsOf: [
+            HotkeyBinding(id: "moveWorkspaceToMonitor.next", command: .moveWorkspaceToMonitorNext, binding: .unassigned),
+            HotkeyBinding(
+                id: "moveWorkspaceToMonitor.previous",
+                command: .moveWorkspaceToMonitorPrevious,
                 binding: .unassigned
             )
         ])

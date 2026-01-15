@@ -64,7 +64,8 @@ enum AXWindowService {
 
     @MainActor
     static func fastFrame(_ window: AXWindowRef) -> CGRect? {
-        SkyLight.shared.getWindowBounds(UInt32(windowId(window)))
+        guard let frame = SkyLight.shared.getWindowBounds(UInt32(windowId(window))) else { return nil }
+        return ScreenCoordinateSpace.toAppKit(rect: frame)
     }
 
     @MainActor
@@ -83,32 +84,12 @@ enum AXWindowService {
         guard err1 == .success, err2 == .success else { throw .cannotSetFrame }
     }
 
-    nonisolated(unsafe) private static var _cachedGlobalFrame: CGRect?
-    nonisolated(unsafe) private static var _screenConfigurationToken: Int = 0
-
-    private static var globalFrame: CGRect {
-        let currentToken = NSScreen.screens.hashValue
-        if let cached = _cachedGlobalFrame, currentToken == _screenConfigurationToken {
-            return cached
-        }
-        let frame = NSScreen.screens.reduce(into: CGRect.null) { result, screen in
-            result = result.union(screen.frame)
-        }
-        _cachedGlobalFrame = frame
-        _screenConfigurationToken = currentToken
-        return frame
-    }
-
     private static func convertFromAX(_ rect: CGRect) -> CGRect {
-        let global = globalFrame
-        let flippedY = global.maxY - (rect.origin.y + rect.size.height)
-        return CGRect(origin: CGPoint(x: rect.origin.x, y: flippedY), size: rect.size)
+        ScreenCoordinateSpace.toAppKit(rect: rect)
     }
 
     private static func convertToAX(_ rect: CGRect) -> CGRect {
-        let global = globalFrame
-        let flippedY = global.maxY - (rect.origin.y + rect.size.height)
-        return CGRect(origin: CGPoint(x: rect.origin.x, y: flippedY), size: rect.size)
+        ScreenCoordinateSpace.toWindowServer(rect: rect)
     }
 
     static func subrole(_ window: AXWindowRef) -> String? {

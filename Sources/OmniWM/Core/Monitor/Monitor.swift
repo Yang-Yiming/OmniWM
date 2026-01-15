@@ -3,22 +3,24 @@ import CoreGraphics
 
 struct Monitor: Identifiable, Hashable {
     struct ID: Hashable {
-        let displayId: CGDirectDisplayID
+        let screenIndex: Int
 
-        static let fallback = ID(displayId: 0)
+        static let fallback = ID(screenIndex: 0)
     }
 
     let id: ID
+    let displayId: CGDirectDisplayID
     let frame: CGRect
     let visibleFrame: CGRect
 
     let name: String
 
     static func current() -> [Monitor] {
-        NSScreen.screens.compactMap { screen -> Monitor? in
+        NSScreen.screens.enumerated().compactMap { idx, screen -> Monitor? in
             guard let displayId = screen.displayId else { return nil }
             return Monitor(
-                id: ID(displayId: displayId),
+                id: ID(screenIndex: idx + 1),
+                displayId: displayId,
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame,
                 name: screen.localizedName
@@ -28,8 +30,10 @@ struct Monitor: Identifiable, Hashable {
 
     static func fallback() -> Monitor {
         let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let displayId = NSScreen.main?.displayId ?? CGMainDisplayID()
         return Monitor(
             id: .fallback,
+            displayId: displayId,
             frame: frame,
             visibleFrame: frame,
             name: "Fallback"
@@ -48,7 +52,25 @@ extension Monitor {
     }
 
     var isMain: Bool {
-        frame.minX == 0 && frame.minY == 0
+        let mainDisplayId = CGMainDisplayID()
+        if mainDisplayId != 0 {
+            return displayId == mainDisplayId
+        }
+        if let screen = NSScreen.screens.first(where: { $0.frame.origin == .zero }),
+           let displayId = screen.displayId {
+            return self.displayId == displayId
+        }
+        return frame.minX == 0 && frame.minY == 0
+    }
+
+    var workspaceAnchorPoint: CGPoint {
+        frame.topLeftCorner
+    }
+
+    func relation(to monitor: Monitor) -> Orientation {
+        let otherYRange = monitor.frame.minY ... monitor.frame.maxY
+        let myYRange = frame.minY ... frame.maxY
+        return myYRange.overlaps(otherYRange) ? .horizontal : .vertical
     }
 
     static func sortedMonitors(_ monitors: [Monitor]) -> [Monitor] {
