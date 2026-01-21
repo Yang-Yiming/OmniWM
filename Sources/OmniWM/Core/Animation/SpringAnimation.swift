@@ -1,23 +1,107 @@
+import AppKit
 import Foundation
 import SwiftUI
 
 struct SpringConfig {
+    let response: Double?
+    let dampingFraction: Double?
+    let blendDuration: Double
     let duration: Double
     let bounce: Double
     let epsilon: Double
     let velocityEpsilon: Double
 
     init(duration: Double = 0.2, bounce: Double = 0.0, epsilon: Double = 0.5, velocityEpsilon: Double = 10.0) {
+        response = nil
+        dampingFraction = nil
+        blendDuration = 0.0
         self.duration = max(0.1, duration)
         self.bounce = min(max(bounce, -1.0), 1.0)
         self.epsilon = max(0, epsilon)
         self.velocityEpsilon = max(0, velocityEpsilon)
     }
 
-    static let `default` = SpringConfig()
+    init(
+        response: Double,
+        dampingFraction: Double,
+        blendDuration: Double = 0.0,
+        epsilon: Double = 0.5,
+        velocityEpsilon: Double = 10.0
+    ) {
+        self.response = max(0, response)
+        self.dampingFraction = min(max(dampingFraction, 0), 1)
+        self.blendDuration = max(0, blendDuration)
+        duration = max(0.1, response)
+        bounce = 0.0
+        self.epsilon = max(0, epsilon)
+        self.velocityEpsilon = max(0, velocityEpsilon)
+    }
+
+    static let snappy = SpringConfig(
+        response: 0.22,
+        dampingFraction: 0.95,
+        blendDuration: 0.0,
+        epsilon: 0.5,
+        velocityEpsilon: 8.0
+    )
+    static let balanced = SpringConfig(
+        response: 0.30,
+        dampingFraction: 0.88,
+        blendDuration: 0.0,
+        epsilon: 0.6,
+        velocityEpsilon: 10.0
+    )
+    static let gentle = SpringConfig(
+        response: 0.45,
+        dampingFraction: 0.78,
+        blendDuration: 0.0,
+        epsilon: 0.8,
+        velocityEpsilon: 12.0
+    )
+    static let reducedMotion = SpringConfig(
+        response: 0.18,
+        dampingFraction: 0.98,
+        blendDuration: 0.0,
+        epsilon: 0.4,
+        velocityEpsilon: 6.0
+    )
+
+    static let `default` = SpringConfig.snappy
+
+    func resolvedForReduceMotion(_ reduceMotion: Bool) -> SpringConfig {
+        guard reduceMotion else { return self }
+        return SpringConfig.reducedMotion.with(
+            epsilon: epsilon,
+            velocityEpsilon: velocityEpsilon
+        )
+    }
+
+    func with(epsilon: Double, velocityEpsilon: Double) -> SpringConfig {
+        if let response, let dampingFraction {
+            return SpringConfig(
+                response: response,
+                dampingFraction: dampingFraction,
+                blendDuration: blendDuration,
+                epsilon: epsilon,
+                velocityEpsilon: velocityEpsilon
+            )
+        }
+        return SpringConfig(
+            duration: duration,
+            bounce: bounce,
+            epsilon: epsilon,
+            velocityEpsilon: velocityEpsilon
+        )
+    }
 
     var appleSpring: Spring {
-        Spring(duration: duration, bounce: bounce)
+        if let response, let dampingFraction {
+            return Spring(
+                response: response,
+                dampingRatio: dampingFraction
+            )
+        }
+        return Spring(duration: duration, bounce: bounce)
     }
 }
 
@@ -43,11 +127,15 @@ final class SpringAnimation {
         self.from = from
         target = to
         self.startTime = startTime
-        self.config = config
         self.displayRefreshRate = displayRefreshRate
         self.initialVelocity = initialVelocity
 
-        spring = config.appleSpring
+        let resolvedConfig = config.resolvedForReduceMotion(
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+        self.config = resolvedConfig
+
+        spring = resolvedConfig.appleSpring
         displacement = to - from
     }
 

@@ -633,6 +633,9 @@ final class CommandHandler {
             engine.toggleFullscreen(windowNode, in: wsId, state: &state)
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
             controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            if state.viewOffsetPixels.isAnimating {
+                controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+            }
         }
     }
 
@@ -799,6 +802,9 @@ final class CommandHandler {
 
             if engine.toggleColumnTabbed(in: wsId, state: state) {
                 controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+                if engine.hasAnyWindowAnimationsRunning(in: wsId) {
+                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+                }
             }
         }
     }
@@ -820,6 +826,9 @@ final class CommandHandler {
                 gaps: gaps
             )
             controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            if engine.hasAnyColumnAnimationsRunning(in: wsId) {
+                controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+            }
         }
     }
 

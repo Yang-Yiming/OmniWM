@@ -127,9 +127,7 @@ final class NiriLayoutEngine {
     var resizeConfiguration = ResizeConfiguration.default
     var moveConfiguration = MoveConfiguration.default
 
-    var windowMovementAnimationConfig: SpringConfig = .init(
-        duration: 0.35,
-        bounce: 0.0,
+    var windowMovementAnimationConfig: SpringConfig = .balanced.with(
         epsilon: 0.0001,
         velocityEpsilon: 0.01
     )
@@ -683,6 +681,14 @@ final class NiriLayoutEngine {
             if column.tickWidthAnimation(at: time) { anyRunning = true }
         }
         return anyRunning
+    }
+
+    func tickWorkspaceSwitchAnimation(for workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
+        guard let monitorId = monitorContaining(workspace: workspaceId),
+              let monitor = monitors[monitorId] else {
+            return false
+        }
+        return monitor.tickWorkspaceSwitchAnimation(at: time)
     }
 
     func hasAnyColumnAnimationsRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {

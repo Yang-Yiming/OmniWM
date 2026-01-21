@@ -9,6 +9,32 @@ final class WorkspaceNavigationHandler {
         self.controller = controller
     }
 
+    private func startWorkspaceSwitchAnimation(
+        from previousWorkspace: WorkspaceDescriptor?,
+        to targetWorkspace: WorkspaceDescriptor,
+        monitor: Monitor
+    ) -> Bool {
+        guard let controller,
+              controller.internalSettings.animationsEnabled,
+              controller.internalSettings.layoutType(for: targetWorkspace.name) != .dwindle,
+              let engine = controller.internalNiriEngine else {
+            return false
+        }
+        if previousWorkspace?.id == targetWorkspace.id {
+            return false
+        }
+
+        let niriMonitor = engine.monitor(for: monitor.id)
+            ?? engine.ensureMonitor(for: monitor.id, monitor: monitor)
+        niriMonitor.workspaceOrder = controller.internalWorkspaceManager.workspaces(on: monitor.id).map(\.id)
+        niriMonitor.animationClock = controller.animationClock
+        if let previousWorkspace {
+            niriMonitor.activateWorkspace(previousWorkspace.id)
+        }
+        niriMonitor.activateWorkspaceAnimated(targetWorkspace.id)
+        return niriMonitor.isWorkspaceSwitchAnimating
+    }
+
     func focusMonitorInDirection(_ direction: Direction) {
         guard let controller else { return }
         guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
@@ -232,6 +258,7 @@ final class WorkspaceNavigationHandler {
         }
 
         guard let result = controller.internalWorkspaceManager.focusWorkspace(named: targetName) else { return }
+        let previousWorkspaceOnTarget = controller.internalWorkspaceManager.previousWorkspace(on: result.monitor.id)
 
         let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
         if let currentMonitorId, currentMonitorId != result.monitor.id {
@@ -242,7 +269,15 @@ final class WorkspaceNavigationHandler {
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[result.workspace.id]
             ?? controller.internalWorkspaceManager.entries(in: result.workspace.id).first?.handle
 
-        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        let workspaceSwitchAnimated = startWorkspaceSwitchAnimation(
+            from: previousWorkspaceOnTarget,
+            to: result.workspace,
+            monitor: result.monitor
+        )
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        if workspaceSwitchAnimated {
+            controller.internalLayoutRefreshController?.startScrollAnimation(for: result.workspace.id)
+        }
         if let handle = controller.internalFocusedHandle {
             controller.focusWindow(handle)
         }
@@ -255,6 +290,7 @@ final class WorkspaceNavigationHandler {
         guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
         else { return }
         guard let currentWorkspace = controller.activeWorkspace() else { return }
+        let previousWorkspace = currentWorkspace
 
         let targetWorkspace: WorkspaceDescriptor? = if isNext {
             controller.internalWorkspaceManager.nextWorkspaceInOrder(
@@ -282,7 +318,19 @@ final class WorkspaceNavigationHandler {
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWorkspace.id]
             ?? controller.internalWorkspaceManager.entries(in: targetWorkspace.id).first?.handle
 
-        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        let monitor = controller.internalWorkspaceManager.monitor(for: targetWorkspace.id)
+            ?? controller.internalWorkspaceManager.monitors.first(where: { $0.id == currentMonitorId })
+        let workspaceSwitchAnimated = monitor.flatMap { monitor in
+            startWorkspaceSwitchAnimation(
+                from: previousWorkspace,
+                to: targetWorkspace,
+                monitor: monitor
+            )
+        } ?? false
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        if workspaceSwitchAnimated {
+            controller.internalLayoutRefreshController?.startScrollAnimation(for: targetWorkspace.id)
+        }
         if let handle = controller.internalFocusedHandle {
             controller.focusWindow(handle)
         }
@@ -340,6 +388,7 @@ final class WorkspaceNavigationHandler {
 
         guard let targetWsId = controller.internalWorkspaceManager.workspaceId(named: targetName) else { return }
         guard let targetMonitor = controller.internalWorkspaceManager.monitorForWorkspace(targetWsId) else { return }
+        let previousWorkspaceOnTarget = controller.internalWorkspaceManager.activeWorkspace(on: targetMonitor.id)
 
         if let currentWorkspace = controller.activeWorkspace() {
             saveNiriViewportState(for: currentWorkspace.id)
@@ -365,7 +414,18 @@ final class WorkspaceNavigationHandler {
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWsId]
             ?? controller.internalWorkspaceManager.entries(in: targetWsId).first?.handle
 
-        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        let targetWorkspace = controller.internalWorkspaceManager.descriptor(for: targetWsId)
+        let workspaceSwitchAnimated = targetWorkspace.map { targetWorkspace in
+            startWorkspaceSwitchAnimation(
+                from: previousWorkspaceOnTarget,
+                to: targetWorkspace,
+                monitor: targetMonitor
+            )
+        } ?? false
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        if workspaceSwitchAnimated {
+            controller.internalLayoutRefreshController?.startScrollAnimation(for: targetWsId)
+        }
         if let handle = controller.internalFocusedHandle {
             controller.focusWindow(handle)
         }
@@ -382,7 +442,8 @@ final class WorkspaceNavigationHandler {
             return
         }
 
-        if let currentWorkspace = controller.activeWorkspace() {
+        let currentWorkspace = controller.activeWorkspace()
+        if let currentWorkspace {
             saveNiriViewportState(for: currentWorkspace.id)
         }
 
@@ -395,7 +456,19 @@ final class WorkspaceNavigationHandler {
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[prevWorkspace.id]
             ?? controller.internalWorkspaceManager.entries(in: prevWorkspace.id).first?.handle
 
-        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        let monitor = controller.internalWorkspaceManager.monitor(for: prevWorkspace.id)
+            ?? controller.internalWorkspaceManager.monitors.first(where: { $0.id == currentMonitorId })
+        let workspaceSwitchAnimated = monitor.flatMap { monitor in
+            startWorkspaceSwitchAnimation(
+                from: currentWorkspace,
+                to: prevWorkspace,
+                monitor: monitor
+            )
+        } ?? false
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        if workspaceSwitchAnimated {
+            controller.internalLayoutRefreshController?.startScrollAnimation(for: prevWorkspace.id)
+        }
         if let handle = controller.internalFocusedHandle {
             controller.focusWindow(handle)
         }

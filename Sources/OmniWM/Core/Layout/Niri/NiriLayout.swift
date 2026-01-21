@@ -40,6 +40,27 @@ struct LayoutResult {
 }
 
 extension NiriLayoutEngine {
+    private func workspaceSwitchOffset(
+        workspaceId: WorkspaceDescriptor.ID,
+        monitorFrame: CGRect,
+        time: TimeInterval
+    ) -> CGFloat {
+        guard let monitorId = monitorContaining(workspace: workspaceId),
+              let monitor = monitors[monitorId],
+              let workspaceIndex = monitor.workspaceOrder.firstIndex(of: workspaceId) else {
+            return 0
+        }
+
+        let renderIndex = monitor.workspaceRenderIndex(at: time)
+        let delta = Double(workspaceIndex) - renderIndex
+        if abs(delta) < 0.001 {
+            return 0
+        }
+
+        let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
+        return CGFloat(delta) * monitorFrame.width * reduceMotionScale
+    }
+
     func calculateLayout(
         state: ViewportState,
         workspaceId: WorkspaceDescriptor.ID,
@@ -157,6 +178,12 @@ extension NiriLayoutEngine {
         let horizontalGap = gaps.horizontal
 
         let time = animationTime ?? CACurrentMediaTime()
+        let workspaceOffset = workspaceSwitchOffset(
+            workspaceId: workspaceId,
+            monitorFrame: monitorFrame,
+            time: time
+        )
+        let offsetScreenRect = viewFrame.offsetBy(dx: workspaceOffset, dy: 0)
 
         for column in cols {
             if column.cachedWidth <= 0 {
@@ -203,7 +230,7 @@ extension NiriLayoutEngine {
             if isVisible {
                 usedIndices.insert(idx)
 
-                let screenX = workingFrame.origin.x + colX - viewPos + columnRenderOffset.x
+                let screenX = workingFrame.origin.x + colX - viewPos + columnRenderOffset.x + workspaceOffset
                 let width = colWidth.roundedToPhysicalPixel(scale: effectiveScale)
 
                 let columnRect = CGRect(
@@ -216,7 +243,7 @@ extension NiriLayoutEngine {
                 layoutColumn(
                     column: cols[idx],
                     columnRect: columnRect,
-                    screenRect: viewFrame,
+                    screenRect: offsetScreenRect,
                     verticalGap: gaps.vertical,
                     scale: effectiveScale,
                     columnRenderOffset: columnRenderOffset,
@@ -246,12 +273,12 @@ extension NiriLayoutEngine {
                     screenY: viewFrame.maxY - 2,
                     edgeFrame: viewFrame,
                     scale: effectiveScale
-                ).roundedToPhysicalPixels(scale: effectiveScale)
+                ).offsetBy(dx: workspaceOffset, dy: 0).roundedToPhysicalPixels(scale: effectiveScale)
 
                 layoutColumn(
                     column: column,
                     columnRect: hiddenRect,
-                    screenRect: viewFrame,
+                    screenRect: offsetScreenRect,
                     verticalGap: gaps.vertical,
                     scale: effectiveScale,
                     columnRenderOffset: .zero,
@@ -284,6 +311,12 @@ extension NiriLayoutEngine {
         let verticalGap = gaps.vertical
 
         let time = animationTime ?? CACurrentMediaTime()
+        let workspaceOffset = workspaceSwitchOffset(
+            workspaceId: workspaceId,
+            monitorFrame: monitorFrame,
+            time: time
+        )
+        let offsetScreenRect = viewFrame.offsetBy(dx: workspaceOffset, dy: 0)
 
         for row in rows {
             if row.cachedHeight <= 0 {
@@ -333,7 +366,7 @@ extension NiriLayoutEngine {
                 let height = rowHeight.roundedToPhysicalPixel(scale: effectiveScale)
 
                 let rowRect = CGRect(
-                    x: workingFrame.origin.x,
+                    x: workingFrame.origin.x + workspaceOffset,
                     y: screenY,
                     width: workingFrame.width,
                     height: height
@@ -342,7 +375,7 @@ extension NiriLayoutEngine {
                 layoutRow(
                     row: rows[idx],
                     rowRect: rowRect,
-                    screenRect: viewFrame,
+                    screenRect: offsetScreenRect,
                     horizontalGap: gaps.horizontal,
                     scale: effectiveScale,
                     rowRenderOffset: rowRenderOffset,
@@ -367,12 +400,12 @@ extension NiriLayoutEngine {
                     screenRect: viewFrame,
                     width: workingFrame.width,
                     height: hiddenHeight
-                ).roundedToPhysicalPixels(scale: effectiveScale)
+                ).offsetBy(dx: workspaceOffset, dy: 0).roundedToPhysicalPixels(scale: effectiveScale)
 
                 layoutRow(
                     row: row,
                     rowRect: hiddenRect,
-                    screenRect: viewFrame,
+                    screenRect: offsetScreenRect,
                     horizontalGap: gaps.horizontal,
                     scale: effectiveScale,
                     rowRenderOffset: .zero,

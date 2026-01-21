@@ -31,7 +31,10 @@ final class NiriMonitor {
 
     var animationClock: AnimationClock?
 
-    var workspaceSwitchConfig: SpringConfig = .init(duration: 0.3, bounce: 0.0)
+    var workspaceSwitchConfig: SpringConfig = .balanced.with(
+        epsilon: 0.01,
+        velocityEpsilon: 0.05
+    )
 
     var resolvedSettings: ResolvedNiriSettings?
 
@@ -160,12 +163,12 @@ extension NiriMonitor {
             return
         }
 
-        let currentRenderIdx = workspaceRenderIndex()
+        let now = animationClock?.now() ?? CACurrentMediaTime()
+        let currentRenderIdx = workspaceRenderIndex(at: now)
 
         previousWorkspaceId = activeWorkspaceId
         activeWorkspaceIdx = targetIdx
 
-        let now = animationClock?.now() ?? CACurrentMediaTime()
         let animation = SpringAnimation(
             from: currentRenderIdx,
             to: Double(targetIdx),
@@ -175,9 +178,9 @@ extension NiriMonitor {
         workspaceSwitch = .animation(animation)
     }
 
-    func workspaceRenderIndex() -> Double {
+    func workspaceRenderIndex(at time: TimeInterval = CACurrentMediaTime()) -> Double {
         if let switch_ = workspaceSwitch {
-            return switch_.currentIndex()
+            return switch_.currentIndex(at: time)
         }
         return Double(activeWorkspaceIdx)
     }

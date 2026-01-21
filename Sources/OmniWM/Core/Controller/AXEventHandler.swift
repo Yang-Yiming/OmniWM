@@ -160,6 +160,29 @@ final class AXEventHandler: CGSEventDelegate {
         let affectedWorkspaceId = entry?.workspaceId
         let removedHandle = entry?.handle
 
+        if let entry,
+           let wsId = affectedWorkspaceId,
+           let monitor = controller.internalWorkspaceManager.monitor(for: wsId),
+           controller.internalWorkspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
+           controller.internalSettings.animationsEnabled,
+           let workspaceName = controller.internalWorkspaceManager.descriptor(for: wsId)?.name,
+           controller.internalSettings.layoutType(for: workspaceName) != .dwindle
+        {
+            let shouldAnimate = if let engine = controller.internalNiriEngine,
+                                    let windowNode = engine.findNode(for: entry.handle)
+            {
+                !windowNode.isHiddenInTabbedMode
+            } else {
+                true
+            }
+            if shouldAnimate {
+                controller.internalLayoutRefreshController?.startWindowCloseAnimation(
+                    entry: entry,
+                    monitor: monitor
+                )
+            }
+        }
+
         let needsFocusRecovery = removedHandle?.id == controller.internalFocusedHandle?.id
 
         if let removed = removedHandle {

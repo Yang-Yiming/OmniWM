@@ -15,6 +15,7 @@ final class LayoutRefreshController {
     private var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
     private var dwindleAnimationByDisplay: [CGDirectDisplayID: (WorkspaceDescriptor.ID, Monitor)] = [:]
     private var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
+    private var closingAnimationsByDisplay: [CGDirectDisplayID: [Int: ClosingAnimation]] = [:]
     private var screenChangeObserver: NSObjectProtocol?
     private var hasCompletedInitialRefresh: Bool = false
 
@@ -29,6 +30,36 @@ final class LayoutRefreshController {
             Task { @MainActor in
                 self?.handleScreenParametersChanged()
             }
+        }
+    }
+
+    private struct ClosingAnimation {
+        let windowId: Int
+        let axRef: AXWindowRef
+        let fromFrame: CGRect
+        let displacement: CGPoint
+        let animation: SpringAnimation
+
+        func progress(at time: TimeInterval) -> Double {
+            animation.value(at: time)
+        }
+
+        func isComplete(at time: TimeInterval) -> Bool {
+            animation.isComplete(at: time)
+        }
+
+        func currentAlpha(at time: TimeInterval) -> CGFloat {
+            let clamped = min(max(progress(at: time), 0), 1)
+            return CGFloat(1.0 - clamped)
+        }
+
+        func currentFrame(at time: TimeInterval) -> CGRect {
+            let clamped = min(max(progress(at: time), 0), 1)
+            let offset = CGPoint(
+                x: displacement.x * CGFloat(clamped),
+                y: displacement.y * CGFloat(clamped)
+            )
+            return fromFrame.offsetBy(dx: offset.x, dy: offset.y)
         }
     }
 
@@ -53,6 +84,8 @@ final class LayoutRefreshController {
         if let link = displayLinksByDisplay.removeValue(forKey: displayId) {
             link.invalidate()
         }
+
+        closingAnimationsByDisplay.removeValue(forKey: displayId)
 
         if migrateAnimations {
             if let wsId = scrollAnimationByDisplay.removeValue(forKey: displayId) {
@@ -83,6 +116,7 @@ final class LayoutRefreshController {
 
         tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
         tickDwindleAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
+        tickClosingAnimations(targetTime: displayLink.targetTimestamp, displayId: displayId)
     }
 
     func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
@@ -135,6 +169,41 @@ final class LayoutRefreshController {
         }
     }
 
+    func startWindowCloseAnimation(entry: WindowModel.Entry, monitor: Monitor) {
+        guard let controller else { return }
+        guard controller.internalSettings.animationsEnabled else { return }
+        guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
+
+        let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
+        let closeOffset = 12.0 * reduceMotionScale
+        let displacement = CGPoint(x: 0, y: -closeOffset)
+
+        let now = CACurrentMediaTime()
+        let refreshRate = refreshRateByDisplay[monitor.displayId] ?? 60.0
+        let animation = SpringAnimation(
+            from: 0,
+            to: 1,
+            startTime: now,
+            config: .balanced.with(epsilon: 0.01, velocityEpsilon: 0.1),
+            displayRefreshRate: refreshRate
+        )
+
+        var animations = closingAnimationsByDisplay[monitor.displayId] ?? [:]
+        guard animations[entry.windowId] == nil else { return }
+        animations[entry.windowId] = ClosingAnimation(
+            windowId: entry.windowId,
+            axRef: entry.axRef,
+            fromFrame: frame,
+            displacement: displacement,
+            animation: animation
+        )
+        closingAnimationsByDisplay[monitor.displayId] = animations
+
+        if let displayLink = getOrCreateDisplayLink(for: monitor.displayId) {
+            displayLink.add(to: .main, forMode: .common)
+        }
+    }
+
     func stopDwindleAnimation(for displayId: CGDirectDisplayID) {
         dwindleAnimationByDisplay.removeValue(forKey: displayId)
         stopDisplayLinkIfIdle(for: displayId)
@@ -153,7 +222,10 @@ final class LayoutRefreshController {
     }
 
     private func stopDisplayLinkIfIdle(for displayId: CGDirectDisplayID) {
-        if scrollAnimationByDisplay[displayId] == nil && dwindleAnimationByDisplay[displayId] == nil {
+        if scrollAnimationByDisplay[displayId] == nil,
+           dwindleAnimationByDisplay[displayId] == nil,
+           closingAnimationsByDisplay[displayId].map({ $0.isEmpty }) ?? true
+        {
             displayLinksByDisplay[displayId]?.remove(from: .main, forMode: .common)
         }
     }
@@ -213,6 +285,7 @@ final class LayoutRefreshController {
         let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
         let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
         let columnAnimationsRunning = engine.tickAllColumnAnimations(in: wsId, at: targetTime)
+        let workspaceSwitchRunning = engine.tickWorkspaceSwitchAnimation(for: wsId, at: targetTime)
 
         guard let monitor = controller.internalWorkspaceManager.monitors.first(where: { $0.displayId == displayId }) else {
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
@@ -228,13 +301,46 @@ final class LayoutRefreshController {
             animationTime: targetTime
         )
 
-        let animationsOngoing = viewportAnimationRunning || windowAnimationsRunning || columnAnimationsRunning
+        let animationsOngoing = viewportAnimationRunning
+            || windowAnimationsRunning
+            || columnAnimationsRunning
+            || workspaceSwitchRunning
 
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
 
         if !animationsOngoing {
             finalizeAnimation()
             stopScrollAnimation(for: displayId)
+        }
+    }
+
+    private func tickClosingAnimations(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
+        guard let animations = closingAnimationsByDisplay[displayId], !animations.isEmpty else {
+            return
+        }
+
+        var remaining: [Int: ClosingAnimation] = [:]
+
+        for (windowId, animation) in animations {
+            if animation.isComplete(at: targetTime) {
+                SkyLight.shared.setWindowAlpha(UInt32(windowId), alpha: 0)
+                continue
+            }
+
+            let frame = animation.currentFrame(at: targetTime)
+            if (try? AXWindowService.setFrame(animation.axRef, frame: frame)) == nil {
+                continue
+            }
+            let alpha = animation.currentAlpha(at: targetTime)
+            SkyLight.shared.setWindowAlpha(UInt32(windowId), alpha: Float(alpha))
+            remaining[windowId] = animation
+        }
+
+        if remaining.isEmpty {
+            closingAnimationsByDisplay.removeValue(forKey: displayId)
+            stopDisplayLinkIfIdle(for: displayId)
+        } else {
+            closingAnimationsByDisplay[displayId] = remaining
         }
     }
 
@@ -481,6 +587,7 @@ final class LayoutRefreshController {
         displayLinksByDisplay.removeAll()
         scrollAnimationByDisplay.removeAll()
         dwindleAnimationByDisplay.removeAll()
+        closingAnimationsByDisplay.removeAll()
 
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -845,6 +952,36 @@ final class LayoutRefreshController {
                 engine.updateFocusTimestamp(for: newNode.id)
                 workspaceManager.updateNiriViewportState(state, for: wsId)
                 newWindowHandle = newHandle
+            }
+
+            if hasCompletedInitialRefresh,
+               wsId == controller.activeWorkspace()?.id,
+               !newHandles.isEmpty
+            {
+                let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
+                let appearOffset = 16.0 * reduceMotionScale
+
+                for handle in newHandles {
+                    guard let window = engine.findNode(for: handle),
+                          !window.isHiddenInTabbedMode else { continue }
+
+                    window.animateAlpha(
+                        from: 0.0,
+                        to: 1.0,
+                        clock: engine.animationClock,
+                        config: engine.windowMovementAnimationConfig,
+                        displayRefreshRate: state.displayRefreshRate
+                    )
+
+                    if abs(appearOffset) > 0.1 {
+                        window.animateMoveFrom(
+                            displacement: CGPoint(x: 0, y: -appearOffset),
+                            clock: engine.animationClock,
+                            config: engine.windowMovementAnimationConfig,
+                            displayRefreshRate: state.displayRefreshRate
+                        )
+                    }
+                }
             }
 
             let (frames, hiddenHandles) = engine.calculateCombinedLayoutUsingPools(
@@ -1225,6 +1362,10 @@ final class LayoutRefreshController {
         controller.internalFocusedHandle = target.handle
         engine.updateFocusTimestamp(for: target.id)
         controller.focusWindow(target.handle)
+        executeLayoutRefreshImmediate()
+        if state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
+            startScrollAnimation(for: workspaceId)
+        }
         updateTabbedColumnOverlays()
     }
 }
