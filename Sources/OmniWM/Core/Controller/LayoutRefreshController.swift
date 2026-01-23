@@ -630,7 +630,8 @@ final class LayoutRefreshController {
                 pid: pid,
                 fallbackWorkspaceId: focusedWorkspaceId
             )
-            let wsForWindow = controller.workspaceAssignment(pid: pid, windowId: winId) ?? defaultWorkspace
+            let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
+            let wsForWindow = existingAssignment ?? defaultWorkspace
 
             _ = controller.internalWorkspaceManager.addWindow(ax, pid: pid, windowId: winId, to: wsForWindow)
             seenKeys.insert(.init(pid: pid, windowId: winId))
@@ -654,6 +655,10 @@ final class LayoutRefreshController {
         }
         if !dwindleWorkspaces.isEmpty {
             await layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
+        }
+        for ws in controller.internalWorkspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
+            guard let monitor = controller.internalWorkspaceManager.monitor(for: ws.id) else { continue }
+            hideWorkspace(ws.id, monitor: monitor)
         }
         controller.updateWorkspaceBar()
 
@@ -683,6 +688,11 @@ final class LayoutRefreshController {
             let wsId = workspace.id
             guard !processedWorkspaces.contains(wsId) else { continue }
             processedWorkspaces.insert(wsId)
+
+            let layoutType = controller.internalSettings.layoutType(for: workspace.name)
+            if layoutType == .dwindle {
+                continue
+            }
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
             let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []
@@ -1223,7 +1233,7 @@ final class LayoutRefreshController {
         try? AXWindowService.setFrame(entry.axRef, frame: CGRect(origin: origin, size: frame.size))
     }
 
-    private func unhideWindow(_ entry: WindowModel.Entry, monitor _: Monitor) {
+    private func unhideWindow(_ entry: WindowModel.Entry, monitor: Monitor) {
         guard let controller else { return }
         controller.internalWorkspaceManager.setHiddenProportionalPosition(nil, for: entry.handle)
     }
