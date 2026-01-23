@@ -671,6 +671,7 @@ final class CommandHandler {
             }
 
             engine.toggleFullscreen(windowNode, in: wsId, state: &state)
+
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
             controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
             if state.viewOffsetPixels.isAnimating {

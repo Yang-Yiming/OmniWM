@@ -257,7 +257,9 @@ final class AppAXContext: @unchecked Sendable {
 
             for (windowId, frame) in frames {
                 if job.isCancelled { break }
-                guard let element = windows[windowId] else { continue }
+                guard let element = windows[windowId] else {
+                    continue
+                }
                 let axRef = AXWindowRef(element: element, windowId: windowId)
                 try? AXWindowService.setFrame(axRef, frame: frame)
             }

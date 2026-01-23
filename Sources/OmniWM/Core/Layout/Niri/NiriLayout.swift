@@ -184,6 +184,7 @@ extension NiriLayoutEngine {
             time: time
         )
         let offsetScreenRect = viewFrame.offsetBy(dx: workspaceOffset, dy: 0)
+        let offsetFullscreenRect = workingFrame.offsetBy(dx: workspaceOffset, dy: 0)
 
         for column in cols {
             if column.cachedWidth <= 0 {
@@ -244,6 +245,7 @@ extension NiriLayoutEngine {
                     column: cols[idx],
                     columnRect: columnRect,
                     screenRect: offsetScreenRect,
+                    fullscreenRect: offsetFullscreenRect,
                     verticalGap: gaps.vertical,
                     scale: effectiveScale,
                     columnRenderOffset: columnRenderOffset,
@@ -279,6 +281,7 @@ extension NiriLayoutEngine {
                     column: column,
                     columnRect: hiddenRect,
                     screenRect: offsetScreenRect,
+                    fullscreenRect: offsetFullscreenRect,
                     verticalGap: gaps.vertical,
                     scale: effectiveScale,
                     columnRenderOffset: .zero,
@@ -317,6 +320,7 @@ extension NiriLayoutEngine {
             time: time
         )
         let offsetScreenRect = viewFrame.offsetBy(dx: workspaceOffset, dy: 0)
+        let offsetFullscreenRect = workingFrame.offsetBy(dx: workspaceOffset, dy: 0)
 
         for row in rows {
             if row.cachedHeight <= 0 {
@@ -376,6 +380,7 @@ extension NiriLayoutEngine {
                     row: rows[idx],
                     rowRect: rowRect,
                     screenRect: offsetScreenRect,
+                    fullscreenRect: offsetFullscreenRect,
                     horizontalGap: gaps.horizontal,
                     scale: effectiveScale,
                     rowRenderOffset: rowRenderOffset,
@@ -406,6 +411,7 @@ extension NiriLayoutEngine {
                     row: row,
                     rowRect: hiddenRect,
                     screenRect: offsetScreenRect,
+                    fullscreenRect: offsetFullscreenRect,
                     horizontalGap: gaps.horizontal,
                     scale: effectiveScale,
                     rowRenderOffset: .zero,
@@ -420,6 +426,7 @@ extension NiriLayoutEngine {
         row: NiriContainer,
         rowRect: CGRect,
         screenRect: CGRect,
+        fullscreenRect: CGRect,
         horizontalGap: CGFloat,
         scale: CGFloat,
         rowRenderOffset: CGPoint = .zero,
@@ -461,7 +468,7 @@ extension NiriLayoutEngine {
 
             let frame: CGRect = switch sizingMode {
             case .fullscreen:
-                screenRect.roundedToPhysicalPixels(scale: scale)
+                fullscreenRect.roundedToPhysicalPixels(scale: scale)
             case .normal:
                 CGRect(
                     x: isTabbed ? contentRect.origin.x : x,
@@ -552,6 +559,7 @@ extension NiriLayoutEngine {
         column: NiriContainer,
         columnRect: CGRect,
         screenRect: CGRect,
+        fullscreenRect: CGRect,
         verticalGap: CGFloat,
         scale: CGFloat,
         columnRenderOffset: CGPoint = .zero,
@@ -593,7 +601,7 @@ extension NiriLayoutEngine {
 
             let frame: CGRect = switch sizingMode {
             case .fullscreen:
-                screenRect.roundedToPhysicalPixels(scale: scale)
+                fullscreenRect.roundedToPhysicalPixels(scale: scale)
             case .normal:
                 CGRect(
                     x: contentRect.origin.x,
