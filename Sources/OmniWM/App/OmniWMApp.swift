@@ -55,8 +55,6 @@ struct OmniWMApp: App {
         controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
         controller.setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
 
-        settings.appearanceMode.apply()
-
         AppDelegate.sharedSettings = settings
         AppDelegate.sharedController = controller
     }
@@ -78,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+        AppDelegate.sharedSettings?.appearanceMode.apply()
 
         if let settings = AppDelegate.sharedSettings,
            let controller = AppDelegate.sharedController
