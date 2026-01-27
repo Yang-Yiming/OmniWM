@@ -22,6 +22,7 @@ final class MouseEventHandler {
     private var lastFocusFollowsMouseTime: Date = .distantPast
     private var lastFocusFollowsMouseHandle: WindowHandle?
     private let focusFollowsMouseDebounce: TimeInterval = 0.1
+    private var dragGhostController: DragGhostController?
 
     private static var sharedHandler: MouseEventHandler?
 
@@ -239,6 +240,19 @@ final class MouseEventHandler {
                 ) {
                     isMoving = true
                     NSCursor.closedHand.set()
+
+                    if let entry = controller.internalWorkspaceManager.entry(for: tiledWindow.handle),
+                       let frame = AXWindowService.framePreferFast(entry.axRef)
+                    {
+                        if dragGhostController == nil {
+                            dragGhostController = DragGhostController()
+                        }
+                        dragGhostController?.beginDrag(
+                            windowId: entry.windowId,
+                            originalFrame: frame,
+                            cursorLocation: location
+                        )
+                    }
                     return
                 }
             }
@@ -275,6 +289,7 @@ final class MouseEventHandler {
             }
 
             _ = engine.interactiveMoveUpdate(currentLocation: location, in: wsId)
+            dragGhostController?.updatePosition(cursorLocation: location)
             return
         }
 
@@ -325,6 +340,7 @@ final class MouseEventHandler {
                 }
             }
 
+            dragGhostController?.endDrag()
             isMoving = false
             NSCursor.arrow.set()
             return
