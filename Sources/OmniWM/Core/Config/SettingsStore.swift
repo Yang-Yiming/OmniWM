@@ -293,6 +293,56 @@ final class SettingsStore {
         didSet { defaults.set(quakeTerminalMonitorMode.rawValue, forKey: Keys.quakeTerminalMonitorMode) }
     }
 
+    var quakeTerminalUseCustomFrame: Bool {
+        didSet { defaults.set(quakeTerminalUseCustomFrame, forKey: Keys.quakeTerminalUseCustomFrame) }
+    }
+
+    private var quakeTerminalCustomFrameX: Double? {
+        didSet { defaults.set(quakeTerminalCustomFrameX, forKey: Keys.quakeTerminalCustomFrameX) }
+    }
+
+    private var quakeTerminalCustomFrameY: Double? {
+        didSet { defaults.set(quakeTerminalCustomFrameY, forKey: Keys.quakeTerminalCustomFrameY) }
+    }
+
+    private var quakeTerminalCustomFrameWidth: Double? {
+        didSet { defaults.set(quakeTerminalCustomFrameWidth, forKey: Keys.quakeTerminalCustomFrameWidth) }
+    }
+
+    private var quakeTerminalCustomFrameHeight: Double? {
+        didSet { defaults.set(quakeTerminalCustomFrameHeight, forKey: Keys.quakeTerminalCustomFrameHeight) }
+    }
+
+    var quakeTerminalCustomFrame: NSRect? {
+        get {
+            guard let x = quakeTerminalCustomFrameX,
+                  let y = quakeTerminalCustomFrameY,
+                  let width = quakeTerminalCustomFrameWidth,
+                  let height = quakeTerminalCustomFrameHeight else {
+                return nil
+            }
+            return NSRect(x: x, y: y, width: width, height: height)
+        }
+        set {
+            if let frame = newValue {
+                quakeTerminalCustomFrameX = frame.origin.x
+                quakeTerminalCustomFrameY = frame.origin.y
+                quakeTerminalCustomFrameWidth = frame.size.width
+                quakeTerminalCustomFrameHeight = frame.size.height
+            } else {
+                quakeTerminalCustomFrameX = nil
+                quakeTerminalCustomFrameY = nil
+                quakeTerminalCustomFrameWidth = nil
+                quakeTerminalCustomFrameHeight = nil
+            }
+        }
+    }
+
+    func resetQuakeTerminalCustomFrame() {
+        quakeTerminalUseCustomFrame = false
+        quakeTerminalCustomFrame = nil
+    }
+
     var appearanceMode: AppearanceMode {
         didSet { defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode) }
     }
@@ -398,6 +448,11 @@ final class SettingsStore {
         quakeTerminalMonitorMode = QuakeTerminalMonitorMode(
             rawValue: defaults.string(forKey: Keys.quakeTerminalMonitorMode) ?? ""
         ) ?? .mouseCursor
+        quakeTerminalUseCustomFrame = defaults.object(forKey: Keys.quakeTerminalUseCustomFrame) as? Bool ?? false
+        quakeTerminalCustomFrameX = defaults.object(forKey: Keys.quakeTerminalCustomFrameX) as? Double
+        quakeTerminalCustomFrameY = defaults.object(forKey: Keys.quakeTerminalCustomFrameY) as? Double
+        quakeTerminalCustomFrameWidth = defaults.object(forKey: Keys.quakeTerminalCustomFrameWidth) as? Double
+        quakeTerminalCustomFrameHeight = defaults.object(forKey: Keys.quakeTerminalCustomFrameHeight) as? Double
         appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .automatic
     }
 
@@ -910,6 +965,11 @@ private enum Keys {
     static let quakeTerminalAutoHide = "settings.quakeTerminal.autoHide"
     static let quakeTerminalOpacity = "settings.quakeTerminal.opacity"
     static let quakeTerminalMonitorMode = "settings.quakeTerminal.monitorMode"
+    static let quakeTerminalUseCustomFrame = "settings.quakeTerminal.useCustomFrame"
+    static let quakeTerminalCustomFrameX = "settings.quakeTerminal.customFrameX"
+    static let quakeTerminalCustomFrameY = "settings.quakeTerminal.customFrameY"
+    static let quakeTerminalCustomFrameWidth = "settings.quakeTerminal.customFrameWidth"
+    static let quakeTerminalCustomFrameHeight = "settings.quakeTerminal.customFrameHeight"
 
     static let appearanceMode = "settings.appearanceMode"
 }

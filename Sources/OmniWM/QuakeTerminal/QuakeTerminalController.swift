@@ -3,7 +3,7 @@ import GhosttyKit
 
 @MainActor
 final class QuakeTerminalController: NSObject, NSWindowDelegate {
-    private var window: QuakeTerminalWindow?
+    private(set) var window: QuakeTerminalWindow?
     private var ghosttyApp: ghostty_app_t?
     private var ghosttyConfig: ghostty_config_t?
     private var surface: ghostty_surface_t?
@@ -71,10 +71,21 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         }
         runtimeConfig.confirm_read_clipboard_cb = { _, _, _, _ in }
         runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
-            guard let userdata else { return }
+            guard let userdata, let content, len > 0 else { return }
+            var plainText: String?
+            for i in 0..<len {
+                guard let mimePtr = content[i].mime,
+                      let dataPtr = content[i].data else { continue }
+                let mime = String(cString: mimePtr)
+                if mime == "text/plain" {
+                    plainText = String(cString: dataPtr)
+                    break
+                }
+            }
+            guard let text = plainText else { return }
             DispatchQueue.main.async {
                 let controller = Unmanaged<QuakeTerminalController>.fromOpaque(userdata).takeUnretainedValue()
-                controller.writeClipboard(location: location, content: content, len: len, confirm: confirm)
+                controller.writeClipboard(location: location, text: text)
             }
         }
         runtimeConfig.close_surface_cb = { userdata, processAlive in
@@ -187,6 +198,10 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         surfaceView = view
         window?.contentView = view
 
+        view.onFrameChanged = { [weak self] frame in
+            self?.persistCustomFrame(frame)
+        }
+
         if let window {
             let screen = targetScreen()
             let position = settings.quakeTerminalPosition
@@ -231,12 +246,61 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         guard let window else { return }
         guard visible else { return }
 
+        if settings.quakeTerminalUseCustomFrame {
+            settings.quakeTerminalCustomFrame = window.frame
+        }
+
         visible = false
         animateWindowOut(window: window)
     }
 
+    private func persistCustomFrame(_ frame: NSRect) {
+        settings.quakeTerminalCustomFrame = frame
+        settings.quakeTerminalUseCustomFrame = true
+        UserDefaults.standard.synchronize()
+    }
+
     private func animateWindowIn(window: NSWindow) {
+        let quakeWindow = window as? QuakeTerminalWindow
         let screen = targetScreen()
+
+        if settings.quakeTerminalUseCustomFrame,
+           let customFrame = settings.quakeTerminalCustomFrame,
+           screen.visibleFrame.intersects(customFrame) {
+            window.setFrame(customFrame, display: false)
+            window.alphaValue = 0
+            window.level = .popUpMenu
+            window.makeKeyAndOrderFront(nil)
+
+            let finishAnimation: @Sendable () -> Void = { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.visible else { return }
+                    window.level = .floating
+                    self.makeWindowKey(window)
+
+                    if !NSApp.isActive {
+                        NSApp.activate(ignoringOtherApps: true)
+                        DispatchQueue.main.async {
+                            guard !window.isKeyWindow else { return }
+                            self.makeWindowKey(window, retries: 10)
+                        }
+                    }
+                }
+            }
+
+            if settings.animationsEnabled {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = settings.quakeTerminalAnimationDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    window.animator().alphaValue = 1
+                }, completionHandler: finishAnimation)
+            } else {
+                window.alphaValue = 1
+                finishAnimation()
+            }
+            return
+        }
+
         let position = settings.quakeTerminalPosition
         let widthPercent = settings.quakeTerminalWidthPercent
         let heightPercent = settings.quakeTerminalHeightPercent
@@ -254,6 +318,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         let finishAnimation: @Sendable () -> Void = { [weak self] in
             Task { @MainActor in
                 guard let self, self.visible else { return }
+                quakeWindow?.isAnimating = false
                 window.level = .floating
                 self.makeWindowKey(window)
 
@@ -268,6 +333,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         }
 
         if settings.animationsEnabled {
+            quakeWindow?.isAnimating = true
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = settings.quakeTerminalAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -290,10 +356,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
     }
 
     private func animateWindowOut(window: NSWindow) {
-        let screen = window.screen ?? targetScreen()
-        let position = settings.quakeTerminalPosition
-        let widthPercent = settings.quakeTerminalWidthPercent
-        let heightPercent = settings.quakeTerminalHeightPercent
+        let quakeWindow = window as? QuakeTerminalWindow
 
         if let previousApp = self.previousApp {
             self.previousApp = nil
@@ -307,10 +370,31 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         let finishAnimation: @Sendable () -> Void = {
             Task { @MainActor in
                 window.orderOut(nil)
+                window.alphaValue = 1
             }
         }
 
+        if settings.quakeTerminalUseCustomFrame {
+            if settings.animationsEnabled {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = settings.quakeTerminalAnimationDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    window.animator().alphaValue = 0
+                }, completionHandler: finishAnimation)
+            } else {
+                window.alphaValue = 0
+                finishAnimation()
+            }
+            return
+        }
+
+        let screen = window.screen ?? targetScreen()
+        let position = settings.quakeTerminalPosition
+        let widthPercent = settings.quakeTerminalWidthPercent
+        let heightPercent = settings.quakeTerminalHeightPercent
+
         if settings.animationsEnabled {
+            quakeWindow?.isAnimating = true
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = settings.quakeTerminalAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -320,7 +404,12 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
                     widthPercent: widthPercent,
                     heightPercent: heightPercent
                 )
-            }, completionHandler: finishAnimation)
+            }, completionHandler: {
+                Task { @MainActor in
+                    quakeWindow?.isAnimating = false
+                }
+                finishAnimation()
+            })
         } else {
             position.setInitial(
                 in: window,
@@ -356,13 +445,10 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func writeClipboard(location: ghostty_clipboard_e, content: UnsafePointer<ghostty_clipboard_content_s>?, len: Int, confirm: Bool) {
-        guard let content, len > 0 else { return }
+    private func writeClipboard(location: ghostty_clipboard_e, text: String) {
         let pasteboard = location == GHOSTTY_CLIPBOARD_SELECTION ? NSPasteboard(name: .find) : NSPasteboard.general
         pasteboard.clearContents()
-        if let data = content.pointee.data {
-            pasteboard.setString(String(cString: data), forType: .string)
-        }
+        pasteboard.setString(text, forType: .string)
     }
 
     private func targetScreen() -> NSScreen {
@@ -460,14 +546,16 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
             isHandlingResize = true
             defer { isHandlingResize = false }
 
-            let position = settings.quakeTerminalPosition
-            switch position {
-            case .top, .bottom, .center:
-                let newOrigin = position.centeredOrigin(for: window, on: screen)
-                window.setFrameOrigin(newOrigin)
-            case .left, .right:
-                let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
-                window.setFrameOrigin(newOrigin)
+            if surfaceView?.isInteracting != true && !settings.quakeTerminalUseCustomFrame {
+                let position = settings.quakeTerminalPosition
+                switch position {
+                case .top, .bottom, .center:
+                    let newOrigin = position.centeredOrigin(for: window, on: screen)
+                    window.setFrameOrigin(newOrigin)
+                case .left, .right:
+                    let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
+                    window.setFrameOrigin(newOrigin)
+                }
             }
 
             if let surface, let surfaceView {

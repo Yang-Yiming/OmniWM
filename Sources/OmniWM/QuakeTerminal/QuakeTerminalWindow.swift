@@ -5,6 +5,7 @@ final class QuakeTerminalWindow: NSPanel {
     override var canBecomeMain: Bool { true }
 
     var initialFrame: NSRect?
+    var isAnimating: Bool = false
 
     convenience init() {
         self.init(
@@ -25,10 +26,14 @@ final class QuakeTerminalWindow: NSPanel {
         backgroundColor = .clear
         hasShadow = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
     }
 
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(initialFrame ?? frameRect, display: flag)
+        if isAnimating {
+            super.setFrame(initialFrame ?? frameRect, display: flag)
+        } else {
+            super.setFrame(frameRect, display: flag)
+        }
     }
 }

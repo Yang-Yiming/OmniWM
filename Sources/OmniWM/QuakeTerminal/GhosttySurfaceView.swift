@@ -8,6 +8,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var markedText: NSMutableAttributedString = NSMutableAttributedString()
     private var keyTextAccumulator: [String]? = nil
 
+    private let resizeEdgeThreshold: CGFloat = 8.0
+
+    private enum InteractionMode {
+        case terminal
+        case windowMove(startOrigin: CGPoint, startMouseLocation: CGPoint)
+        case windowResize(edges: ResizeEdge, startFrame: NSRect, startMouseLocation: CGPoint)
+    }
+
+    private var interactionMode: InteractionMode = .terminal
+    private(set) var isInteracting: Bool = false
+    var onFrameChanged: ((NSRect) -> Void)?
+
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { false }
 
@@ -149,11 +161,28 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         keyEvent.mods = modsFromEvent(event)
         keyEvent.consumed_mods = ghostty_input_mods_e(rawValue: 0)
         keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
 
-        if let chars = event.characters, !chars.isEmpty {
-            return chars.withCString { ptr in
+        keyEvent.unshifted_codepoint = 0
+        if event.type == .keyDown || event.type == .keyUp {
+            if let chars = event.characters(byApplyingModifiers: []),
+               let codepoint = chars.unicodeScalars.first {
+                keyEvent.unshifted_codepoint = codepoint.value
+            }
+        }
+
+        let text: String? = {
+            guard let characters = event.characters, !characters.isEmpty else { return nil }
+            if characters.count == 1, let scalar = characters.unicodeScalars.first {
+                if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                    return nil
+                }
+            }
+            return characters
+        }()
+
+        if let text {
+            return text.withCString { ptr in
                 keyEvent.text = ptr
                 return ghostty_surface_key(surface, keyEvent)
             }
@@ -164,11 +193,42 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard let window else {
+            handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_PRESS)
+            return
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let edges = detectResizeEdges(at: point)
+
+        if !edges.isEmpty {
+            isInteracting = true
+            interactionMode = .windowResize(edges: edges, startFrame: window.frame, startMouseLocation: NSEvent.mouseLocation)
+            return
+        }
+
+        if event.modifierFlags.contains(.option) {
+            isInteracting = true
+            interactionMode = .windowMove(startOrigin: window.frame.origin, startMouseLocation: NSEvent.mouseLocation)
+            NSCursor.closedHand.set()
+            return
+        }
+
         handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_PRESS)
     }
 
     override func mouseUp(with event: NSEvent) {
-        handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_RELEASE)
+        switch interactionMode {
+        case .terminal:
+            handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_RELEASE)
+        case .windowMove, .windowResize:
+            if let frame = window?.frame {
+                onFrameChanged?(frame)
+            }
+            NSCursor.arrow.set()
+        }
+        isInteracting = false
+        interactionMode = .terminal
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -188,11 +248,32 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let edges = detectResizeEdges(at: point)
+
+        if !edges.isEmpty {
+            edges.cursor.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+
         handleMouseMove(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        handleMouseMove(event)
+        switch interactionMode {
+        case .terminal:
+            handleMouseMove(event)
+        case let .windowMove(startOrigin, startMouseLocation):
+            let current = NSEvent.mouseLocation
+            let delta = CGPoint(x: current.x - startMouseLocation.x, y: current.y - startMouseLocation.y)
+            window?.setFrameOrigin(CGPoint(x: startOrigin.x + delta.x, y: startOrigin.y + delta.y))
+        case let .windowResize(edges, startFrame, startMouseLocation):
+            let current = NSEvent.mouseLocation
+            let delta = CGPoint(x: current.x - startMouseLocation.x, y: current.y - startMouseLocation.y)
+            let newFrame = calculateResizedFrame(startFrame: startFrame, edges: edges, delta: delta)
+            window?.setFrame(newFrame, display: true)
+        }
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -214,8 +295,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard let surface = ghosttySurface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let mods = modsFromEvent(event)
-
-        ghostty_surface_mouse_pos(surface, point.x, point.y, mods)
+        let flippedY = bounds.height - point.y
+        ghostty_surface_mouse_pos(surface, point.x, flippedY, mods)
         _ = ghostty_surface_mouse_button(surface, state, button, mods)
     }
 
@@ -223,7 +304,45 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard let surface = ghosttySurface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let mods = modsFromEvent(event)
-        ghostty_surface_mouse_pos(surface, point.x, point.y, mods)
+        let flippedY = bounds.height - point.y
+        ghostty_surface_mouse_pos(surface, point.x, flippedY, mods)
+    }
+
+    private func detectResizeEdges(at point: CGPoint) -> ResizeEdge {
+        var edges: ResizeEdge = []
+        if point.x <= resizeEdgeThreshold { edges.insert(.left) }
+        else if point.x >= bounds.width - resizeEdgeThreshold { edges.insert(.right) }
+        if point.y <= resizeEdgeThreshold { edges.insert(.bottom) }
+        else if point.y >= bounds.height - resizeEdgeThreshold { edges.insert(.top) }
+        return edges
+    }
+
+    private func calculateResizedFrame(startFrame: NSRect, edges: ResizeEdge, delta: CGPoint) -> NSRect {
+        var frame = startFrame
+        let minWidth: CGFloat = 200
+        let minHeight: CGFloat = 100
+
+        if edges.contains(.right) {
+            frame.size.width = max(minWidth, startFrame.width + delta.x)
+        }
+        if edges.contains(.left) {
+            let proposed = startFrame.width - delta.x
+            if proposed >= minWidth {
+                frame.origin.x = startFrame.origin.x + delta.x
+                frame.size.width = proposed
+            }
+        }
+        if edges.contains(.top) {
+            frame.size.height = max(minHeight, startFrame.height + delta.y)
+        }
+        if edges.contains(.bottom) {
+            let proposed = startFrame.height - delta.y
+            if proposed >= minHeight {
+                frame.origin.y = startFrame.origin.y + delta.y
+                frame.size.height = proposed
+            }
+        }
+        return frame
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {

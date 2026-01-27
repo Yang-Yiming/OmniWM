@@ -63,7 +63,11 @@ final class MouseEventHandler {
             case .leftMouseDown:
                 let modifiers = event.flags
                 Task { @MainActor in
-                    MouseEventHandler.sharedHandler?.handleMouseDownFromTap(at: screenLocation, modifiers: modifiers)
+                    guard let handler = MouseEventHandler.sharedHandler else { return }
+                    if handler.controller?.isPointInQuakeTerminal(screenLocation) == true {
+                        return
+                    }
+                    handler.handleMouseDownFromTap(at: screenLocation, modifiers: modifiers)
                 }
             case .leftMouseDragged:
                 Task { @MainActor in
@@ -214,6 +218,10 @@ final class MouseEventHandler {
     private func handleMouseDownFromTap(at location: CGPoint, modifiers: CGEventFlags) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
+
+        if controller.isPointInQuakeTerminal(location) {
+            return
+        }
 
         guard let engine = controller.internalNiriEngine,
               let wsId = controller.activeWorkspace()?.id

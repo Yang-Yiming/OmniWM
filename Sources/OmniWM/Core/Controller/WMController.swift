@@ -1358,4 +1358,13 @@ extension WMController {
     var internalLayoutRefreshController: LayoutRefreshController? { layoutRefreshController }
     var internalWorkspaceNavigationHandler: WorkspaceNavigationHandler? { workspaceNavigationHandler }
     var internalAXEventHandler: AXEventHandler? { axEventHandler }
+
+    func isPointInQuakeTerminal(_ point: CGPoint) -> Bool {
+        guard settings.quakeTerminalEnabled,
+              quakeTerminalController.visible,
+              let window = quakeTerminalController.window else {
+            return false
+        }
+        return window.frame.contains(point)
+    }
 }

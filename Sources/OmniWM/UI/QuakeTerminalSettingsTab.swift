@@ -36,6 +36,12 @@ struct QuakeTerminalSettingsTab: View {
                         Text("Height: \(Int(settings.quakeTerminalHeightPercent))%")
                         Slider(value: $settings.quakeTerminalHeightPercent, in: 10...100, step: 5)
                     }
+
+                    if settings.quakeTerminalUseCustomFrame {
+                        Button("Reset to Default Position") {
+                            settings.resetQuakeTerminalCustomFrame()
+                        }
+                    }
                 }
 
                 Section("Appearance") {
