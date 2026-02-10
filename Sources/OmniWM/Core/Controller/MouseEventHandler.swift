@@ -528,11 +528,27 @@ final class MouseEventHandler {
                 lastFocusFollowsMouseHandle = handle
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
                 state.selectedNodeId = tiledWindow.id
+                if let monitor = controller.internalWorkspaceManager.monitor(for: wsId) {
+                    let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+                    let workingFrame = controller.insetWorkingFrame(for: monitor)
+                    engine.ensureSelectionVisible(
+                        node: tiledWindow,
+                        in: wsId,
+                        state: &state,
+                        workingFrame: workingFrame,
+                        gaps: gap,
+                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                    )
+                }
                 controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
                 engine.updateFocusTimestamp(for: tiledWindow.id)
                 controller.internalFocusedHandle = handle
                 controller.internalLastFocusedByWorkspace[wsId] = handle
+                controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
                 controller.focusWindow(handle)
+                if state.viewOffsetPixels.isAnimating {
+                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+                }
             }
             return
         }

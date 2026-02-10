@@ -282,18 +282,34 @@ final class AXEventHandler: CGSEventDelegate {
             controller.internalLastFocusedByWorkspace[wsId] = entry.handle
 
             if let engine = controller.internalNiriEngine,
-               let node = engine.findNode(for: entry.handle)
+               let node = engine.findNode(for: entry.handle),
+               let monitor = controller.internalWorkspaceManager.monitor(for: wsId)
             {
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
                 state.selectedNodeId = node.id
+                let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+                let workingFrame = controller.insetWorkingFrame(for: monitor)
+                engine.ensureSelectionVisible(
+                    node: node,
+                    in: wsId,
+                    state: &state,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                )
                 controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
                 engine.updateFocusTimestamp(for: node.id)
-            }
 
-            if let engine = controller.internalNiriEngine,
-               let node = engine.findNode(for: entry.handle),
-               let frame = node.frame {
-                updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+                if state.viewOffsetPixels.isAnimating {
+                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+                }
+
+                if let frame = node.frame {
+                    updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                } else if let frame = try? AXWindowService.frame(entry.axRef) {
+                    updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                }
             } else if let frame = try? AXWindowService.frame(entry.axRef) {
                 updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
             }
