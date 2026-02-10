@@ -73,7 +73,7 @@ func computeWorkingArea(
     workingArea.origin.x += struts.left
 
     workingArea.size.height = max(0, workingArea.size.height - struts.top - struts.bottom)
-    workingArea.origin.y += struts.top
+    workingArea.origin.y += struts.bottom
 
     let physicalX = ceil(workingArea.origin.x * scale) / scale
     let physicalY = ceil(workingArea.origin.y * scale) / scale
@@ -2307,9 +2307,9 @@ final class NiriLayoutEngine {
         let postInsertionCount = n + 1
         let firstFrame = windows.first?.frame
         let lastFrame = windows.last?.frame
-        guard let top = firstFrame?.minY, let bottom = lastFrame?.maxY else { return nil }
+        guard let bottom = firstFrame?.minY, let top = lastFrame?.maxY else { return nil }
 
-        let columnHeight = bottom - top
+        let columnHeight = top - bottom
         let totalGaps = CGFloat(postInsertionCount - 1) * gaps
         let newHeight = max(0, (columnHeight - totalGaps) / CGFloat(postInsertionCount))
         let x = targetFrame.minX
