@@ -34,6 +34,7 @@ final class WMController {
         }
     }
     private var previousMonitorId: Monitor.ID?
+    private var suppressActiveMonitorUpdate: Bool = false
 
     private var lastNotifiedWorkspaceId: WorkspaceDescriptor.ID?
     private var lastNotifiedMonitorId: Monitor.ID?
@@ -962,6 +963,7 @@ final class WMController {
     }
 
     private func updateActiveMonitorFromFocusedHandle(_ handle: WindowHandle?) {
+        guard !suppressActiveMonitorUpdate else { return }
         guard let handle,
               let workspaceId = workspaceManager.workspace(for: handle),
               let monitorId = workspaceManager.monitor(for: workspaceId)?.id
@@ -1347,6 +1349,11 @@ extension WMController {
     var internalPreviousMonitorId: Monitor.ID? {
         get { previousMonitorId }
         set { previousMonitorId = newValue }
+    }
+
+    var internalSuppressActiveMonitorUpdate: Bool {
+        get { suppressActiveMonitorUpdate }
+        set { suppressActiveMonitorUpdate = newValue }
     }
 
     var internalIsNonManagedFocusActive: Bool {

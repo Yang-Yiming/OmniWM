@@ -389,19 +389,15 @@ final class WorkspaceManager {
         updateWorkspace(workspaceId) { $0.assignedMonitorPoint = monitor.workspaceAnchorPoint }
     }
 
-    @discardableResult
-    func move(
-        handle: WindowHandle,
+    func resolveTargetForMonitorMove(
         from workspaceId: WorkspaceDescriptor.ID,
         direction: Direction
-    ) -> WorkspaceDescriptor? {
+    ) -> (workspace: WorkspaceDescriptor, monitor: Monitor)? {
         guard let sourceWorkspace = descriptor(for: workspaceId) else { return nil }
         guard let sourceMonitor = monitorForWorkspace(sourceWorkspace.id) else { return nil }
         guard let targetMonitor = adjacentMonitor(from: sourceMonitor.id, direction: direction) else { return nil }
         guard let targetWorkspace = activeWorkspaceOrFirst(on: targetMonitor.id) else { return nil }
-
-        windows.updateWorkspace(for: handle, workspace: targetWorkspace.id)
-        return targetWorkspace
+        return (targetWorkspace, targetMonitor)
     }
 
     func niriViewportState(for workspaceId: WorkspaceDescriptor.ID) -> ViewportState {

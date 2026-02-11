@@ -442,6 +442,54 @@ final class LayoutRefreshController {
         }
     }
 
+    func applyLayoutForWorkspaces(_ workspaceIds: Set<WorkspaceDescriptor.ID>) {
+        guard let controller else { return }
+        let workspaceManager = controller.internalWorkspaceManager
+
+        for monitor in workspaceManager.monitors {
+            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+            let wsId = workspace.id
+            guard workspaceIds.contains(wsId) else { continue }
+
+            let layoutType = controller.internalSettings.layoutType(for: workspace.name)
+
+            switch layoutType {
+            case .niri, .defaultLayout:
+                guard let engine = controller.internalNiriEngine else { continue }
+                let state = workspaceManager.niriViewportState(for: wsId)
+
+                applyFramesOnDemand(
+                    wsId: wsId,
+                    state: state,
+                    engine: engine,
+                    monitor: monitor,
+                    animationTime: nil
+                )
+
+            case .dwindle:
+                guard let engine = controller.internalDwindleEngine else { continue }
+                let insetFrame = controller.insetWorkingFrame(for: monitor)
+                let frames = engine.calculateLayout(for: wsId, screen: insetFrame)
+
+                var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+                for (handle, frame) in frames {
+                    if let entry = workspaceManager.entry(for: handle) {
+                        frameUpdates.append((handle.pid, entry.windowId, frame))
+                    }
+                }
+                controller.internalAXManager.applyFramesParallel(frameUpdates)
+            }
+        }
+
+        for ws in workspaceManager.workspaces where workspaceIds.contains(ws.id) {
+            guard let monitor = workspaceManager.monitor(for: ws.id) else { continue }
+            let isActive = workspaceManager.activeWorkspace(on: monitor.id)?.id == ws.id
+            if !isActive {
+                hideWorkspace(ws.id, monitor: monitor)
+            }
+        }
+    }
+
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
         for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
             stopScrollAnimation(for: displayId)

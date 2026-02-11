@@ -183,8 +183,26 @@ final class NiriLayoutEngine {
     func cleanupRemovedMonitor(_ monitorId: Monitor.ID) {
         guard let niriMonitor = monitors[monitorId] else { return }
 
-        for workspaceId in niriMonitor.workspaceRoots.keys {
-            roots.removeValue(forKey: workspaceId)
+        let remainingMonitorId = monitors.keys.first { $0 != monitorId }
+
+        if let targetId = remainingMonitorId, let targetMonitor = monitors[targetId] {
+            for (workspaceId, root) in niriMonitor.workspaceRoots {
+                if targetMonitor.workspaceRoots[workspaceId] == nil {
+                    targetMonitor.workspaceRoots[workspaceId] = root
+                }
+                if targetMonitor.viewportStates[workspaceId] == nil,
+                   let state = niriMonitor.viewportStates[workspaceId]
+                {
+                    targetMonitor.viewportStates[workspaceId] = state
+                }
+                if !targetMonitor.workspaceOrder.contains(workspaceId) {
+                    targetMonitor.workspaceOrder.append(workspaceId)
+                }
+            }
+        } else {
+            for workspaceId in niriMonitor.workspaceRoots.keys {
+                roots.removeValue(forKey: workspaceId)
+            }
         }
 
         monitors.removeValue(forKey: monitorId)
