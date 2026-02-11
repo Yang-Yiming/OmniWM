@@ -66,7 +66,7 @@ final class MouseEventHandler {
                 let modifiers = event.flags
                 Task { @MainActor in
                     guard let handler = MouseEventHandler.sharedHandler else { return }
-                    if handler.controller?.isPointInQuakeTerminal(screenLocation) == true {
+                    if handler.controller?.isPointInOwnWindow(screenLocation) == true {
                         return
                     }
                     handler.handleMouseDownFromTap(at: screenLocation, modifiers: modifiers)
@@ -87,6 +87,7 @@ final class MouseEventHandler {
                 let modifiers = event.flags
                 Task { @MainActor in
                     MouseEventHandler.sharedHandler?.handleScrollWheelFromTap(
+                        at: screenLocation,
                         deltaX: CGFloat(deltaX),
                         deltaY: CGFloat(deltaY),
                         momentumPhase: momentumPhase,
@@ -188,6 +189,14 @@ final class MouseEventHandler {
             return
         }
 
+        if controller.isPointInOwnWindow(location) {
+            if !currentHoveredEdges.isEmpty {
+                NSCursor.arrow.set()
+                currentHoveredEdges = []
+            }
+            return
+        }
+
         if controller.internalFocusFollowsMouseEnabled, !isResizing {
             handleFocusFollowsMouse(at: location)
         }
@@ -221,7 +230,7 @@ final class MouseEventHandler {
         guard let controller else { return }
         guard controller.isEnabled else { return }
 
-        if controller.isPointInQuakeTerminal(location) {
+        if controller.isPointInOwnWindow(location) {
             return
         }
 
@@ -421,6 +430,7 @@ final class MouseEventHandler {
     }
 
     private func handleScrollWheelFromTap(
+        at location: CGPoint,
         deltaX _: CGFloat,
         deltaY: CGFloat,
         momentumPhase: UInt32,
@@ -429,6 +439,7 @@ final class MouseEventHandler {
     ) {
         guard let controller else { return }
         guard controller.isEnabled, controller.internalSettings.scrollGestureEnabled else { return }
+        if controller.isPointInOwnWindow(location) { return }
         guard !isResizing, !isMoving else { return }
         guard let engine = controller.internalNiriEngine, let wsId = controller.activeWorkspace()?.id else { return }
 
@@ -561,13 +572,15 @@ final class MouseEventHandler {
     }
 
     private func handleGestureEventFromTap(_ cgEvent: CGEvent) {
+        let screenLocation = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
         guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
-        handleGestureEvent(nsEvent)
+        handleGestureEvent(nsEvent, at: screenLocation)
     }
 
-    private func handleGestureEvent(_ event: NSEvent) {
+    private func handleGestureEvent(_ event: NSEvent, at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled, controller.internalSettings.scrollGestureEnabled else { return }
+        if controller.isPointInOwnWindow(location) { return }
         guard !isResizing, !isMoving else { return }
         guard let engine = controller.internalNiriEngine, let wsId = controller.activeWorkspace()?.id else { return }
 

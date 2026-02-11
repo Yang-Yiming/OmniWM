@@ -1391,4 +1391,12 @@ extension WMController {
         }
         return window.frame.contains(point)
     }
+
+    func isPointInOwnWindow(_ point: CGPoint) -> Bool {
+        if isPointInQuakeTerminal(point) { return true }
+        if SettingsWindowController.shared.isPointInside(point) { return true }
+        if AppRulesWindowController.shared.isPointInside(point) { return true }
+        if SponsorsWindowController.shared.isPointInside(point) { return true }
+        return false
+    }
 }
