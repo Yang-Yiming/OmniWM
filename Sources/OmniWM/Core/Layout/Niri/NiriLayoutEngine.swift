@@ -799,7 +799,8 @@ final class NiriLayoutEngine {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        animationsEnabled: Bool? = nil
+        animationsEnabled: Bool? = nil,
+        presetColumnWidths: [PresetSize]? = nil
     ) {
         if let max = maxWindowsPerColumn {
             self.maxWindowsPerColumn = max.clamped(to: 1 ... 10)
@@ -825,6 +826,23 @@ final class NiriLayoutEngine {
             for monitor in monitors.values {
                 for workspaceId in monitor.viewportStates.keys {
                     monitor.viewportStates[workspaceId]?.animationsEnabled = enabled
+                }
+            }
+        }
+
+        if let presets = presetColumnWidths, !presets.isEmpty {
+            self.presetColumnWidths = presets
+            resetAllPresetWidthIndices()
+        }
+    }
+
+    private func resetAllPresetWidthIndices() {
+        for monitor in monitors.values {
+            for root in monitor.workspaceRoots.values {
+                for child in root.children {
+                    if let column = child as? NiriContainer {
+                        column.presetWidthIdx = nil
+                    }
                 }
             }
         }

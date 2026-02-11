@@ -331,6 +331,54 @@ private struct GlobalNiriSettingsSection: View {
                     controller.updateNiriConfig(singleWindowAspectRatio: newValue)
                 }
             }
+
+            Divider()
+
+            SectionHeader("Column Width Presets")
+            let presets = settings.niriColumnWidthPresets
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(presets.indices, id: \.self) { index in
+                    HStack {
+                        TextField("", value: Binding(
+                            get: { Int(presets[index] * 100) },
+                            set: { newPercent in
+                                var current = settings.niriColumnWidthPresets
+                                current[index] = Double(min(100, max(5, newPercent))) / 100.0
+                                settings.niriColumnWidthPresets = current.sorted()
+                                controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
+                            }
+                        ), format: .number)
+                        .frame(width: 40)
+                        .multilineTextAlignment(.trailing)
+                        Text("%")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        Button(role: .destructive) {
+                            var presets = settings.niriColumnWidthPresets
+                            presets.remove(at: index)
+                            settings.niriColumnWidthPresets = presets
+                            controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(settings.niriColumnWidthPresets.count <= 2)
+                    }
+                }
+
+                HStack {
+                    Button("Add Preset") {
+                        var presets = settings.niriColumnWidthPresets
+                        presets.append(0.5)
+                        settings.niriColumnWidthPresets = presets.sorted()
+                        controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
+                    }
+                    Button("Reset to Default") {
+                        settings.niriColumnWidthPresets = SettingsStore.defaultColumnWidthPresets
+                        controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
+                    }
+                }
+            }
+            .id(settings.niriColumnWidthPresets.count)
         }
     }
 }

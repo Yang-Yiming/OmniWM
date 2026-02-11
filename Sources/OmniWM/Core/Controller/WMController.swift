@@ -844,7 +844,8 @@ final class WMController {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        animationsEnabled: Bool? = nil
+        animationsEnabled: Bool? = nil,
+        columnWidthPresets: [Double]? = nil
     ) {
         niriEngine?.updateConfiguration(
             maxWindowsPerColumn: maxWindowsPerColumn,
@@ -853,7 +854,8 @@ final class WMController {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
-            animationsEnabled: animationsEnabled
+            animationsEnabled: animationsEnabled,
+            presetColumnWidths: columnWidthPresets?.map { .proportion($0) }
         )
         workspaceManager.updateAnimationSettings(animationsEnabled: animationsEnabled)
         layoutRefreshController?.refreshWindowsAndLayout()

@@ -29,6 +29,10 @@ final class SettingsStore {
         didSet { saveMouseWarpMonitorOrder() }
     }
 
+    var niriColumnWidthPresets: [Double] {
+        didSet { saveNiriColumnWidthPresets() }
+    }
+
     var mouseWarpMargin: Int {
         didSet { defaults.set(mouseWarpMargin, forKey: Keys.mouseWarpMargin) }
     }
@@ -355,6 +359,7 @@ final class SettingsStore {
         focusFollowsWindowToMonitor = defaults.object(forKey: Keys.focusFollowsWindowToMonitor) as? Bool ?? false
         mouseWarpEnabled = defaults.object(forKey: Keys.mouseWarpEnabled) as? Bool ?? false
         mouseWarpMonitorOrder = Self.loadMouseWarpMonitorOrder(from: defaults)
+        niriColumnWidthPresets = Self.loadNiriColumnWidthPresets(from: defaults)
         mouseWarpMargin = defaults.object(forKey: Keys.mouseWarpMargin) as? Int ?? 2
         gapSize = defaults.object(forKey: Keys.gapSize) as? Double ?? 8
 
@@ -877,6 +882,36 @@ final class SettingsStore {
         guard let data = try? JSONEncoder().encode(mouseWarpMonitorOrder) else { return }
         defaults.set(data, forKey: Keys.mouseWarpMonitorOrder)
     }
+
+    static let defaultColumnWidthPresets: [Double] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
+
+    static func validatedPresets(_ presets: [Double]) -> [Double] {
+        var result: [Double] = []
+        for value in presets.map({ min(1.0, max(0.05, $0)) }).sorted() {
+            if let last = result.last, abs(last - value) < 0.01 {
+                continue
+            }
+            result.append(value)
+        }
+        if result.count < 2 {
+            return defaultColumnWidthPresets
+        }
+        return result
+    }
+
+    private static func loadNiriColumnWidthPresets(from defaults: UserDefaults) -> [Double] {
+        guard let data = defaults.data(forKey: Keys.niriColumnWidthPresets),
+              let presets = try? JSONDecoder().decode([Double].self, from: data)
+        else {
+            return defaultColumnWidthPresets
+        }
+        return validatedPresets(presets)
+    }
+
+    private func saveNiriColumnWidthPresets() {
+        guard let data = try? JSONEncoder().encode(niriColumnWidthPresets) else { return }
+        defaults.set(data, forKey: Keys.niriColumnWidthPresets)
+    }
 }
 
 private enum Keys {
@@ -886,6 +921,7 @@ private enum Keys {
     static let focusFollowsWindowToMonitor = "settings.focusFollowsWindowToMonitor"
     static let mouseWarpEnabled = "settings.mouseWarp.enabled"
     static let mouseWarpMonitorOrder = "settings.mouseWarp.monitorOrder"
+    static let niriColumnWidthPresets = "settings.niriColumnWidthPresets"
     static let mouseWarpMargin = "settings.mouseWarp.margin"
     static let gapSize = "settings.gapSize"
 
@@ -1066,6 +1102,7 @@ struct SettingsExport: Codable {
     var niriCenterFocusedColumn: String
     var niriAlwaysCenterSingleColumn: Bool
     var niriSingleWindowAspectRatio: String
+    var niriColumnWidthPresets: [Double]?
 
     var persistentWorkspacesRaw: String
     var workspaceAssignmentsRaw: String
@@ -1158,6 +1195,7 @@ extension SettingsStore {
             niriCenterFocusedColumn: niriCenterFocusedColumn.rawValue,
             niriAlwaysCenterSingleColumn: niriAlwaysCenterSingleColumn,
             niriSingleWindowAspectRatio: niriSingleWindowAspectRatio.rawValue,
+            niriColumnWidthPresets: niriColumnWidthPresets,
             persistentWorkspacesRaw: persistentWorkspacesRaw,
             workspaceAssignmentsRaw: workspaceAssignmentsRaw,
             workspaceConfigurations: workspaceConfigurations,
@@ -1240,6 +1278,9 @@ extension SettingsStore {
         niriCenterFocusedColumn = CenterFocusedColumn(rawValue: export.niriCenterFocusedColumn) ?? .never
         niriAlwaysCenterSingleColumn = export.niriAlwaysCenterSingleColumn
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: export.niriSingleWindowAspectRatio) ?? .ratio4x3
+        if let presets = export.niriColumnWidthPresets {
+            niriColumnWidthPresets = Self.validatedPresets(presets)
+        }
 
         persistentWorkspacesRaw = export.persistentWorkspacesRaw
         workspaceAssignmentsRaw = export.workspaceAssignmentsRaw
