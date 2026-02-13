@@ -403,8 +403,7 @@ final class WMController {
         }
         activeMonitorId = result.monitor.id
 
-        focusedHandle = lastFocusedByWorkspace[result.workspace.id]
-            ?? workspaceManager.entries(in: result.workspace.id).first?.handle
+        focusedHandle = resolveWorkspaceFocus(for: result.workspace.id)
 
         layoutRefreshController?.refreshWindowsAndLayout()
         if let handle = focusedHandle {
@@ -413,8 +412,6 @@ final class WMController {
     }
 
     func focusWindowFromBar(windowId: Int) {
-        guard let engine = niriEngine else { return }
-
         var foundEntry: WindowModel.Entry?
         for ws in workspaceManager.workspaces {
             for entry in workspaceManager.entries(in: ws.id) {
@@ -427,48 +424,7 @@ final class WMController {
         }
 
         guard let entry = foundEntry else { return }
-
-        let currentWsId = activeWorkspace()?.id
-
-        if entry.workspaceId != currentWsId {
-            let wsName = workspaceManager.descriptor(for: entry.workspaceId)?.name ?? ""
-            if let result = workspaceManager.focusWorkspace(named: wsName) {
-                activeMonitorId = result.monitor.id
-                syncMonitorsToNiriEngine()
-            }
-        }
-
-        if let niriWindow = engine.findNode(for: entry.handle) {
-            var state = workspaceManager.niriViewportState(for: entry.workspaceId)
-            state.selectedNodeId = niriWindow.id
-
-            if let column = engine.findColumn(containing: niriWindow, in: entry.workspaceId),
-               let colIdx = engine.columnIndex(of: column, in: entry.workspaceId),
-               let monitor = workspaceManager.monitor(for: entry.workspaceId)
-            {
-                let windowNodes = column.windowNodes
-                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
-                    column.setActiveTileIdx(windowIdx)
-                }
-
-                let cols = engine.columns(in: entry.workspaceId)
-                let gap = CGFloat(workspaceManager.gaps)
-                state.snapToColumn(
-                    colIdx,
-                    columns: cols,
-                    gap: gap,
-                    viewportWidth: monitor.visibleFrame.width
-                )
-            }
-
-            workspaceManager.updateNiriViewportState(state, for: entry.workspaceId)
-        }
-
-        layoutRefreshController?.refreshWindowsAndLayout()
-
-        focusedHandle = entry.handle
-        lastFocusedByWorkspace[entry.workspaceId] = entry.handle
-        focusWindow(entry.handle)
+        navigateToWindowInternal(handle: entry.handle, workspaceId: entry.workspaceId)
     }
 
     func setFocusFollowsMouse(_ enabled: Bool) {
@@ -1110,50 +1066,8 @@ final class WMController {
     }
 
     private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
-        guard let engine = niriEngine else { return }
         guard workspaceManager.entry(for: handle) != nil else { return }
-
-        let currentWsId = activeWorkspace()?.id
-
-        if workspaceId != currentWsId {
-            let wsName = workspaceManager.descriptor(for: workspaceId)?.name ?? ""
-            if let result = workspaceManager.focusWorkspace(named: wsName) {
-                activeMonitorId = result.monitor.id
-                syncMonitorsToNiriEngine()
-            }
-        }
-
-        if let niriWindow = engine.findNode(for: handle) {
-            var state = workspaceManager.niriViewportState(for: workspaceId)
-            state.selectedNodeId = niriWindow.id
-
-            if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
-               let colIdx = engine.columnIndex(of: column, in: workspaceId),
-               let monitor = workspaceManager.monitor(for: workspaceId)
-            {
-                let windowNodes = column.windowNodes
-                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
-                    column.setActiveTileIdx(windowIdx)
-                }
-
-                let cols = engine.columns(in: workspaceId)
-                let gap = CGFloat(workspaceManager.gaps)
-                state.snapToColumn(
-                    colIdx,
-                    columns: cols,
-                    gap: gap,
-                    viewportWidth: monitor.visibleFrame.width
-                )
-            }
-
-            workspaceManager.updateNiriViewportState(state, for: workspaceId)
-        }
-
-        layoutRefreshController?.refreshWindowsAndLayout()
-
-        focusedHandle = handle
-        lastFocusedByWorkspace[workspaceId] = handle
-        focusWindow(handle)
+        navigateToWindowInternal(handle: handle, workspaceId: workspaceId)
     }
 
     private func closeWindowFromOverview(handle: WindowHandle) {
@@ -1237,33 +1151,44 @@ final class WMController {
     }
 
     private func navigateToWindow(_ item: WindowFinderItem) {
-        guard let engine = niriEngine else { return }
         guard let entry = workspaceManager.entry(for: item.handle) else { return }
+        navigateToWindowInternal(handle: item.handle, workspaceId: entry.workspaceId)
+    }
+
+    private func setFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
+        focusedHandle = handle
+        lastFocusedByWorkspace[workspaceId] = handle
+    }
+
+    private func resolveWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+        lastFocusedByWorkspace[workspaceId]
+            ?? workspaceManager.entries(in: workspaceId).first?.handle
+    }
+
+    private func navigateToWindowInternal(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
+        guard let engine = niriEngine else { return }
 
         let currentWsId = activeWorkspace()?.id
 
-        if entry.workspaceId != currentWsId {
-            let wsName = workspaceManager.descriptor(for: entry.workspaceId)?.name ?? ""
+        if workspaceId != currentWsId {
+            let wsName = workspaceManager.descriptor(for: workspaceId)?.name ?? ""
             if let result = workspaceManager.focusWorkspace(named: wsName) {
                 activeMonitorId = result.monitor.id
                 syncMonitorsToNiriEngine()
             }
         }
 
-        if let niriWindow = engine.findNode(for: item.handle) {
-            var state = workspaceManager.niriViewportState(for: entry.workspaceId)
+        if let niriWindow = engine.findNode(for: handle) {
+            var state = workspaceManager.niriViewportState(for: workspaceId)
             state.selectedNodeId = niriWindow.id
 
-            if let column = engine.findColumn(containing: niriWindow, in: entry.workspaceId),
-               let colIdx = engine.columnIndex(of: column, in: entry.workspaceId),
-               let monitor = workspaceManager.monitor(for: entry.workspaceId)
+            if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
+               let colIdx = engine.columnIndex(of: column, in: workspaceId),
+               let monitor = workspaceManager.monitor(for: workspaceId)
             {
-                let windowNodes = column.windowNodes
-                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
-                    column.setActiveTileIdx(windowIdx)
-                }
+                engine.activateWindow(niriWindow.id)
 
-                let cols = engine.columns(in: entry.workspaceId)
+                let cols = engine.columns(in: workspaceId)
                 let gap = CGFloat(workspaceManager.gaps)
                 state.snapToColumn(
                     colIdx,
@@ -1273,14 +1198,13 @@ final class WMController {
                 )
             }
 
-            workspaceManager.updateNiriViewportState(state, for: entry.workspaceId)
+            workspaceManager.updateNiriViewportState(state, for: workspaceId)
         }
 
         layoutRefreshController?.refreshWindowsAndLayout()
 
-        focusedHandle = item.handle
-        lastFocusedByWorkspace[entry.workspaceId] = item.handle
-        focusWindow(item.handle)
+        setFocus(handle, in: workspaceId)
+        focusWindow(handle)
     }
 
     func moveMouseToWindow(_ handle: WindowHandle) {
@@ -1320,7 +1244,72 @@ final class WMController {
     }
 }
 
+struct NodeActivationOptions {
+    var activateWindow: Bool = true
+    var ensureVisible: Bool = true
+    var updateTimestamp: Bool = true
+    var updateWorkspaceFocus: Bool = true
+    var layoutRefresh: Bool = true
+    var axFocus: Bool = true
+    var startAnimation: Bool = true
+}
+
 extension WMController {
+    func activateNode(
+        _ node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        options: NodeActivationOptions = NodeActivationOptions()
+    ) {
+        guard let engine = niriEngine else { return }
+
+        state.selectedNodeId = node.id
+
+        if options.activateWindow {
+            engine.activateWindow(node.id)
+        }
+
+        if options.ensureVisible, let monitor = workspaceManager.monitor(for: workspaceId) {
+            let gap = CGFloat(workspaceManager.gaps)
+            let workingFrame = insetWorkingFrame(for: monitor)
+            engine.ensureSelectionVisible(
+                node: node,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gap,
+                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+            )
+        }
+
+        workspaceManager.updateNiriViewportState(state, for: workspaceId)
+
+        if let windowNode = node as? NiriWindow {
+            if options.updateTimestamp {
+                engine.updateFocusTimestamp(for: windowNode.id)
+            }
+            focusedHandle = windowNode.handle
+            if options.updateWorkspaceFocus {
+                lastFocusedByWorkspace[workspaceId] = windowNode.handle
+            }
+        }
+
+        if options.layoutRefresh {
+            layoutRefreshController?.executeLayoutRefreshImmediate()
+        }
+
+        if options.axFocus, let windowNode = node as? NiriWindow {
+            focusWindow(windowNode.handle)
+        }
+
+        if options.startAnimation {
+            let updatedState = workspaceManager.niriViewportState(for: workspaceId)
+            if updatedState.viewOffsetPixels.isAnimating {
+                layoutRefreshController?.startScrollAnimation(for: workspaceId)
+            }
+        }
+    }
+
     var internalNiriEngine: NiriLayoutEngine? { niriEngine }
     var internalDwindleEngine: DwindleLayoutEngine? { dwindleEngine }
     var internalWorkspaceManager: WorkspaceManager { workspaceManager }
@@ -1339,6 +1328,14 @@ extension WMController {
     var internalLastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] {
         get { lastFocusedByWorkspace }
         set { lastFocusedByWorkspace = newValue }
+    }
+
+    func internalSetFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
+        setFocus(handle, in: workspaceId)
+    }
+
+    func internalResolveWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+        resolveWorkspaceFocus(for: workspaceId)
     }
 
     var internalActiveMonitorId: Monitor.ID? {

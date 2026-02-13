@@ -13,7 +13,7 @@ enum SizingMode: Equatable {
     case fullscreen
 }
 
-enum ColumnWidth: Equatable {
+enum ProportionalSize: Equatable {
     case proportion(CGFloat)
 
     case fixed(CGFloat)
@@ -35,10 +35,10 @@ enum ColumnWidth: Equatable {
         return false
     }
 
-    static let `default` = ColumnWidth.proportion(1.0)
+    static let `default` = ProportionalSize.proportion(1.0)
 }
 
-enum WindowHeight: Equatable {
+enum WeightedSize: Equatable {
     case auto(weight: CGFloat)
 
     case fixed(CGFloat)
@@ -60,7 +60,7 @@ enum WindowHeight: Equatable {
         return false
     }
 
-    static let `default` = WindowHeight.auto(weight: 1.0)
+    static let `default` = WeightedSize.auto(weight: 1.0)
 }
 
 struct WindowSizeConstraints: Equatable {
@@ -146,7 +146,7 @@ struct PresetSize: Equatable {
         PresetSize(kind: .fixed(value))
     }
 
-    var asColumnWidth: ColumnWidth {
+    var asProportionalSize: ProportionalSize {
         switch kind {
         case let .proportion(p): .proportion(p)
         case let .fixed(f): .fixed(f)
@@ -166,7 +166,7 @@ struct NodeId: Hashable, Equatable {
 class NiriNode {
     let id: NodeId
     weak var parent: NiriNode?
-    var children: [NiriNode] = [] {
+    private(set) var children: [NiriNode] = [] {
         didSet { invalidateChildrenCache() }
     }
 
@@ -252,16 +252,7 @@ class NiriNode {
     }
 
     func remove() {
-        let root = findRoot()
         detach()
-
-        func unregisterAll(_ node: NiriNode) {
-            root?.unregisterNode(node)
-            for child in node.children {
-                unregisterAll(child)
-            }
-        }
-        unregisterAll(self)
         children.removeAll()
     }
 
@@ -306,62 +297,12 @@ class NiriNode {
     }
 }
 
-enum ContainerHeight: Equatable {
-    case proportion(CGFloat)
-
-    case fixed(CGFloat)
-
-    var value: CGFloat {
-        switch self {
-        case let .proportion(p): p
-        case let .fixed(f): f
-        }
-    }
-
-    var isProportion: Bool {
-        if case .proportion = self { return true }
-        return false
-    }
-
-    var isFixed: Bool {
-        if case .fixed = self { return true }
-        return false
-    }
-
-    static let `default` = ContainerHeight.proportion(1.0)
-}
-
-enum WindowWidth: Equatable {
-    case auto(weight: CGFloat)
-
-    case fixed(CGFloat)
-
-    var weight: CGFloat {
-        switch self {
-        case let .auto(w): w
-        case .fixed: 0
-        }
-    }
-
-    var isAuto: Bool {
-        if case .auto = self { return true }
-        return false
-    }
-
-    var isFixed: Bool {
-        if case .fixed = self { return true }
-        return false
-    }
-
-    static let `default` = WindowWidth.auto(weight: 1.0)
-}
-
 class NiriContainer: NiriNode {
     var displayMode: ColumnDisplay = .normal
 
-    var activeTileIdx: Int = 0
+    private(set) var activeTileIdx: Int = 0
 
-    var width: ColumnWidth = .default
+    var width: ProportionalSize = .default
 
     var cachedWidth: CGFloat = 0
 
@@ -369,15 +310,15 @@ class NiriContainer: NiriNode {
 
     var isFullWidth: Bool = false
 
-    var savedWidth: ColumnWidth?
+    var savedWidth: ProportionalSize?
 
-    var height: ContainerHeight = .default
+    var height: ProportionalSize = .default
 
     var cachedHeight: CGFloat = 0
 
     var isFullHeight: Bool = false
 
-    var savedHeight: ContainerHeight?
+    var savedHeight: ProportionalSize?
 
     var moveAnimation: MoveAnimation?
 
@@ -399,9 +340,10 @@ class NiriContainer: NiriNode {
         displacement: CGPoint,
         clock: AnimationClock?,
         config: SpringConfig = .default,
-        displayRefreshRate: Double = 60.0
+        displayRefreshRate: Double = 60.0,
+        animationsEnabled: Bool = true
     ) {
-        guard MainActor.assumeIsolated({ AppDelegate.sharedSettings?.animationsEnabled }) ?? true else { return }
+        guard animationsEnabled else { return }
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentOffset = renderOffset(at: now)
         let currentVel = moveAnimation?.currentVelocity(at: now) ?? 0
@@ -454,9 +396,10 @@ class NiriContainer: NiriNode {
         newWidth: CGFloat,
         clock: AnimationClock?,
         config: SpringConfig,
-        displayRefreshRate: Double = 60.0
+        displayRefreshRate: Double = 60.0,
+        animationsEnabled: Bool = true
     ) {
-        guard MainActor.assumeIsolated({ AppDelegate.sharedSettings?.animationsEnabled }) ?? true else { return }
+        guard animationsEnabled else { return }
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentWidth = cachedWidth > 0 ? cachedWidth : newWidth
         let currentVel = widthAnimation?.velocity(at: now) ?? 0
@@ -492,38 +435,37 @@ class NiriContainer: NiriNode {
         widthAnimation != nil
     }
 
-    func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {
-        if isFullWidth {
-            cachedWidth = workingAreaWidth
-            return
-        }
-        switch width {
+    private func resolveSpan(
+        spec: ProportionalSize,
+        isFull: Bool,
+        availableSpace: CGFloat,
+        gaps: CGFloat,
+        minConstraint: CGFloat,
+        maxConstraint: CGFloat?
+    ) -> CGFloat {
+        if isFull { return availableSpace }
+        var result: CGFloat
+        switch spec {
         case let .proportion(p):
-            cachedWidth = (workingAreaWidth - gaps) * p
+            result = (availableSpace - gaps) * p
         case let .fixed(f):
-            cachedWidth = f
+            result = f
         }
+        if result < minConstraint { result = minConstraint }
+        if let maxConstraint, result > maxConstraint { result = maxConstraint }
+        return result
+    }
+
+    func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {
         let minW = windowNodes.map(\.constraints.minSize.width).max() ?? 0
         let maxW = windowNodes.compactMap { $0.constraints.hasMaxWidth ? $0.constraints.maxSize.width : nil }.min()
-        if cachedWidth < minW { cachedWidth = minW }
-        if let maxW, cachedWidth > maxW { cachedWidth = maxW }
+        cachedWidth = resolveSpan(spec: width, isFull: isFullWidth, availableSpace: workingAreaWidth, gaps: gaps, minConstraint: minW, maxConstraint: maxW)
     }
 
     func resolveAndCacheHeight(workingAreaHeight: CGFloat, gaps: CGFloat) {
-        if isFullHeight {
-            cachedHeight = workingAreaHeight
-            return
-        }
-        switch height {
-        case let .proportion(p):
-            cachedHeight = (workingAreaHeight - gaps) * p
-        case let .fixed(f):
-            cachedHeight = f
-        }
         let minH = windowNodes.map(\.constraints.minSize.height).max() ?? 0
         let maxH = windowNodes.compactMap { $0.constraints.hasMaxHeight ? $0.constraints.maxSize.height : nil }.min()
-        if cachedHeight < minH { cachedHeight = minH }
-        if let maxH, cachedHeight > maxH { cachedHeight = maxH }
+        cachedHeight = resolveSpan(spec: height, isFull: isFullHeight, availableSpace: workingAreaHeight, gaps: gaps, minConstraint: minH, maxConstraint: maxH)
     }
 
     override var size: CGFloat {
@@ -573,6 +515,19 @@ class NiriContainer: NiriNode {
         }
     }
 
+    func adjustActiveTileIdxForRemoval(of node: NiriNode) {
+        guard isTabbed else { return }
+        let windows = windowNodes
+        guard let idx = windows.firstIndex(where: { $0.id == node.id }) else { return }
+        if idx == activeTileIdx {
+            if windows.count > 1, idx >= windows.count - 1 {
+                activeTileIdx = max(0, idx - 1)
+            }
+        } else if idx < activeTileIdx {
+            activeTileIdx = max(0, activeTileIdx - 1)
+        }
+    }
+
 }
 
 class NiriWindow: NiriNode {
@@ -580,11 +535,11 @@ class NiriWindow: NiriNode {
 
     var sizingMode: SizingMode = .normal
 
-    var height: WindowHeight = .default
+    var height: WeightedSize = .default
 
-    var savedHeight: WindowHeight?
+    var savedHeight: WeightedSize?
 
-    var windowWidth: WindowWidth = .default
+    var windowWidth: WeightedSize = .default
 
     var constraints: WindowSizeConstraints = .unconstrained
 
@@ -660,9 +615,10 @@ class NiriWindow: NiriNode {
         displacement: CGPoint,
         clock: AnimationClock?,
         config: SpringConfig = .default,
-        displayRefreshRate: Double = 60.0
+        displayRefreshRate: Double = 60.0,
+        animationsEnabled: Bool = true
     ) {
-        guard MainActor.assumeIsolated({ AppDelegate.sharedSettings?.animationsEnabled }) ?? true else { return }
+        guard animationsEnabled else { return }
         let now = clock?.now() ?? CACurrentMediaTime()
         let currentOffset = renderOffset(at: now)
         let currentVelX = moveXAnimation?.currentVelocity(at: now) ?? 0
@@ -734,10 +690,11 @@ class NiriWindow: NiriNode {
         to: CGFloat,
         clock: AnimationClock?,
         config: SpringConfig = .default,
-        displayRefreshRate: Double = 60.0
+        displayRefreshRate: Double = 60.0,
+        animationsEnabled: Bool = true
     ) {
         baseAlpha = to
-        guard MainActor.assumeIsolated({ AppDelegate.sharedSettings?.animationsEnabled }) ?? true else { return }
+        guard animationsEnabled else { return }
         let now = clock?.now() ?? CACurrentMediaTime()
         let anim = SpringAnimation(
             from: 0,
@@ -825,10 +782,6 @@ class NiriRoot: NiriContainer {
         windowIdSet.contains(id)
     }
 
-    func invalidateNodeIndex() {
-        nodeIndex = nil
-    }
-
     private func buildNodeIndex() -> [NodeId: NiriNode] {
         var index: [NodeId: NiriNode] = [:]
         func addToIndex(_ node: NiriNode) {
@@ -850,10 +803,16 @@ class NiriRoot: NiriContainer {
 
     func registerNode(_ node: NiriNode) {
         nodeIndex?[node.id] = node
+        for child in node.children {
+            registerNode(child)
+        }
     }
 
     func unregisterNode(_ node: NiriNode) {
         nodeIndex?.removeValue(forKey: node.id)
+        for child in node.children {
+            unregisterNode(child)
+        }
     }
 }
 

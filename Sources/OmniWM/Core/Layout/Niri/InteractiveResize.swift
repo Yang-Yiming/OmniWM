@@ -78,10 +78,6 @@ struct InteractiveResize {
     let startMouseLocation: CGPoint
 
     let columnIndex: Int
-
-    let windowIndexInColumn: Int
-
-    let isTopmostWindow: Bool
 }
 
 struct ResizeHitTestResult {
@@ -92,8 +88,6 @@ struct ResizeHitTestResult {
     let edges: ResizeEdge
 
     let columnIndex: Int
-
-    let windowIndexInColumn: Int
 
     let windowFrame: CGRect
 }

@@ -460,59 +460,10 @@ final class MouseEventHandler {
 
         guard abs(scrollDeltaX) > 0.5 else { return }
 
-        let timestamp = CACurrentMediaTime()
-
-        var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-        if state.viewOffsetPixels.isAnimating {
-            state.cancelAnimation()
-        }
-
-        if !state.viewOffsetPixels.isGesture {
-            state.beginGesture(isTrackpad: false)
-        }
-
-        guard let monitor = controller.monitorForInteraction() else { return }
-        let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let viewportWidth = insetFrame.width
-        let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-        let columns = engine.columns(in: wsId)
-
         let sensitivity = CGFloat(controller.internalSettings.scrollSensitivity)
         let adjustedDelta = scrollDeltaX * sensitivity
 
-        var targetWindowHandle: WindowHandle?
-        if let steps = state.updateGesture(
-            deltaPixels: adjustedDelta,
-            timestamp: timestamp,
-            columns: columns,
-            gap: gap,
-            viewportWidth: viewportWidth
-        ) {
-            if let currentId = state.selectedNodeId,
-               let currentNode = engine.findNode(by: currentId),
-               let newNode = engine.moveSelectionByColumns(
-                   steps: steps,
-                   currentSelection: currentNode,
-                   in: wsId
-               )
-            {
-                state.selectedNodeId = newNode.id
-
-                if let windowNode = newNode as? NiriWindow {
-                    controller.internalFocusedHandle = windowNode.handle
-                    engine.updateFocusTimestamp(for: windowNode.id)
-                    targetWindowHandle = windowNode.handle
-                }
-            }
-        }
-
-        controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-
-        if let handle = targetWindowHandle {
-            controller.focusWindow(handle)
-        }
+        applyViewportScrollDelta(adjustedDelta, isTrackpad: false, engine: engine, wsId: wsId)
     }
 
     private func handleFocusFollowsMouse(at location: CGPoint) {
@@ -538,34 +489,7 @@ final class MouseEventHandler {
                 lastFocusFollowsMouseTime = now
                 lastFocusFollowsMouseHandle = handle
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-                state.selectedNodeId = tiledWindow.id
-                if let col = engine.column(of: tiledWindow) {
-                    let windowNodes = col.windowNodes
-                    if let windowIdx = windowNodes.firstIndex(where: { $0.id == tiledWindow.id }) {
-                        col.setActiveTileIdx(windowIdx)
-                    }
-                }
-                if let monitor = controller.internalWorkspaceManager.monitor(for: wsId) {
-                    let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-                    let workingFrame = controller.insetWorkingFrame(for: monitor)
-                    engine.ensureSelectionVisible(
-                        node: tiledWindow,
-                        in: wsId,
-                        state: &state,
-                        workingFrame: workingFrame,
-                        gaps: gap,
-                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
-                    )
-                }
-                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-                engine.updateFocusTimestamp(for: tiledWindow.id)
-                controller.internalFocusedHandle = handle
-                controller.internalLastFocusedByWorkspace[wsId] = handle
-                controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-                controller.focusWindow(handle)
-                if state.viewOffsetPixels.isAnimating {
-                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
-                }
+                controller.activateNode(tiledWindow, in: wsId, state: &state)
             }
             return
         }
@@ -680,55 +604,66 @@ final class MouseEventHandler {
 
             gesturePhase = .committed
 
-            var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            applyViewportScrollDelta(deltaUnits, isTrackpad: true, engine: engine, wsId: wsId)
+        }
+    }
 
-            if state.viewOffsetPixels.isAnimating {
-                state.cancelAnimation()
-            }
+    private func applyViewportScrollDelta(
+        _ delta: CGFloat,
+        isTrackpad: Bool,
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID
+    ) {
+        guard let controller else { return }
 
-            if !state.viewOffsetPixels.isGesture {
-                state.beginGesture(isTrackpad: true)
-            }
+        var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
 
-            guard let monitor = controller.monitorForInteraction() else { return }
-            let insetFrame = controller.insetWorkingFrame(for: monitor)
-            let viewportWidth = insetFrame.width
-            let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-            let columns = engine.columns(in: wsId)
+        if state.viewOffsetPixels.isAnimating {
+            state.cancelAnimation()
+        }
 
-            let timestamp = CACurrentMediaTime()
-            var targetWindowHandle: WindowHandle?
-            if let steps = state.updateGesture(
-                deltaPixels: deltaUnits,
-                timestamp: timestamp,
-                columns: columns,
-                gap: gap,
-                viewportWidth: viewportWidth
-            ) {
-                if let currentId = state.selectedNodeId,
-                   let currentNode = engine.findNode(by: currentId),
-                   let newNode = engine.moveSelectionByColumns(
-                       steps: steps,
-                       currentSelection: currentNode,
-                       in: wsId
-                   )
-                {
-                    state.selectedNodeId = newNode.id
+        if !state.viewOffsetPixels.isGesture {
+            state.beginGesture(isTrackpad: isTrackpad)
+        }
 
-                    if let windowNode = newNode as? NiriWindow {
-                        controller.internalFocusedHandle = windowNode.handle
-                        engine.updateFocusTimestamp(for: windowNode.id)
-                        targetWindowHandle = windowNode.handle
-                    }
+        guard let monitor = controller.monitorForInteraction() else { return }
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
+        let viewportWidth = insetFrame.width
+        let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+        let columns = engine.columns(in: wsId)
+
+        let timestamp = CACurrentMediaTime()
+        var targetWindowHandle: WindowHandle?
+        if let steps = state.updateGesture(
+            deltaPixels: delta,
+            timestamp: timestamp,
+            columns: columns,
+            gap: gap,
+            viewportWidth: viewportWidth
+        ) {
+            if let currentId = state.selectedNodeId,
+               let currentNode = engine.findNode(by: currentId),
+               let newNode = engine.moveSelectionByColumns(
+                   steps: steps,
+                   currentSelection: currentNode,
+                   in: wsId
+               )
+            {
+                state.selectedNodeId = newNode.id
+
+                if let windowNode = newNode as? NiriWindow {
+                    controller.internalFocusedHandle = windowNode.handle
+                    engine.updateFocusTimestamp(for: windowNode.id)
+                    targetWindowHandle = windowNode.handle
                 }
             }
+        }
 
-            controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
 
-            if let handle = targetWindowHandle {
-                controller.focusWindow(handle)
-            }
+        if let handle = targetWindowHandle {
+            controller.focusWindow(handle)
         }
     }
 

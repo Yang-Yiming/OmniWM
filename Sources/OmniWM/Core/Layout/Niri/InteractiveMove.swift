@@ -7,7 +7,6 @@ struct InteractiveMove {
     let workspaceId: WorkspaceDescriptor.ID
     let startMouseLocation: CGPoint
     let originalColumnIndex: Int
-    let originalWindowIndexInColumn: Int
     let originalFrame: CGRect
     let isInsertMode: Bool
 

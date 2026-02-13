@@ -923,11 +923,10 @@ final class LayoutRefreshController {
                         node: selectedNode,
                         in: wsId,
                         state: &state,
-                        edge: .left,
                         workingFrame: insetFrame,
                         gaps: gap,
                         alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
-                        fromColumnIndex: originalColumnIndex
+                        fromContainerIndex: originalColumnIndex
                     )
                 }
                 if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
@@ -994,19 +993,17 @@ final class LayoutRefreshController {
                         node: newNode,
                         in: wsId,
                         state: &state,
-                        edge: .right,
                         workingFrame: insetFrame,
                         gaps: gap,
                         alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
-                        fromColumnIndex: state.activeColumnIndex
+                        fromContainerIndex: state.activeColumnIndex
                     )
 
                     if shouldRestorePrevOffset {
                         state.activatePrevColumnOnRemoval = offsetBeforeActivation
                     }
                 }
-                controller.internalFocusedHandle = newHandle
-                controller.internalLastFocusedByWorkspace[wsId] = newHandle
+                controller.internalSetFocus(newHandle, in: wsId)
                 engine.updateFocusTimestamp(for: newNode.id)
                 workspaceManager.updateNiriViewportState(state, for: wsId)
                 newWindowHandle = newHandle
@@ -1028,7 +1025,8 @@ final class LayoutRefreshController {
                         to: 1.0,
                         clock: engine.animationClock,
                         config: engine.windowMovementAnimationConfig,
-                        displayRefreshRate: state.displayRefreshRate
+                        displayRefreshRate: state.displayRefreshRate,
+                        animationsEnabled: engine.animationsEnabled
                     )
 
                     if abs(appearOffset) > 0.1 {
@@ -1036,7 +1034,8 @@ final class LayoutRefreshController {
                             displacement: CGPoint(x: 0, y: -appearOffset),
                             clock: engine.animationClock,
                             config: engine.windowMovementAnimationConfig,
-                            displayRefreshRate: state.displayRefreshRate
+                            displayRefreshRate: state.displayRefreshRate,
+                            animationsEnabled: engine.animationsEnabled
                         )
                     }
                 }
@@ -1402,26 +1401,23 @@ final class LayoutRefreshController {
 
         let target = windows[index]
         var state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
-        state.selectedNodeId = target.id
         if let monitor = controller.internalWorkspaceManager.monitor(for: workspaceId) {
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
             engine.ensureSelectionVisible(
                 node: target,
                 in: workspaceId,
                 state: &state,
-                edge: .left,
                 workingFrame: monitor.visibleFrame,
                 gaps: gap,
                 alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
             )
         }
-        controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)
-
-        controller.internalFocusedHandle = target.handle
-        engine.updateFocusTimestamp(for: target.id)
-        controller.focusWindow(target.handle)
-        executeLayoutRefreshImmediate()
-        if state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
+        controller.activateNode(
+            target, in: workspaceId, state: &state,
+            options: .init(activateWindow: false, ensureVisible: false, startAnimation: false)
+        )
+        let updatedState = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+        if updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
             startScrollAnimation(for: workspaceId)
         }
         updateTabbedColumnOverlays()

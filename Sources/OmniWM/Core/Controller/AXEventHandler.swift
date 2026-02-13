@@ -296,40 +296,17 @@ final class AXEventHandler: CGSEventDelegate {
                 }
             }
 
-            controller.internalFocusedHandle = entry.handle
-            controller.internalLastFocusedByWorkspace[wsId] = entry.handle
+            controller.internalSetFocus(entry.handle, in: wsId)
 
             if let engine = controller.internalNiriEngine,
                let node = engine.findNode(for: entry.handle),
-               let monitor = controller.internalWorkspaceManager.monitor(for: wsId)
+               let _ = controller.internalWorkspaceManager.monitor(for: wsId)
             {
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-                state.selectedNodeId = node.id
-                if let col = engine.column(of: node) {
-                    let windowNodes = col.windowNodes
-                    if let windowIdx = windowNodes.firstIndex(where: { $0.id == node.id }) {
-                        col.setActiveTileIdx(windowIdx)
-                    }
-                }
-                let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                engine.ensureSelectionVisible(
-                    node: node,
-                    in: wsId,
-                    state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gap,
-                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                controller.activateNode(
+                    node, in: wsId, state: &state,
+                    options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
                 )
-                controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
-                engine.updateFocusTimestamp(for: node.id)
-
-                if isWorkspaceActive {
-                    controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-                }
-                if state.viewOffsetPixels.isAnimating {
-                    controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
-                }
 
                 if let frame = node.frame {
                     updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
