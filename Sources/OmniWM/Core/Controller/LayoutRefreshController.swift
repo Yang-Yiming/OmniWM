@@ -2,7 +2,9 @@ import AppKit
 import Foundation
 import QuartzCore
 
-extension WMController {
+@MainActor final class LayoutRefreshController: NSObject {
+    weak var controller: WMController?
+
     struct LayoutState {
         struct ClosingAnimation {
             let windowId: Int
@@ -47,9 +49,16 @@ extension WMController {
         var hasCompletedInitialRefresh: Bool = false
     }
 
+    var layoutState = LayoutState()
+
     var isDiscoveryInProgress: Bool { layoutState.isFullEnumerationInProgress }
 
-    func layoutSetup() {
+    init(controller: WMController) {
+        self.controller = controller
+        super.init()
+    }
+
+    func setup() {
         detectRefreshRates()
         layoutState.screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -119,8 +128,9 @@ extension WMController {
     }
 
     func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
         let targetDisplayId: CGDirectDisplayID
-        if let monitor = workspaceManager.monitor(for: workspaceId) {
+        if let monitor = controller.workspaceManager.monitor(for: workspaceId) {
             targetDisplayId = monitor.displayId
         } else if let mainDisplayId = NSScreen.main?.displayId {
             targetDisplayId = mainDisplayId
@@ -167,7 +177,8 @@ extension WMController {
     }
 
     func startWindowCloseAnimation(entry: WindowModel.Entry, monitor: Monitor) {
-        guard settings.animationsEnabled else { return }
+        guard let controller else { return }
+        guard controller.settings.animationsEnabled else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
 
         let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
@@ -228,14 +239,14 @@ extension WMController {
 
     private func tickDwindleAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
         guard let (wsId, monitor) = layoutState.dwindleAnimationByDisplay[displayId] else { return }
-        guard let engine = dwindleEngine else {
+        guard let controller, let engine = controller.dwindleEngine else {
             stopDwindleAnimation(for: displayId)
             return
         }
 
         engine.tickAnimations(at: targetTime, in: wsId)
 
-        let insetFrame = insetWorkingFrame(for: monitor)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
         let baseFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
         let animatedFrames = engine.calculateAnimatedFrames(
             baseFrames: baseFrames,
@@ -246,18 +257,18 @@ extension WMController {
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
 
         for (handle, frame) in animatedFrames {
-            if let entry = workspaceManager.entry(for: handle) {
+            if let entry = controller.workspaceManager.entry(for: handle) {
                 frameUpdates.append((handle.pid, entry.windowId, frame))
             }
         }
 
-        axManager.applyFramesParallel(frameUpdates)
+        controller.axManager.applyFramesParallel(frameUpdates)
 
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
-            if let focusedHandle,
+            if let focusedHandle = controller.focusedHandle,
                let frame = animatedFrames[focusedHandle],
-               let entry = workspaceManager.entry(for: focusedHandle) {
-                updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+               let entry = controller.workspaceManager.entry(for: focusedHandle) {
+                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
             }
             stopDwindleAnimation(for: displayId)
         }
@@ -265,20 +276,20 @@ extension WMController {
 
     private func tickScrollAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
         guard let wsId = layoutState.scrollAnimationByDisplay[displayId] else { return }
-        guard let engine = niriEngine else {
+        guard let controller, let engine = controller.niriEngine else {
             stopScrollAnimation(for: displayId)
             return
         }
 
-        var state = workspaceManager.niriViewportState(for: wsId)
+        var state = controller.workspaceManager.niriViewportState(for: wsId)
 
         let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
         let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
         let columnAnimationsRunning = engine.tickAllColumnAnimations(in: wsId, at: targetTime)
         let workspaceSwitchRunning = engine.tickWorkspaceSwitchAnimation(for: wsId, at: targetTime)
 
-        guard let monitor = workspaceManager.monitors.first(where: { $0.displayId == displayId }) else {
-            workspaceManager.updateNiriViewportState(state, for: wsId)
+        guard let monitor = controller.workspaceManager.monitors.first(where: { $0.displayId == displayId }) else {
+            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             stopScrollAnimation(for: displayId)
             return
         }
@@ -296,7 +307,7 @@ extension WMController {
             || columnAnimationsRunning
             || workspaceSwitchRunning
 
-        workspaceManager.updateNiriViewportState(state, for: wsId)
+        controller.workspaceManager.updateNiriViewportState(state, for: wsId)
 
         if !animationsOngoing {
             finalizeAnimation()
@@ -341,20 +352,22 @@ extension WMController {
         monitor: Monitor,
         animationTime: TimeInterval? = nil
     ) {
+        guard let controller else { return }
+
         let gaps = LayoutGaps(
-            horizontal: CGFloat(workspaceManager.gaps),
-            vertical: CGFloat(workspaceManager.gaps),
-            outer: workspaceManager.outerGaps
+            horizontal: CGFloat(controller.workspaceManager.gaps),
+            vertical: CGFloat(controller.workspaceManager.gaps),
+            outer: controller.workspaceManager.outerGaps
         )
 
-        let insetFrame = insetWorkingFrame(for: monitor)
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
         let area = WorkingAreaContext(
             workingFrame: insetFrame,
             viewFrame: monitor.frame,
             scale: backingScale(for: monitor)
         )
         let edgeFrame = monitor.visibleFrame
-        let monitors = workspaceManager.monitors
+        let monitors = controller.workspaceManager.monitors
 
         let (frames, hiddenHandles) = engine.calculateCombinedLayoutUsingPools(
             in: wsId,
@@ -372,7 +385,7 @@ extension WMController {
         let time = animationTime ?? CACurrentMediaTime()
 
         for (handle, frame) in frames {
-            guard let entry = workspaceManager.entry(for: handle) else { continue }
+            guard let entry = controller.workspaceManager.entry(for: handle) else { continue }
 
             if let node = engine.findNode(for: handle) {
                 let alpha = node.renderAlpha(at: time)
@@ -402,10 +415,10 @@ extension WMController {
         }
 
         if !positionUpdates.isEmpty {
-            axManager.applyPositionsViaSkyLight(positionUpdates)
+            controller.axManager.applyPositionsViaSkyLight(positionUpdates)
         }
         if !frameUpdates.isEmpty {
-            axManager.applyFramesParallel(frameUpdates)
+            controller.axManager.applyFramesParallel(frameUpdates)
         }
         for (windowId, alpha) in alphaUpdates {
             SkyLight.shared.setWindowAlpha(windowId, alpha: alpha)
@@ -413,33 +426,36 @@ extension WMController {
     }
 
     private func finalizeAnimation() {
-        guard let focusedHandle,
-              let entry = workspaceManager.entry(for: focusedHandle),
-              let engine = niriEngine
+        guard let controller,
+              let focusedHandle = controller.focusedHandle,
+              let entry = controller.workspaceManager.entry(for: focusedHandle),
+              let engine = controller.niriEngine
         else { return }
 
         if let node = engine.findNode(for: focusedHandle),
            let frame = node.frame {
-            updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+            controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
         }
 
-        if moveMouseToFocusedWindowEnabled {
-            moveMouseToWindow(focusedHandle)
+        if controller.moveMouseToFocusedWindowEnabled {
+            controller.moveMouseToWindow(focusedHandle)
         }
     }
 
     func applyLayoutForWorkspaces(_ workspaceIds: Set<WorkspaceDescriptor.ID>) {
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+        guard let controller else { return }
+
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             let wsId = workspace.id
             guard workspaceIds.contains(wsId) else { continue }
 
-            let layoutType = settings.layoutType(for: workspace.name)
+            let layoutType = controller.settings.layoutType(for: workspace.name)
 
             switch layoutType {
             case .niri, .defaultLayout:
-                guard let engine = niriEngine else { continue }
-                let state = workspaceManager.niriViewportState(for: wsId)
+                guard let engine = controller.niriEngine else { continue }
+                let state = controller.workspaceManager.niriViewportState(for: wsId)
 
                 applyFramesOnDemand(
                     wsId: wsId,
@@ -450,23 +466,23 @@ extension WMController {
                 )
 
             case .dwindle:
-                guard let engine = dwindleEngine else { continue }
-                let insetFrame = insetWorkingFrame(for: monitor)
+                guard let engine = controller.dwindleEngine else { continue }
+                let insetFrame = controller.insetWorkingFrame(for: monitor)
                 let frames = engine.calculateLayout(for: wsId, screen: insetFrame)
 
                 var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
                 for (handle, frame) in frames {
-                    if let entry = workspaceManager.entry(for: handle) {
+                    if let entry = controller.workspaceManager.entry(for: handle) {
                         frameUpdates.append((handle.pid, entry.windowId, frame))
                     }
                 }
-                axManager.applyFramesParallel(frameUpdates)
+                controller.axManager.applyFramesParallel(frameUpdates)
             }
         }
 
-        for ws in workspaceManager.workspaces where workspaceIds.contains(ws.id) {
-            guard let monitor = workspaceManager.monitor(for: ws.id) else { continue }
-            let isActive = workspaceManager.activeWorkspace(on: monitor.id)?.id == ws.id
+        for ws in controller.workspaceManager.workspaces where workspaceIds.contains(ws.id) {
+            guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
+            let isActive = controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == ws.id
             if !isActive {
                 hideWorkspace(ws.id, monitor: monitor)
             }
@@ -474,13 +490,15 @@ extension WMController {
     }
 
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+
         for (displayId, wsId) in layoutState.scrollAnimationByDisplay where wsId == workspaceId {
             stopScrollAnimation(for: displayId)
         }
 
-        var state = workspaceManager.niriViewportState(for: workspaceId)
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         state.cancelAnimation()
-        workspaceManager.updateNiriViewportState(state, for: workspaceId)
+        controller.workspaceManager.updateNiriViewportState(state, for: workspaceId)
     }
 
     func refreshWindowsAndLayout() {
@@ -513,13 +531,15 @@ extension WMController {
     }
 
     private func executeIncrementalRefresh() async {
-        if isFrontmostAppLockScreen() || isLockScreenActive {
+        guard let controller else { return }
+
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
             return
         }
 
         var activeWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
-        for monitor in workspaceManager.monitors {
-            if let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+        for monitor in controller.workspaceManager.monitors {
+            if let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
                 activeWorkspaceIds.insert(workspace.id)
             }
         }
@@ -533,17 +553,17 @@ extension WMController {
             await layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
         }
 
-        for ws in workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
-            guard let monitor = workspaceManager.monitor(for: ws.id) else { continue }
+        for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
+            guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
             hideWorkspace(ws.id, monitor: monitor)
         }
 
-        if let focusedWorkspaceId = activeWorkspace()?.id {
-            focusManager.ensureFocusedHandleValid(
+        if let focusedWorkspaceId = controller.activeWorkspace()?.id {
+            controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
-                engine: niriEngine,
-                workspaceManager: workspaceManager,
-                focusWindowAction: { [weak self] handle in self?.focusWindow(handle) }
+                engine: controller.niriEngine,
+                workspaceManager: controller.workspaceManager,
+                focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
             )
         }
     }
@@ -553,21 +573,23 @@ extension WMController {
         layoutState.activeRefreshTask = nil
         layoutState.isInLightSession = true
 
-        let focused = focusedHandle
-        for monitor in workspaceManager.monitors {
-            if let ws = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
-                let handles = workspaceManager.entries(in: ws.id).map(\.handle)
-                let layoutType = settings.layoutType(for: ws.name)
+        if let controller {
+            let focused = controller.focusedHandle
+            for monitor in controller.workspaceManager.monitors {
+                if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+                    let handles = controller.workspaceManager.entries(in: ws.id).map(\.handle)
+                    let layoutType = controller.settings.layoutType(for: ws.name)
 
-                switch layoutType {
-                case .dwindle:
-                    if let dwindleEngine {
-                        _ = dwindleEngine.syncWindows(handles, in: ws.id, focusedHandle: focused)
-                    }
-                case .niri, .defaultLayout:
-                    if let niriEngine {
-                        let selection = workspaceManager.niriViewportState(for: ws.id).selectedNodeId
-                        _ = niriEngine.syncWindows(handles, in: ws.id, selectedNodeId: selection, focusedHandle: focused)
+                    switch layoutType {
+                    case .dwindle:
+                        if let dwindleEngine = controller.dwindleEngine {
+                            _ = dwindleEngine.syncWindows(handles, in: ws.id, focusedHandle: focused)
+                        }
+                    case .niri, .defaultLayout:
+                        if let niriEngine = controller.niriEngine {
+                            let selection = controller.workspaceManager.niriViewportState(for: ws.id).selectedNodeId
+                            _ = niriEngine.syncWindows(handles, in: ws.id, selectedNodeId: selection, focusedHandle: focused)
+                        }
                     }
                 }
             }
@@ -589,9 +611,11 @@ extension WMController {
         layoutState.isImmediateLayoutInProgress = true
         defer { layoutState.isImmediateLayoutInProgress = false }
 
+        guard let controller else { return }
+
         var activeWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
-        for monitor in workspaceManager.monitors {
-            if let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+        for monitor in controller.workspaceManager.monitors {
+            if let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
                 activeWorkspaceIds.insert(workspace.id)
             }
         }
@@ -606,7 +630,7 @@ extension WMController {
         }
     }
 
-    func layoutResetState() {
+    func resetState() {
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = nil
         layoutState.isInLightSession = false
@@ -629,44 +653,46 @@ extension WMController {
         layoutState.isFullEnumerationInProgress = true
         defer { layoutState.isFullEnumerationInProgress = false }
 
-        if isFrontmostAppLockScreen() || isLockScreenActive {
+        guard let controller else { return }
+
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
             return
         }
 
-        let windows = await axManager.currentWindowsAsync()
+        let windows = await controller.axManager.currentWindowsAsync()
         try Task.checkCancellation()
         var seenKeys: Set<WindowModel.WindowKey> = []
-        let focusedWorkspaceId = activeWorkspace()?.id
+        let focusedWorkspaceId = controller.activeWorkspace()?.id
 
         for (ax, pid, winId) in windows {
-            if let bundleId = appInfoCache.bundleId(for: pid) {
+            if let bundleId = controller.appInfoCache.bundleId(for: pid) {
                 if bundleId == LockScreenObserver.lockScreenAppBundleId {
                     continue
                 }
-                if appRulesByBundleId[bundleId]?.alwaysFloat == true {
+                if controller.appRulesByBundleId[bundleId]?.alwaysFloat == true {
                     continue
                 }
             }
 
-            let defaultWorkspace = resolveWorkspaceForNewWindow(
+            let defaultWorkspace = controller.resolveWorkspaceForNewWindow(
                 axRef: ax,
                 pid: pid,
                 fallbackWorkspaceId: focusedWorkspaceId
             )
-            let existingAssignment = workspaceAssignment(pid: pid, windowId: winId)
+            let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
             let wsForWindow = existingAssignment ?? defaultWorkspace
 
-            _ = workspaceManager.addWindow(ax, pid: pid, windowId: winId, to: wsForWindow)
+            _ = controller.workspaceManager.addWindow(ax, pid: pid, windowId: winId, to: wsForWindow)
             seenKeys.insert(.init(pid: pid, windowId: winId))
         }
-        workspaceManager.removeMissing(keys: seenKeys)
-        workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWorkspaceId)
+        controller.workspaceManager.removeMissing(keys: seenKeys)
+        controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWorkspaceId)
 
         try Task.checkCancellation()
 
         var activeWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
-        for monitor in workspaceManager.monitors {
-            if let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+        for monitor in controller.workspaceManager.monitors {
+            if let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
                 activeWorkspaceIds.insert(workspace.id)
             }
         }
@@ -679,60 +705,60 @@ extension WMController {
         if !dwindleWorkspaces.isEmpty {
             await layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
         }
-        for ws in workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
-            guard let monitor = workspaceManager.monitor(for: ws.id) else { continue }
+        for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
+            guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
             hideWorkspace(ws.id, monitor: monitor)
         }
-        updateWorkspaceBar()
+        controller.updateWorkspaceBar()
 
         if let focusedWorkspaceId {
-            focusManager.ensureFocusedHandleValid(
+            controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
-                engine: niriEngine,
-                workspaceManager: workspaceManager,
-                focusWindowAction: { [weak self] handle in self?.focusWindow(handle) }
+                engine: controller.niriEngine,
+                workspaceManager: controller.workspaceManager,
+                focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
             )
         }
 
         layoutState.hasCompletedInitialRefresh = true
-        axEventHandler.subscribeToManagedWindows()
+        controller.axEventHandler.subscribeToManagedWindows()
     }
 
     func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
-        guard let engine = niriEngine else { return }
+        guard let controller, let engine = controller.niriEngine else { return }
 
         var hiddenHandlesByWorkspace = [WorkspaceDescriptor.ID: [WindowHandle: HideSide]]()
 
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             unhideWorkspace(workspace.id, monitor: monitor)
         }
 
         var processedWorkspaces: Set<WorkspaceDescriptor.ID> = []
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             let wsId = workspace.id
             guard !processedWorkspaces.contains(wsId) else { continue }
             processedWorkspaces.insert(wsId)
 
-            let layoutType = settings.layoutType(for: workspace.name)
+            let layoutType = controller.settings.layoutType(for: workspace.name)
             if layoutType == .dwindle {
                 continue
             }
 
-            let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
+            let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
             let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []
             var currentHandleIds = Set<UUID>(minimumCapacity: windowHandles.count)
             for handle in windowHandles {
                 currentHandleIds.insert(handle.id)
             }
-            let currentSelection = workspaceManager.niriViewportState(for: wsId).selectedNodeId
+            let currentSelection = controller.workspaceManager.niriViewportState(for: wsId).selectedNodeId
             let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
 
             var precomputedFallback: NodeId?
             var originalColumnIndex: Int?
             var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
-            var state = workspaceManager.niriViewportState(for: wsId)
+            var state = controller.workspaceManager.niriViewportState(for: wsId)
 
             let wasEmptyBeforeSync = engine.columns(in: wsId).isEmpty
 
@@ -747,7 +773,7 @@ extension WMController {
 
                 if allWindowsInColumnRemoved && columnRemovalResult == nil {
                     originalColumnIndex = colIdx
-                    let gap = CGFloat(workspaceManager.gaps)
+                    let gap = CGFloat(controller.workspaceManager.gaps)
                     columnRemovalResult = engine.animateColumnsForRemoval(
                         columnIndex: colIdx,
                         in: wsId,
@@ -769,12 +795,12 @@ extension WMController {
                 windowHandles,
                 in: wsId,
                 selectedNodeId: currentSelection,
-                focusedHandle: focusedHandle
+                focusedHandle: controller.focusedHandle
             )
             let newHandles = windowHandles.filter { !existingHandleIds.contains($0.id) }
 
-            let earlyGap = CGFloat(workspaceManager.gaps)
-            let earlyInsetFrame = insetWorkingFrame(for: monitor)
+            let earlyGap = CGFloat(controller.workspaceManager.gaps)
+            let earlyInsetFrame = controller.insetWorkingFrame(for: monitor)
             for col in engine.columns(in: wsId) {
                 if col.cachedWidth <= 0 {
                     col.resolveAndCacheWidth(workingAreaWidth: earlyInsetFrame.width, gaps: earlyGap)
@@ -820,18 +846,18 @@ extension WMController {
 
             }
 
-            for entry in workspaceManager.entries(in: wsId) {
+            for entry in controller.workspaceManager.entries(in: wsId) {
                 let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
                 var constraints: WindowSizeConstraints
-                if let cached = workspaceManager.cachedConstraints(for: entry.handle) {
+                if let cached = controller.workspaceManager.cachedConstraints(for: entry.handle) {
                     constraints = cached
                 } else {
                     constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
-                    workspaceManager.setCachedConstraints(constraints, for: entry.handle)
+                    controller.workspaceManager.setCachedConstraints(constraints, for: entry.handle)
                 }
 
-                if let bundleId = appInfoCache.bundleId(for: entry.handle.pid),
-                   let rule = appRulesByBundleId[bundleId]
+                if let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
+                   let rule = controller.appRulesByBundleId[bundleId]
                 {
                     if let minW = rule.minWidth {
                         constraints.minSize.width = max(constraints.minSize.width, minW)
@@ -880,8 +906,8 @@ extension WMController {
 
             let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
 
-            let gap = CGFloat(workspaceManager.gaps)
-            let insetFrame = insetWorkingFrame(for: monitor)
+            let gap = CGFloat(controller.workspaceManager.gaps)
+            let insetFrame = controller.insetWorkingFrame(for: monitor)
 
             for col in engine.columns(in: wsId) {
                 if col.cachedWidth <= 0 {
@@ -890,7 +916,7 @@ extension WMController {
             }
 
             if !isGestureOrAnimation,
-               wsId == activeWorkspace()?.id,
+               wsId == controller.activeWorkspace()?.id,
                let selectedId = state.selectedNodeId,
                let selectedNode = engine.findNode(by: selectedId)
             {
@@ -908,7 +934,7 @@ extension WMController {
                     )
                 }
                 if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
-                    workspaceManager.updateNiriViewportState(state, for: wsId)
+                    controller.workspaceManager.updateNiriViewportState(state, for: wsId)
                     viewportNeedsRecalc = true
                 }
             }
@@ -916,20 +942,20 @@ extension WMController {
             if let selectedId = state.selectedNodeId,
                let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
             {
-                focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: wsId)
-                if let currentFocused = focusedHandle {
-                    if workspaceManager.workspace(for: currentFocused) == wsId {
-                        focusManager.setFocus(selectedNode.handle, in: wsId)
+                controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: wsId)
+                if let currentFocused = controller.focusedHandle {
+                    if controller.workspaceManager.workspace(for: currentFocused) == wsId {
+                        controller.focusManager.setFocus(selectedNode.handle, in: wsId)
                     }
                 } else {
-                    focusManager.setFocus(selectedNode.handle, in: wsId)
+                    controller.focusManager.setFocus(selectedNode.handle, in: wsId)
                 }
             }
 
             let gaps = LayoutGaps(
-                horizontal: CGFloat(workspaceManager.gaps),
-                vertical: CGFloat(workspaceManager.gaps),
-                outer: workspaceManager.outerGaps
+                horizontal: CGFloat(controller.workspaceManager.gaps),
+                vertical: CGFloat(controller.workspaceManager.gaps),
+                outer: controller.workspaceManager.outerGaps
             )
 
             let area = WorkingAreaContext(
@@ -944,7 +970,7 @@ extension WMController {
             if layoutState.hasCompletedInitialRefresh,
                let newHandle = newHandles.last,
                let newNode = engine.findNode(for: newHandle),
-               wsId == activeWorkspace()?.id
+               wsId == controller.activeWorkspace()?.id
             {
                 state.selectedNodeId = newNode.id
 
@@ -981,14 +1007,14 @@ extension WMController {
                         state.activatePrevColumnOnRemoval = offsetBeforeActivation
                     }
                 }
-                focusManager.setFocus(newHandle, in: wsId)
+                controller.focusManager.setFocus(newHandle, in: wsId)
                 engine.updateFocusTimestamp(for: newNode.id)
-                workspaceManager.updateNiriViewportState(state, for: wsId)
+                controller.workspaceManager.updateNiriViewportState(state, for: wsId)
                 newWindowHandle = newHandle
             }
 
             if layoutState.hasCompletedInitialRefresh,
-               wsId == activeWorkspace()?.id,
+               wsId == controller.activeWorkspace()?.id,
                !newHandles.isEmpty
             {
                 let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
@@ -1040,12 +1066,12 @@ extension WMController {
 
             if let newHandle = newWindowHandle {
                 startScrollAnimation(for: wsId)
-                focusWindow(newHandle)
+                controller.focusWindow(newHandle)
             }
 
             hiddenHandlesByWorkspace[wsId] = hiddenHandles
 
-            for entry in workspaceManager.entries(in: wsId) {
+            for entry in controller.workspaceManager.entries(in: wsId) {
                 if let side = hiddenHandles[entry.handle] {
                     let targetY = frames[entry.handle]?.origin.y
                     hideWindow(entry, monitor: monitor, side: side, targetY: targetY)
@@ -1058,64 +1084,64 @@ extension WMController {
 
             for (handle, frame) in frames {
                 if hiddenHandles[handle] != nil { continue }
-                if let entry = workspaceManager.entry(for: handle) {
+                if let entry = controller.workspaceManager.entry(for: handle) {
                     frameUpdates.append((handle.pid, entry.windowId, frame))
                 }
             }
 
-            axManager.applyFramesParallel(frameUpdates)
+            controller.axManager.applyFramesParallel(frameUpdates)
 
-            if !useScrollAnimationPath, let focusedHandle {
+            if !useScrollAnimationPath, let focusedHandle = controller.focusedHandle {
                 if hiddenHandles[focusedHandle] != nil {
-                    borderManager.hideBorder()
+                    controller.borderManager.hideBorder()
                 } else if let frame = frames[focusedHandle],
-                          let entry = workspaceManager.entry(for: focusedHandle)
+                          let entry = controller.workspaceManager.entry(for: focusedHandle)
                 {
-                    updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                    controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
                 }
             }
 
-            workspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
 
             await Task.yield()
         }
 
         updateTabbedColumnOverlays()
-        updateWorkspaceBar()
+        controller.updateWorkspaceBar()
     }
 
-    func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async {
-        guard let engine = dwindleEngine else { return }
+    private func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async {
+        guard let controller, let engine = controller.dwindleEngine else { return }
 
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             let wsId = workspace.id
 
             guard activeWorkspaces.contains(wsId) else { continue }
 
             let wsName = workspace.name
-            let layoutType = settings.layoutType(for: wsName)
+            let layoutType = controller.settings.layoutType(for: wsName)
             guard layoutType == .dwindle else { continue }
 
             let oldFrames = engine.currentFrames(in: wsId)
 
-            let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
-            let currentFocusedHandle = focusedHandle
+            let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
+            let currentFocusedHandle = controller.focusedHandle
 
             _ = engine.syncWindows(windowHandles, in: wsId, focusedHandle: currentFocusedHandle)
 
-            for entry in workspaceManager.entries(in: wsId) {
+            for entry in controller.workspaceManager.entries(in: wsId) {
                 let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
                 var constraints: WindowSizeConstraints
-                if let cached = workspaceManager.cachedConstraints(for: entry.handle) {
+                if let cached = controller.workspaceManager.cachedConstraints(for: entry.handle) {
                     constraints = cached
                 } else {
                     constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
-                    workspaceManager.setCachedConstraints(constraints, for: entry.handle)
+                    controller.workspaceManager.setCachedConstraints(constraints, for: entry.handle)
                 }
 
-                if let bundleId = appInfoCache.bundleId(for: entry.handle.pid),
-                   let rule = appRulesByBundleId[bundleId]
+                if let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
+                   let rule = controller.appRulesByBundleId[bundleId]
                 {
                     if let minW = rule.minWidth {
                         constraints.minSize.width = max(constraints.minSize.width, minW)
@@ -1128,11 +1154,11 @@ extension WMController {
                 engine.updateWindowConstraints(for: entry.handle, constraints: constraints)
             }
 
-            let insetFrame = insetWorkingFrame(for: monitor)
+            let insetFrame = controller.insetWorkingFrame(for: monitor)
 
             let newFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
 
-            for entry in workspaceManager.entries(in: wsId) {
+            for entry in controller.workspaceManager.entries(in: wsId) {
                 if newFrames[entry.handle] != nil {
                     unhideWindow(entry, monitor: monitor)
                 }
@@ -1141,65 +1167,67 @@ extension WMController {
             if let selected = engine.selectedNode(in: wsId),
                case let .leaf(handle, _) = selected.kind,
                let handle {
-                focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
-                if let currentFocused = focusedHandle {
-                    if workspaceManager.workspace(for: currentFocused) == wsId {
-                        focusManager.setFocus(handle, in: wsId)
+                controller.focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
+                if let currentFocused = controller.focusedHandle {
+                    if controller.workspaceManager.workspace(for: currentFocused) == wsId {
+                        controller.focusManager.setFocus(handle, in: wsId)
                     }
                 } else {
-                    focusManager.setFocus(handle, in: wsId)
+                    controller.focusManager.setFocus(handle, in: wsId)
                 }
             }
 
-            if settings.animationsEnabled {
+            if controller.settings.animationsEnabled {
                 engine.animateWindowMovements(oldFrames: oldFrames, newFrames: newFrames)
             }
 
             let now = CACurrentMediaTime()
-            if settings.animationsEnabled, engine.hasActiveAnimations(in: wsId, at: now) {
+            if controller.settings.animationsEnabled, engine.hasActiveAnimations(in: wsId, at: now) {
                 startDwindleAnimation(for: wsId, monitor: monitor)
 
-                if let focusedHandle,
+                if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
-                   let entry = workspaceManager.entry(for: focusedHandle) {
-                    borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
+                   let entry = controller.workspaceManager.entry(for: focusedHandle) {
+                    controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
                 }
             } else {
                 var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
 
                 for (handle, frame) in newFrames {
-                    if let entry = workspaceManager.entry(for: handle) {
+                    if let entry = controller.workspaceManager.entry(for: handle) {
                         frameUpdates.append((handle.pid, entry.windowId, frame))
                     }
                 }
 
-                axManager.applyFramesParallel(frameUpdates)
+                controller.axManager.applyFramesParallel(frameUpdates)
 
-                if let focusedHandle,
+                if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
-                   let entry = workspaceManager.entry(for: focusedHandle) {
-                    updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                   let entry = controller.workspaceManager.entry(for: focusedHandle) {
+                    controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
                 }
             }
 
             await Task.yield()
         }
 
-        updateWorkspaceBar()
+        controller.updateWorkspaceBar()
     }
 
     private func partitionWorkspacesByLayoutType(
         _ workspaces: Set<WorkspaceDescriptor.ID>
     ) -> (niri: Set<WorkspaceDescriptor.ID>, dwindle: Set<WorkspaceDescriptor.ID>) {
+        guard let controller else { return ([], []) }
+
         var niriWorkspaces: Set<WorkspaceDescriptor.ID> = []
         var dwindleWorkspaces: Set<WorkspaceDescriptor.ID> = []
 
         for wsId in workspaces {
-            guard let ws = workspaceManager.descriptor(for: wsId) else {
+            guard let ws = controller.workspaceManager.descriptor(for: wsId) else {
                 niriWorkspaces.insert(wsId)
                 continue
             }
-            let layoutType = settings.layoutType(for: ws.name)
+            let layoutType = controller.settings.layoutType(for: ws.name)
             switch layoutType {
             case .dwindle:
                 dwindleWorkspaces.insert(wsId)
@@ -1216,25 +1244,28 @@ extension WMController {
     }
 
     private func unhideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
-        for entry in workspaceManager.entries(in: workspaceId) {
+        guard let controller else { return }
+        for entry in controller.workspaceManager.entries(in: workspaceId) {
             unhideWindow(entry, monitor: monitor)
         }
     }
 
     private func hideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
-        for entry in workspaceManager.entries(in: workspaceId) {
+        guard let controller else { return }
+        for entry in controller.workspaceManager.entries(in: workspaceId) {
             hideWindow(entry, monitor: monitor, side: .right, targetY: nil)
         }
     }
 
     private func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, targetY: CGFloat?) {
+        guard let controller else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
-        if !workspaceManager.isHiddenInCorner(entry.handle) {
+        if !controller.workspaceManager.isHiddenInCorner(entry.handle) {
             let center = frame.center
-            let referenceFrame = center.monitorApproximation(in: workspaceManager.monitors)?
+            let referenceFrame = center.monitorApproximation(in: controller.workspaceManager.monitors)?
                 .frame ?? monitor.frame
             let proportional = proportionalPosition(topLeft: frame.topLeftCorner, in: referenceFrame)
-            workspaceManager.setHiddenProportionalPosition(proportional, for: entry.handle)
+            controller.workspaceManager.setHiddenProportionalPosition(proportional, for: entry.handle)
         }
         let yPos = targetY ?? frame.origin.y
         let scale = backingScale(for: monitor)
@@ -1246,13 +1277,14 @@ extension WMController {
             pid: entry.handle.pid,
             targetY: yPos,
             monitor: monitor,
-            monitors: workspaceManager.monitors
+            monitors: controller.workspaceManager.monitors
         )
         try? AXWindowService.setFrame(entry.axRef, frame: CGRect(origin: origin, size: frame.size))
     }
 
     private func unhideWindow(_ entry: WindowModel.Entry, monitor: Monitor) {
-        workspaceManager.setHiddenProportionalPosition(nil, for: entry.handle)
+        guard let controller else { return }
+        controller.workspaceManager.setHiddenProportionalPosition(nil, for: entry.handle)
     }
 
     private func proportionalPosition(topLeft: CGPoint, in frame: CGRect) -> CGPoint {
@@ -1312,18 +1344,19 @@ extension WMController {
     }
 
     private func isZoomApp(_ pid: pid_t) -> Bool {
-        appInfoCache.bundleId(for: pid) == "us.zoom.xos"
+        controller?.appInfoCache.bundleId(for: pid) == "us.zoom.xos"
     }
 
     func updateTabbedColumnOverlays() {
-        guard let engine = niriEngine else {
-            tabbedOverlayManager.removeAll()
+        guard let controller else { return }
+        guard let engine = controller.niriEngine else {
+            controller.tabbedOverlayManager.removeAll()
             return
         }
 
         var infos: [TabbedColumnOverlayInfo] = []
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
             else { continue }
 
             for column in engine.columns(in: workspace.id) where column.isTabbed {
@@ -1338,7 +1371,7 @@ extension WMController {
 
                 let activeIndex = min(max(0, column.activeTileIdx), windows.count - 1)
                 let activeHandle = windows[activeIndex].handle
-                let activeWindowId = workspaceManager.entry(for: activeHandle)?.windowId
+                let activeWindowId = controller.workspaceManager.entry(for: activeHandle)?.windowId
 
                 infos.append(
                     TabbedColumnOverlayInfo(
@@ -1353,11 +1386,11 @@ extension WMController {
             }
         }
 
-        tabbedOverlayManager.updateOverlays(infos)
+        controller.tabbedOverlayManager.updateOverlays(infos)
     }
 
     func selectTabInNiri(workspaceId: WorkspaceDescriptor.ID, columnId: NodeId, index: Int) {
-        guard let engine = niriEngine else { return }
+        guard let controller, let engine = controller.niriEngine else { return }
         guard let column = engine.columns(in: workspaceId).first(where: { $0.id == columnId }) else { return }
 
         let windows = column.windowNodes
@@ -1367,9 +1400,9 @@ extension WMController {
         engine.updateTabbedColumnVisibility(column: column)
 
         let target = windows[index]
-        var state = workspaceManager.niriViewportState(for: workspaceId)
-        if let monitor = workspaceManager.monitor(for: workspaceId) {
-            let gap = CGFloat(workspaceManager.gaps)
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        if let monitor = controller.workspaceManager.monitor(for: workspaceId) {
+            let gap = CGFloat(controller.workspaceManager.gaps)
             engine.ensureSelectionVisible(
                 node: target,
                 in: workspaceId,
@@ -1379,11 +1412,11 @@ extension WMController {
                 alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
             )
         }
-        activateNode(
+        controller.activateNode(
             target, in: workspaceId, state: &state,
             options: .init(activateWindow: false, ensureVisible: false, startAnimation: false)
         )
-        let updatedState = workspaceManager.niriViewportState(for: workspaceId)
+        let updatedState = controller.workspaceManager.niriViewportState(for: workspaceId)
         if updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
             startScrollAnimation(for: workspaceId)
         }

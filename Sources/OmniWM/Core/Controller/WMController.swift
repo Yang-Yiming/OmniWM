@@ -81,7 +81,10 @@ final class WMController {
     private(set) lazy var axEventHandler = AXEventHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var commandHandler = CommandHandler(controller: self)
-    @ObservationIgnored var layoutState = LayoutState()
+    @ObservationIgnored
+    private(set) lazy var workspaceNavigationHandler = WorkspaceNavigationHandler(controller: self)
+    @ObservationIgnored
+    private(set) lazy var layoutRefreshController = LayoutRefreshController(controller: self)
     private(set) var hasStartedServices = false
     private var permissionCheckerTask: Task<Void, Never>?
 
@@ -95,7 +98,7 @@ final class WMController {
             self?.commandHandler.handleCommand(command)
         }
         tabbedOverlayManager.onSelect = { [weak self] workspaceId, columnId, index in
-            self?.selectTabInNiri(workspaceId: workspaceId, columnId: columnId, index: index)
+            self?.layoutRefreshController.selectTabInNiri(workspaceId: workspaceId, columnId: columnId, index: index)
         }
         focusManager.onFocusedHandleChanged = { [weak self] handle in
             self?.focusedHandle = handle
@@ -396,7 +399,7 @@ final class WMController {
 
     func focusWorkspaceFromBar(named name: String) {
         if let currentWorkspace = activeWorkspace() {
-            saveNiriViewportState(for: currentWorkspace.id)
+            workspaceNavigationHandler.saveNiriViewportState(for: currentWorkspace.id)
         }
 
         guard let result = workspaceManager.focusWorkspace(named: name) else { return }
@@ -508,7 +511,7 @@ final class WMController {
             return
         }
         hasStartedServices = true
-        layoutSetup()
+        layoutRefreshController.setup()
         axEventHandler.setup()
         if hotkeysEnabled {
             hotkeys.start()
@@ -613,7 +616,7 @@ final class WMController {
     }
 
     private func handleMonitorDisconnect(monitorId: Monitor.ID, outputId: OutputId) {
-        cleanupForMonitorDisconnect(displayId: outputId.displayId, migrateAnimations: false)
+        layoutRefreshController.cleanupForMonitorDisconnect(displayId: outputId.displayId, migrateAnimations: false)
 
         if activeMonitorId == monitorId {
             activeMonitorId = workspaceManager.monitors.first?.id
@@ -712,7 +715,7 @@ final class WMController {
         axManager.onAppTerminated = nil
         workspaceManager.onGapsChanged = nil
 
-        layoutResetState()
+        layoutRefreshController.resetState()
         mouseEventHandler.cleanup()
         mouseWarpHandler.cleanup()
         axEventHandler.cleanup()
@@ -1360,7 +1363,7 @@ extension WMController {
     ) {
         var animatingWorkspaceId: WorkspaceDescriptor.ID?
 
-        runLightSession {
+        layoutRefreshController.runLightSession {
             guard let engine = niriEngine else { return }
             guard let wsId = activeWorkspace()?.id else { return }
             var state = workspaceManager.niriViewportState(for: wsId)
@@ -1390,14 +1393,14 @@ extension WMController {
         }
 
         if let wsId = animatingWorkspaceId {
-            startScrollAnimation(for: wsId)
+            layoutRefreshController.startScrollAnimation(for: wsId)
         }
     }
 
     func withNiriWorkspaceContext(
         perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
     ) {
-        runLightSession {
+        layoutRefreshController.runLightSession {
             guard let engine = niriEngine else { return }
             guard let wsId = activeWorkspace()?.id else { return }
             var state = workspaceManager.niriViewportState(for: wsId)
@@ -1525,7 +1528,7 @@ extension WMController {
             return true
         }
 
-        if hasDwindleAnimationRunning(in: workspaceId) {
+        if layoutRefreshController.hasDwindleAnimationRunning(in: workspaceId) {
             return true
         }
 
@@ -1546,5 +1549,45 @@ extension WMController {
             return false
         }
         return windowNode.isFullscreen
+    }
+
+    func refreshWindowsAndLayout() {
+        layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func executeLayoutRefreshImmediate() {
+        layoutRefreshController.executeLayoutRefreshImmediate()
+    }
+
+    func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
+        layoutRefreshController.startScrollAnimation(for: workspaceId)
+    }
+
+    func scheduleRefreshSession(_ event: RefreshSessionEvent) {
+        layoutRefreshController.scheduleRefreshSession(event)
+    }
+
+    func applyLayoutForWorkspaces(_ workspaceIds: Set<WorkspaceDescriptor.ID>) {
+        layoutRefreshController.applyLayoutForWorkspaces(workspaceIds)
+    }
+
+    func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
+        layoutRefreshController.cancelActiveAnimations(for: workspaceId)
+    }
+
+    func startWindowCloseAnimation(entry: WindowModel.Entry, monitor: Monitor) {
+        layoutRefreshController.startWindowCloseAnimation(entry: entry, monitor: monitor)
+    }
+
+    func updateTabbedColumnOverlays() {
+        layoutRefreshController.updateTabbedColumnOverlays()
+    }
+
+    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
+        await layoutRefreshController.layoutWithNiriEngine(activeWorkspaces: activeWorkspaces, useScrollAnimationPath: useScrollAnimationPath, removedNodeId: removedNodeId)
+    }
+
+    var isDiscoveryInProgress: Bool {
+        layoutRefreshController.isDiscoveryInProgress
     }
 }

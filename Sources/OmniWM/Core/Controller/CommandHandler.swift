@@ -42,35 +42,35 @@ final class CommandHandler {
                 swapWindowInNiri(direction: direction)
             }
         case let .moveToWorkspace(index):
-            controller.moveFocusedWindow(toWorkspaceIndex: index)
+            controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: index)
         case .moveWindowToWorkspaceUp:
-            controller.moveWindowToAdjacentWorkspace(direction: .up)
+            controller.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: .up)
         case .moveWindowToWorkspaceDown:
-            controller.moveWindowToAdjacentWorkspace(direction: .down)
+            controller.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: .down)
         case let .moveColumnToWorkspace(index):
-            controller.moveColumnToWorkspaceByIndex(index: index)
+            controller.workspaceNavigationHandler.moveColumnToWorkspaceByIndex(index: index)
         case .moveColumnToWorkspaceUp:
-            controller.moveColumnToAdjacentWorkspace(direction: .up)
+            controller.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(direction: .up)
         case .moveColumnToWorkspaceDown:
-            controller.moveColumnToAdjacentWorkspace(direction: .down)
+            controller.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(direction: .down)
         case let .switchWorkspace(index):
-            controller.switchWorkspace(index: index)
+            controller.workspaceNavigationHandler.switchWorkspace(index: index)
         case .switchWorkspaceNext:
-            controller.switchWorkspaceRelative(isNext: true)
+            controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: true)
         case .switchWorkspacePrevious:
-            controller.switchWorkspaceRelative(isNext: false)
+            controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: false)
         case let .moveToMonitor(direction):
-            controller.moveFocusedWindowToMonitor(direction: direction)
+            controller.workspaceNavigationHandler.moveFocusedWindowToMonitor(direction: direction)
         case let .focusMonitor(direction):
-            controller.focusMonitorInDirection(direction)
+            controller.workspaceNavigationHandler.focusMonitorInDirection(direction)
         case .focusMonitorPrevious:
-            controller.focusMonitorCyclic(previous: true)
+            controller.workspaceNavigationHandler.focusMonitorCyclic(previous: true)
         case .focusMonitorNext:
-            controller.focusMonitorCyclic(previous: false)
+            controller.workspaceNavigationHandler.focusMonitorCyclic(previous: false)
         case .focusMonitorLast:
-            controller.focusLastMonitor()
+            controller.workspaceNavigationHandler.focusLastMonitor()
         case let .moveColumnToMonitor(direction):
-            controller.moveColumnToMonitorInDirection(direction)
+            controller.workspaceNavigationHandler.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
             switch layoutType {
             case .dwindle:
@@ -119,13 +119,13 @@ final class CommandHandler {
         case .toggleColumnFullWidth:
             toggleColumnFullWidthInNiri()
         case let .moveWorkspaceToMonitor(direction):
-            controller.moveCurrentWorkspaceToMonitor(direction: direction)
+            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitor(direction: direction)
         case .moveWorkspaceToMonitorNext:
-            controller.moveCurrentWorkspaceToMonitorRelative(previous: false)
+            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitorRelative(previous: false)
         case .moveWorkspaceToMonitorPrevious:
-            controller.moveCurrentWorkspaceToMonitorRelative(previous: true)
+            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitorRelative(previous: true)
         case let .swapWorkspaceWithMonitor(direction):
-            controller.swapCurrentWorkspaceWithMonitor(direction: direction)
+            controller.workspaceNavigationHandler.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .balanceSizes:
             switch layoutType {
             case .dwindle:
@@ -146,13 +146,13 @@ final class CommandHandler {
         case .preselectClear:
             clearPreselectInDwindle()
         case let .summonWorkspace(index):
-            controller.summonWorkspace(index: index)
+            controller.workspaceNavigationHandler.summonWorkspace(index: index)
         case .workspaceBackAndForth:
-            controller.workspaceBackAndForth()
+            controller.workspaceNavigationHandler.workspaceBackAndForth()
         case let .focusWorkspaceAnywhere(index):
-            controller.focusWorkspaceAnywhere(index: index)
+            controller.workspaceNavigationHandler.focusWorkspaceAnywhere(index: index)
         case let .moveWindowToWorkspaceOnMonitor(wsIdx, monDir):
-            controller.moveWindowToWorkspaceOnMonitor(
+            controller.workspaceNavigationHandler.moveWindowToWorkspaceOnMonitor(
                 workspaceIndex: wsIdx,
                 monitorDirection: monDir
             )
