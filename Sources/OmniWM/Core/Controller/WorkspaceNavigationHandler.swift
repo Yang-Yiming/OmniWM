@@ -86,8 +86,7 @@ extension WMController {
         applyLayoutForWorkspaces([targetWorkspace.id])
 
         withSuppressedMonitorUpdate {
-            if let handle = resolveWorkspaceFocus(for: targetWorkspace.id) {
-                focusManager.setFocus(handle, in: targetWorkspace.id)
+            if let handle = resolveAndSetWorkspaceFocus(for: targetWorkspace.id) {
                 focusWindow(handle)
             }
         }
@@ -120,8 +119,7 @@ extension WMController {
         activeMonitorId = targetMonitor.id
 
         withSuppressedMonitorUpdate {
-            if let handle = resolveWorkspaceFocus(for: wsId) {
-                focusManager.setFocus(handle, in: wsId)
+            if let handle = resolveAndSetWorkspaceFocus(for: wsId) {
                 focusWindow(handle)
             }
         }
@@ -157,8 +155,7 @@ extension WMController {
         activeMonitorId = targetMonitor.id
 
         withSuppressedMonitorUpdate {
-            if let handle = resolveWorkspaceFocus(for: wsId) {
-                focusManager.setFocus(handle, in: wsId)
+            if let handle = resolveAndSetWorkspaceFocus(for: wsId) {
                 focusWindow(handle)
             }
         }
@@ -200,11 +197,7 @@ extension WMController {
         applyLayoutForWorkspaces([currentWsId, targetWsId])
 
         withSuppressedMonitorUpdate {
-            if let handle = resolveWorkspaceFocus(for: targetWsId) {
-                focusManager.setFocus(handle, in: targetWsId)
-            } else {
-                focusManager.clearFocus()
-            }
+            resolveAndSetWorkspaceFocus(for: targetWsId)
         }
 
         if let handle = focusedHandle {
@@ -301,11 +294,7 @@ extension WMController {
         }
         activeMonitorId = result.monitor.id
 
-        if let handle = resolveWorkspaceFocus(for: result.workspace.id) {
-            focusManager.setFocus(handle, in: result.workspace.id)
-        } else {
-            focusManager.clearFocus()
-        }
+        resolveAndSetWorkspaceFocus(for: result.workspace.id)
 
         let workspaceSwitchAnimated = startWorkspaceSwitchAnimation(
             from: previousWorkspaceOnTarget,
@@ -352,11 +341,7 @@ extension WMController {
 
         activeMonitorId = currentMonitorId
 
-        if let handle = resolveWorkspaceFocus(for: targetWorkspace.id) {
-            focusManager.setFocus(handle, in: targetWorkspace.id)
-        } else {
-            focusManager.clearFocus()
-        }
+        resolveAndSetWorkspaceFocus(for: targetWorkspace.id)
 
         let monitor = workspaceManager.monitor(for: targetWorkspace.id)
             ?? workspaceManager.monitors.first(where: { $0.id == currentMonitorId })
@@ -417,11 +402,7 @@ extension WMController {
         applyLayoutForWorkspaces(affectedWorkspaces)
 
         withSuppressedMonitorUpdate {
-            if let handle = resolveWorkspaceFocus(for: targetWsId) {
-                focusManager.setFocus(handle, in: targetWsId)
-            } else {
-                focusManager.clearFocus()
-            }
+            resolveAndSetWorkspaceFocus(for: targetWsId)
         }
 
         if let handle = focusedHandle {
@@ -461,11 +442,7 @@ extension WMController {
         }
         activeMonitorId = targetMonitor.id
 
-        if let handle = resolveWorkspaceFocus(for: targetWsId) {
-            focusManager.setFocus(handle, in: targetWsId)
-        } else {
-            focusManager.clearFocus()
-        }
+        resolveAndSetWorkspaceFocus(for: targetWsId)
 
         let targetWorkspace = workspaceManager.descriptor(for: targetWsId)
         let workspaceSwitchAnimated = targetWorkspace.map { targetWorkspace in
@@ -505,11 +482,7 @@ extension WMController {
 
         activeMonitorId = currentMonitorId
 
-        if let handle = resolveWorkspaceFocus(for: prevWorkspace.id) {
-            focusManager.setFocus(handle, in: prevWorkspace.id)
-        } else {
-            focusManager.clearFocus()
-        }
+        resolveAndSetWorkspaceFocus(for: prevWorkspace.id)
 
         let monitor = workspaceManager.monitor(for: prevWorkspace.id)
             ?? workspaceManager.monitors.first(where: { $0.id == currentMonitorId })
@@ -674,22 +647,8 @@ extension WMController {
         workspaceManager.setWorkspace(for: handle, to: targetWorkspace.id)
         focusManager.updateWorkspaceFocusMemory(handle, for: targetWorkspace.id)
 
-        if let engine = niriEngine {
-            let sourceState = workspaceManager.niriViewportState(for: wsId)
-            if let newSelectedId = sourceState.selectedNodeId,
-               let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
-            {
-                focusManager.setFocus(newSelectedNode.handle, in: wsId)
-            } else if let fallback = workspaceManager.entries(in: wsId).first?.handle {
-                focusManager.setFocus(fallback, in: wsId)
-            } else {
-                focusManager.clearFocus()
-            }
-        } else if let fallback = workspaceManager.entries(in: wsId).first?.handle {
-            focusManager.setFocus(fallback, in: wsId)
-        } else {
-            focusManager.clearFocus()
-        }
+        let sourceState = workspaceManager.niriViewportState(for: wsId)
+        recoverSourceFocusAfterMove(in: wsId, preferredNodeId: sourceState.selectedNodeId)
 
         refreshWindowsAndLayout()
 
@@ -739,15 +698,7 @@ extension WMController {
 
         focusManager.updateWorkspaceFocusMemory(handle, for: targetWorkspace.id)
 
-        if let newFocusId = result.newFocusNodeId,
-           let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-        {
-            focusManager.setFocus(newFocusNode.handle, in: wsId)
-        } else if let fallback = workspaceManager.entries(in: wsId).first?.handle {
-            focusManager.setFocus(fallback, in: wsId)
-        } else {
-            focusManager.clearFocus()
-        }
+        recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
 
         refreshWindowsAndLayout()
 
@@ -789,15 +740,7 @@ extension WMController {
         workspaceManager.updateNiriViewportState(sourceState, for: wsId)
         workspaceManager.updateNiriViewportState(targetState, for: targetWsId)
 
-        if let newFocusId = result.newFocusNodeId,
-           let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-        {
-            focusManager.setFocus(newFocusNode.handle, in: wsId)
-        } else if let fallback = workspaceManager.entries(in: wsId).first?.handle {
-            focusManager.setFocus(fallback, in: wsId)
-        } else {
-            focusManager.clearFocus()
-        }
+        recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
 
         refreshWindowsAndLayout()
 
@@ -826,26 +769,8 @@ extension WMController {
         }
 
         if target.id != activeWorkspace()?.id, let currentWorkspaceId {
-            if let engine = niriEngine {
-                let sourceState = workspaceManager.niriViewportState(for: currentWorkspaceId)
-                if let newSelectedId = sourceState.selectedNodeId,
-                   let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
-                {
-                    focusManager.setFocus(newSelectedNode.handle, in: currentWorkspaceId)
-                } else if let fallback = workspaceManager
-                    .entries(in: currentWorkspaceId).first?.handle
-                {
-                    focusManager.setFocus(fallback, in: currentWorkspaceId)
-                } else {
-                    focusManager.clearFocus()
-                }
-            } else if let fallback = workspaceManager.entries(in: currentWorkspaceId)
-                .first?.handle
-            {
-                focusManager.setFocus(fallback, in: currentWorkspaceId)
-            } else {
-                focusManager.clearFocus()
-            }
+            let sourceState = workspaceManager.niriViewportState(for: currentWorkspaceId)
+            recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
         }
 
         refreshWindowsAndLayout()
@@ -909,18 +834,7 @@ extension WMController {
                 focusManager.setFocus(handle, in: targetWorkspace.id)
             } else {
                 let sourceState = workspaceManager.niriViewportState(for: currentWorkspaceId)
-                if let engine = niriEngine,
-                   let newSelectedId = sourceState.selectedNodeId,
-                   let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
-                {
-                    focusManager.setFocus(newSelectedNode.handle, in: currentWorkspaceId)
-                } else if let fallback = workspaceManager
-                    .entries(in: currentWorkspaceId).first?.handle
-                {
-                    focusManager.setFocus(fallback, in: currentWorkspaceId)
-                } else {
-                    focusManager.clearFocus()
-                }
+                recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
             }
         }
 
@@ -992,20 +906,8 @@ extension WMController {
                 workspaceManager.updateNiriViewportState(targetState, for: targetWsId)
             }
         } else {
-            if let engine = niriEngine {
-                let sourceState = workspaceManager.niriViewportState(for: currentWorkspaceId)
-                if let newSelectedId = sourceState.selectedNodeId,
-                   let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
-                {
-                    focusManager.setFocus(newSelectedNode.handle, in: currentWorkspaceId)
-                } else if let fallback = workspaceManager
-                    .entries(in: currentWorkspaceId).first?.handle
-                {
-                    focusManager.setFocus(fallback, in: currentWorkspaceId)
-                } else {
-                    focusManager.clearFocus()
-                }
-            }
+            let sourceState = workspaceManager.niriViewportState(for: currentWorkspaceId)
+            recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
 
             refreshWindowsAndLayout()
             if let newHandle = focusedHandle {

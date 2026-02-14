@@ -266,12 +266,4 @@ extension NiriLayoutEngine {
         return candidates.max { ($0.lastFocusedTime ?? .distantPast) < ($1.lastFocusedTime ?? .distantPast) }
     }
 
-    func workspaceContaining(handle: WindowHandle) -> WorkspaceDescriptor.ID? {
-        for (wsId, root) in roots {
-            if root.allWindows.contains(where: { $0.handle.id == handle.id }) {
-                return wsId
-            }
-        }
-        return nil
-    }
 }

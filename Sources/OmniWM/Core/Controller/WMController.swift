@@ -401,11 +401,7 @@ final class WMController {
         }
         activeMonitorId = result.monitor.id
 
-        if let handle = resolveWorkspaceFocus(for: result.workspace.id) {
-            focusManager.setFocus(handle, in: result.workspace.id)
-        } else {
-            focusManager.clearFocus()
-        }
+        resolveAndSetWorkspaceFocus(for: result.workspace.id)
 
         refreshWindowsAndLayout()
         if let handle = focusedHandle {
@@ -414,18 +410,7 @@ final class WMController {
     }
 
     func focusWindowFromBar(windowId: Int) {
-        var foundEntry: WindowModel.Entry?
-        for ws in workspaceManager.workspaces {
-            for entry in workspaceManager.entries(in: ws.id) {
-                if entry.windowId == windowId {
-                    foundEntry = entry
-                    break
-                }
-            }
-            if foundEntry != nil { break }
-        }
-
-        guard let entry = foundEntry else { return }
+        guard let entry = workspaceManager.entry(forWindowId: windowId) else { return }
         navigateToWindowInternal(handle: entry.handle, workspaceId: entry.workspaceId)
     }
 
@@ -979,13 +964,7 @@ final class WMController {
     }
 
     func workspaceAssignment(pid: pid_t, windowId: Int) -> WorkspaceDescriptor.ID? {
-        for ws in workspaceManager.workspaces {
-            let entries = workspaceManager.entries(in: ws.id)
-            if entries.contains(where: { $0.windowId == windowId && $0.handle.pid == pid }) {
-                return ws.id
-            }
-        }
-        return nil
+        workspaceManager.entry(forPid: pid, windowId: windowId)?.workspaceId
     }
 
     func openWindowFinder() {
@@ -1148,9 +1127,22 @@ final class WMController {
         navigateToWindowInternal(handle: item.handle, workspaceId: entry.workspaceId)
     }
 
-    func resolveWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        focusManager.resolveWorkspaceFocus(
+    @discardableResult
+    func resolveAndSetWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+        focusManager.resolveAndSetWorkspaceFocus(
             for: workspaceId,
+            entries: workspaceManager.entries(in: workspaceId)
+        )
+    }
+
+    func recoverSourceFocusAfterMove(
+        in workspaceId: WorkspaceDescriptor.ID,
+        preferredNodeId: NodeId?
+    ) {
+        focusManager.recoverSourceFocusAfterMove(
+            in: workspaceId,
+            preferredNodeId: preferredNodeId,
+            engine: niriEngine,
             entries: workspaceManager.entries(in: workspaceId)
         )
     }

@@ -30,6 +30,7 @@ final class WorkspaceManager {
     private(set) var outerGaps: LayoutGaps.OuterGaps = .zero
     private let windows = WindowModel()
 
+    private var _cachedSortedWorkspaces: [WorkspaceDescriptor]?
     private var niriViewportStates: [WorkspaceDescriptor.ID: ViewportState] = [:]
     private var currentAnimationSettings: ViewportState = .init()
     var animationClock: AnimationClock?
@@ -459,6 +460,7 @@ final class WorkspaceManager {
             niriViewportStates.removeValue(forKey: id)
         }
         if !toRemove.isEmpty {
+            _cachedSortedWorkspaces = nil
             workspaceIdByName = workspaceIdByName.filter { !toRemove.contains($0.value) }
             screenPointToVisibleWorkspace = screenPointToVisibleWorkspace.filter { !toRemove.contains($0.value) }
             screenPointToPrevVisibleWorkspace = screenPointToPrevVisibleWorkspace
@@ -514,11 +516,16 @@ final class WorkspaceManager {
     }
 
     private func sortedWorkspaces() -> [WorkspaceDescriptor] {
-        workspacesById.values.sorted {
+        if let cached = _cachedSortedWorkspaces {
+            return cached
+        }
+        let sorted = workspacesById.values.sorted {
             let a = $0.name.toLogicalSegments()
             let b = $1.name.toLogicalSegments()
             return a < b
         }
+        _cachedSortedWorkspaces = sorted
+        return sorted
     }
 
     private func ensurePersistentWorkspaces() {
@@ -683,6 +690,7 @@ final class WorkspaceManager {
         let workspace = WorkspaceDescriptor(name: "fallback")
         workspacesById[workspace.id] = workspace
         workspaceIdByName[workspace.name] = workspace.id
+        _cachedSortedWorkspaces = nil
         return workspace.id
     }
 
@@ -745,6 +753,7 @@ final class WorkspaceManager {
         guard var workspace = workspacesById[workspaceId] else { return }
         update(&workspace)
         workspacesById[workspaceId] = workspace
+        _cachedSortedWorkspaces = nil
     }
 
     private func createWorkspace(named name: String) -> WorkspaceDescriptor.ID? {
@@ -752,6 +761,7 @@ final class WorkspaceManager {
         let workspace = WorkspaceDescriptor(name: parsed.raw)
         workspacesById[workspace.id] = workspace
         workspaceIdByName[workspace.name] = workspace.id
+        _cachedSortedWorkspaces = nil
         return workspace.id
     }
 }

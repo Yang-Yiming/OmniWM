@@ -48,6 +48,38 @@ final class FocusManager {
         lastFocusedByWorkspace[workspaceId] ?? entries.first?.handle
     }
 
+    @discardableResult
+    func resolveAndSetWorkspaceFocus(
+        for workspaceId: WorkspaceDescriptor.ID,
+        entries: [WindowModel.Entry]
+    ) -> WindowHandle? {
+        if let handle = resolveWorkspaceFocus(for: workspaceId, entries: entries) {
+            setFocus(handle, in: workspaceId)
+            return handle
+        } else {
+            clearFocus()
+            return nil
+        }
+    }
+
+    func recoverSourceFocusAfterMove(
+        in workspaceId: WorkspaceDescriptor.ID,
+        preferredNodeId: NodeId?,
+        engine: NiriLayoutEngine?,
+        entries: [WindowModel.Entry]
+    ) {
+        if let engine,
+           let preferredId = preferredNodeId,
+           let node = engine.findNode(by: preferredId) as? NiriWindow
+        {
+            setFocus(node.handle, in: workspaceId)
+        } else if let fallback = entries.first?.handle {
+            setFocus(fallback, in: workspaceId)
+        } else {
+            clearFocus()
+        }
+    }
+
     func handleWindowRemoved(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID?) {
         if pendingFocusHandle?.id == handle.id {
             pendingFocusHandle = nil
