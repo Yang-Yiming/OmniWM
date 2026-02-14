@@ -73,7 +73,8 @@ final class WMController {
 
     private(set) var appRulesByBundleId: [String: AppRule] = [:]
 
-    @ObservationIgnored var mouseEventState = MouseEventState()
+    @ObservationIgnored
+    private(set) lazy var mouseEventHandler = MouseEventHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var mouseWarpHandler = MouseWarpHandler(controller: self)
     @ObservationIgnored var layoutState = LayoutState()
@@ -531,7 +532,7 @@ final class WMController {
             self?.handleAppActivation(pid: pid)
         }
         setupWorkspaceObservation()
-        mouseSetup()
+        mouseEventHandler.setup()
         if settings.mouseWarpEnabled {
             mouseWarpHandler.setup()
         }
@@ -708,7 +709,7 @@ final class WMController {
         workspaceManager.onGapsChanged = nil
 
         layoutResetState()
-        mouseCleanup()
+        mouseEventHandler.cleanup()
         mouseWarpHandler.cleanup()
         axEventCleanup()
 
