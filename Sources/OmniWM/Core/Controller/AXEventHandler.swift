@@ -2,13 +2,6 @@ import AppKit
 import Foundation
 
 extension WMController {
-    struct AXEventState {
-        var pendingFocusHandle: WindowHandle?
-        var deferredFocusHandle: WindowHandle?
-        var isFocusOperationPending = false
-        var lastFocusTime: Date = .distantPast
-    }
-
     func axEventSetup() {
         CGSEventObserver.shared.delegate = self
         CGSEventObserver.shared.start()
@@ -174,19 +167,7 @@ extension WMController: CGSEventDelegate {
         let needsFocusRecovery = removedHandle?.id == focusedHandle?.id
 
         if let removed = removedHandle {
-            if axEventState.pendingFocusHandle?.id == removed.id {
-                axEventState.pendingFocusHandle = nil
-            }
-            if axEventState.deferredFocusHandle?.id == removed.id {
-                axEventState.deferredFocusHandle = nil
-            }
-            if focusedHandle?.id == removed.id {
-                focusedHandle = nil
-            }
-            if let wsId = affectedWorkspaceId,
-               lastFocusedByWorkspace[wsId]?.id == removed.id {
-                lastFocusedByWorkspace[wsId] = nil
-            }
+            focusManager.handleWindowRemoved(removed, in: affectedWorkspaceId)
         }
 
         var oldFrames: [WindowHandle: CGRect] = [:]
@@ -201,7 +182,12 @@ extension WMController: CGSEventDelegate {
         workspaceManager.removeWindow(pid: pid, windowId: winId)
 
         if needsFocusRecovery, let wsId = affectedWorkspaceId {
-            ensureFocusedHandleValid(in: wsId)
+            focusManager.ensureFocusedHandleValid(
+                in: wsId,
+                engine: niriEngine,
+                workspaceManager: workspaceManager,
+                focusWindowAction: { [weak self] handle in self?.focusWindow(handle) }
+            )
         }
 
         if let wsId = affectedWorkspaceId {
@@ -248,15 +234,15 @@ extension WMController: CGSEventDelegate {
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
 
         guard result == .success, let windowElement = focusedWindow else {
-            isNonManagedFocusActive = true
-            isAppFullscreenActive = false
+            focusManager.setNonManagedFocus(active: true)
+            focusManager.setAppFullscreen(active: false)
             borderManager.hideBorder()
             return
         }
 
         guard let axRef = try? AXWindowRef(element: windowElement as! AXUIElement) else {
-            isNonManagedFocusActive = true
-            isAppFullscreenActive = false
+            focusManager.setNonManagedFocus(active: true)
+            focusManager.setAppFullscreen(active: false)
             borderManager.hideBorder()
             return
         }
@@ -264,7 +250,7 @@ extension WMController: CGSEventDelegate {
 
         if let entry = workspaceManager.entry(forPid: pid, windowId: winId) {
             let wsId = entry.workspaceId
-            isNonManagedFocusActive = false
+            focusManager.setNonManagedFocus(active: false)
 
             let targetMonitor = workspaceManager.monitor(for: wsId)
             let isWorkspaceActive = targetMonitor.map { monitor in
@@ -284,7 +270,7 @@ extension WMController: CGSEventDelegate {
                 }
             }
 
-            setFocus(entry.handle, in: wsId)
+            focusManager.setFocus(entry.handle, in: wsId)
 
             if let engine = niriEngine,
                let node = engine.findNode(for: entry.handle),
@@ -312,8 +298,8 @@ extension WMController: CGSEventDelegate {
             return
         }
 
-        isNonManagedFocusActive = true
-        isAppFullscreenActive = false
+        focusManager.setNonManagedFocus(active: true)
+        focusManager.setAppFullscreen(active: false)
         borderManager.hideBorder()
     }
 
@@ -339,111 +325,48 @@ extension WMController: CGSEventDelegate {
 
     func focusWindow(_ handle: WindowHandle) {
         guard let entry = workspaceManager.entry(for: handle) else { return }
-        isNonManagedFocusActive = false
-
-        let now = Date()
-
-        if axEventState.pendingFocusHandle == handle {
-            let timeSinceFocus = now.timeIntervalSince(axEventState.lastFocusTime)
-            if timeSinceFocus < 0.016 {
-                return
-            }
-        }
-
-        if axEventState.isFocusOperationPending {
-            axEventState.deferredFocusHandle = handle
-            return
-        }
-
-        axEventState.isFocusOperationPending = true
-
-        axEventState.pendingFocusHandle = handle
-        axEventState.lastFocusTime = now
-        lastFocusedByWorkspace[entry.workspaceId] = handle
+        focusManager.setNonManagedFocus(active: false)
 
         let axRef = entry.axRef
         let pid = handle.pid
         let windowId = entry.windowId
         let moveMouseEnabled = moveMouseToFocusedWindowEnabled
 
-        Task { @MainActor [weak self] in
-            OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
-            AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+        focusManager.focusWindow(
+            handle,
+            workspaceId: entry.workspaceId,
+            performFocus: { [weak self] in
+                OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
+                AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
 
-            if let runningApp = NSRunningApplication(processIdentifier: pid) {
-                runningApp.activate()
-            }
-
-            guard let self else { return }
-
-            if moveMouseEnabled {
-                moveMouseToWindow(handle)
-            }
-
-            if let entry = workspaceManager.entry(for: handle) {
-                if let engine = niriEngine,
-                   let node = engine.findNode(for: handle),
-                   let frame = node.frame {
-                    updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-                } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                    updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                if let runningApp = NSRunningApplication(processIdentifier: pid) {
+                    runningApp.activate()
                 }
-            }
 
-            axEventState.isFocusOperationPending = false
-            if let deferred = axEventState.deferredFocusHandle, deferred != handle {
-                axEventState.deferredFocusHandle = nil
-                if workspaceManager.entry(for: deferred) != nil {
-                    focusWindow(deferred)
+                guard let self else { return }
+
+                if moveMouseEnabled {
+                    self.moveMouseToWindow(handle)
                 }
+
+                if let entry = self.workspaceManager.entry(for: handle) {
+                    if let engine = self.niriEngine,
+                       let node = engine.findNode(for: handle),
+                       let frame = node.frame
+                    {
+                        self.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    } else if let frame = try? AXWindowService.frame(entry.axRef) {
+                        self.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    }
+                }
+            },
+            onDeferredFocus: { [weak self] deferred in
+                guard let self, self.workspaceManager.entry(for: deferred) != nil else { return }
+                self.focusWindow(deferred)
             }
-        }
+        )
     }
 
-    func ensureFocusedHandleValid(in workspaceId: WorkspaceDescriptor.ID) {
-        if let focused = focusedHandle,
-           workspaceManager.entry(for: focused)?.workspaceId == workspaceId
-        {
-            lastFocusedByWorkspace[workspaceId] = focused
-            if let engine = niriEngine,
-               let node = engine.findNode(for: focused)
-            {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                if state.selectedNodeId != node.id {
-                    state.selectedNodeId = node.id
-                    workspaceManager.updateNiriViewportState(state, for: workspaceId)
-                }
-            }
-            return
-        }
-        if let remembered = lastFocusedByWorkspace[workspaceId],
-           workspaceManager.entry(for: remembered) != nil
-        {
-            focusedHandle = remembered
-            if let engine = niriEngine,
-               let node = engine.findNode(for: remembered)
-            {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                state.selectedNodeId = node.id
-                workspaceManager.updateNiriViewportState(state, for: workspaceId)
-            }
-            focusWindow(remembered)
-            return
-        }
-        let newHandle = workspaceManager.entries(in: workspaceId).first?.handle
-        focusedHandle = newHandle
-        if let focusedHandle = newHandle {
-            lastFocusedByWorkspace[workspaceId] = focusedHandle
-            if let engine = niriEngine,
-               let node = engine.findNode(for: focusedHandle)
-            {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                state.selectedNodeId = node.id
-                workspaceManager.updateNiriViewportState(state, for: workspaceId)
-            }
-            focusWindow(focusedHandle)
-        }
-    }
 
     func updateBorderIfAllowed(handle: WindowHandle, frame: CGRect, windowId: Int) {
         guard let activeWs = activeWorkspace(),
@@ -453,7 +376,7 @@ extension WMController: CGSEventDelegate {
             return
         }
 
-        if isNonManagedFocusActive {
+        if focusManager.isNonManagedFocusActive {
             borderManager.hideBorder()
             return
         }
@@ -464,12 +387,12 @@ extension WMController: CGSEventDelegate {
         }
 
         if let entry = workspaceManager.entry(for: handle) {
-            isAppFullscreenActive = AXWindowService.isFullscreen(entry.axRef)
+            focusManager.setAppFullscreen(active: AXWindowService.isFullscreen(entry.axRef))
         } else {
-            isAppFullscreenActive = false
+            focusManager.setAppFullscreen(active: false)
         }
 
-        if isAppFullscreenActive || isManagedWindowFullscreen(handle) {
+        if focusManager.isAppFullscreenActive || isManagedWindowFullscreen(handle) {
             borderManager.hideBorder()
             return
         }

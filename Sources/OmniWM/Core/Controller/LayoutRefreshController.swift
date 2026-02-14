@@ -539,7 +539,12 @@ extension WMController {
         }
 
         if let focusedWorkspaceId = activeWorkspace()?.id {
-            ensureFocusedHandleValid(in: focusedWorkspaceId)
+            focusManager.ensureFocusedHandleValid(
+                in: focusedWorkspaceId,
+                engine: niriEngine,
+                workspaceManager: workspaceManager,
+                focusWindowAction: { [weak self] handle in self?.focusWindow(handle) }
+            )
         }
     }
 
@@ -681,7 +686,12 @@ extension WMController {
         updateWorkspaceBar()
 
         if let focusedWorkspaceId {
-            ensureFocusedHandleValid(in: focusedWorkspaceId)
+            focusManager.ensureFocusedHandleValid(
+                in: focusedWorkspaceId,
+                engine: niriEngine,
+                workspaceManager: workspaceManager,
+                focusWindowAction: { [weak self] handle in self?.focusWindow(handle) }
+            )
         }
 
         layoutState.hasCompletedInitialRefresh = true
@@ -906,13 +916,13 @@ extension WMController {
             if let selectedId = state.selectedNodeId,
                let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
             {
-                lastFocusedByWorkspace[wsId] = selectedNode.handle
+                focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: wsId)
                 if let currentFocused = focusedHandle {
                     if workspaceManager.workspace(for: currentFocused) == wsId {
-                        focusedHandle = selectedNode.handle
+                        focusManager.setFocus(selectedNode.handle, in: wsId)
                     }
                 } else {
-                    focusedHandle = selectedNode.handle
+                    focusManager.setFocus(selectedNode.handle, in: wsId)
                 }
             }
 
@@ -971,7 +981,7 @@ extension WMController {
                         state.activatePrevColumnOnRemoval = offsetBeforeActivation
                     }
                 }
-                setFocus(newHandle, in: wsId)
+                focusManager.setFocus(newHandle, in: wsId)
                 engine.updateFocusTimestamp(for: newNode.id)
                 workspaceManager.updateNiriViewportState(state, for: wsId)
                 newWindowHandle = newHandle
@@ -1131,13 +1141,13 @@ extension WMController {
             if let selected = engine.selectedNode(in: wsId),
                case let .leaf(handle, _) = selected.kind,
                let handle {
-                lastFocusedByWorkspace[wsId] = handle
+                focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
                 if let currentFocused = focusedHandle {
                     if workspaceManager.workspace(for: currentFocused) == wsId {
-                        focusedHandle = handle
+                        focusManager.setFocus(handle, in: wsId)
                     }
                 } else {
-                    focusedHandle = handle
+                    focusManager.setFocus(handle, in: wsId)
                 }
             }
 

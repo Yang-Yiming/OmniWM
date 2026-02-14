@@ -456,7 +456,7 @@ extension WMController {
     }
 
     private func handleFocusFollowsMouse(at location: CGPoint) {
-        guard !isNonManagedFocusActive, !isAppFullscreenActive else {
+        guard !focusManager.isNonManagedFocusActive, !focusManager.isAppFullscreenActive else {
             return
         }
 
@@ -637,7 +637,7 @@ extension WMController {
                 state.selectedNodeId = newNode.id
 
                 if let windowNode = newNode as? NiriWindow {
-                    focusedHandle = windowNode.handle
+                    focusManager.setFocus(windowNode.handle, in: wsId)
                     engine.updateFocusTimestamp(for: windowNode.id)
                     targetWindowHandle = windowNode.handle
                 }

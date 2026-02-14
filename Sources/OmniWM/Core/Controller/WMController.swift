@@ -18,15 +18,13 @@ final class WMController {
     private(set) var isLockScreenActive: Bool = false
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
+    let focusManager = FocusManager()
     var focusedHandle: WindowHandle? {
         didSet {
             updateActiveMonitorFromFocusedHandle(focusedHandle)
             notifyFocusChangesIfNeeded()
         }
     }
-    var isNonManagedFocusActive: Bool = false
-    var isAppFullscreenActive: Bool = false
-    var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] = [:]
 
     var activeMonitorId: Monitor.ID? {
         didSet {
@@ -77,7 +75,6 @@ final class WMController {
 
     @ObservationIgnored var mouseEventState = MouseEventState()
     @ObservationIgnored var mouseWarpState = MouseWarpState()
-    @ObservationIgnored var axEventState = AXEventState()
     @ObservationIgnored var layoutState = LayoutState()
     private(set) var hasStartedServices = false
     private var permissionCheckerTask: Task<Void, Never>?
@@ -93,6 +90,9 @@ final class WMController {
         }
         tabbedOverlayManager.onSelect = { [weak self] workspaceId, columnId, index in
             self?.selectTabInNiri(workspaceId: workspaceId, columnId: columnId, index: index)
+        }
+        focusManager.onFocusedHandleChanged = { [weak self] handle in
+            self?.focusedHandle = handle
         }
     }
 
@@ -401,7 +401,11 @@ final class WMController {
         }
         activeMonitorId = result.monitor.id
 
-        focusedHandle = resolveWorkspaceFocus(for: result.workspace.id)
+        if let handle = resolveWorkspaceFocus(for: result.workspace.id) {
+            focusManager.setFocus(handle, in: result.workspace.id)
+        } else {
+            focusManager.clearFocus()
+        }
 
         refreshWindowsAndLayout()
         if let handle = focusedHandle {
@@ -1144,14 +1148,11 @@ final class WMController {
         navigateToWindowInternal(handle: item.handle, workspaceId: entry.workspaceId)
     }
 
-    func setFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
-        focusedHandle = handle
-        lastFocusedByWorkspace[workspaceId] = handle
-    }
-
     func resolveWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        lastFocusedByWorkspace[workspaceId]
-            ?? workspaceManager.entries(in: workspaceId).first?.handle
+        focusManager.resolveWorkspaceFocus(
+            for: workspaceId,
+            entries: workspaceManager.entries(in: workspaceId)
+        )
     }
 
     private func navigateToWindowInternal(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
@@ -1192,7 +1193,7 @@ final class WMController {
 
         refreshWindowsAndLayout()
 
-        setFocus(handle, in: workspaceId)
+        focusManager.setFocus(handle, in: workspaceId)
         focusWindow(handle)
     }
 
@@ -1237,7 +1238,6 @@ struct NodeActivationOptions {
     var activateWindow: Bool = true
     var ensureVisible: Bool = true
     var updateTimestamp: Bool = true
-    var updateWorkspaceFocus: Bool = true
     var layoutRefresh: Bool = true
     var axFocus: Bool = true
     var startAnimation: Bool = true
@@ -1277,10 +1277,7 @@ extension WMController {
             if options.updateTimestamp {
                 engine.updateFocusTimestamp(for: windowNode.id)
             }
-            focusedHandle = windowNode.handle
-            if options.updateWorkspaceFocus {
-                lastFocusedByWorkspace[workspaceId] = windowNode.handle
-            }
+            focusManager.setFocus(windowNode.handle, in: workspaceId)
         }
 
         if options.layoutRefresh {

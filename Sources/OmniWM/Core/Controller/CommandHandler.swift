@@ -175,19 +175,19 @@ extension WMController {
         guard let currentId = state.selectedNodeId,
               let currentNode = engine.findNode(by: currentId)
         else {
-            if let lastFocused = lastFocusedByWorkspace[wsId],
+            if let lastFocused = focusManager.lastFocusedByWorkspace[wsId],
                let lastNode = engine.findNode(for: lastFocused)
             {
                 activateNode(
                     lastNode, in: wsId, state: &state,
-                    options: .init(activateWindow: false, ensureVisible: false, updateWorkspaceFocus: false, layoutRefresh: false, startAnimation: false)
+                    options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
                 )
             } else if let firstHandle = workspaceManager.entries(in: wsId).first?.handle,
                       let firstNode = engine.findNode(for: firstHandle)
             {
                 activateNode(
                     firstNode, in: wsId, state: &state,
-                    options: .init(activateWindow: false, ensureVisible: false, updateWorkspaceFocus: false, layoutRefresh: false, startAnimation: false)
+                    options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
                 )
             }
             return
@@ -211,7 +211,7 @@ extension WMController {
         ) {
             activateNode(
                 newNode, in: wsId, state: &state,
-                options: .init(activateWindow: false, ensureVisible: false, updateWorkspaceFocus: false)
+                options: .init(activateWindow: false, ensureVisible: false)
             )
         }
     }
@@ -239,7 +239,7 @@ extension WMController {
 
             activateNode(
                 previousWindow, in: wsId, state: &state,
-                options: .init(ensureVisible: false, updateTimestamp: false, updateWorkspaceFocus: false, startAnimation: false)
+                options: .init(ensureVisible: false, updateTimestamp: false, startAnimation: false)
             )
 
             let updatedState = workspaceManager.niriViewportState(for: wsId)
@@ -396,7 +396,7 @@ extension WMController {
 
         activateNode(
             newNode, in: wsId, state: &state,
-            options: .init(activateWindow: false, ensureVisible: false, updateWorkspaceFocus: false)
+            options: .init(activateWindow: false, ensureVisible: false)
         )
     }
 
@@ -519,7 +519,7 @@ extension WMController {
     private func focusNeighborInDwindle(direction: Direction) {
         withDwindleContext { engine, wsId in
             if let handle = engine.moveFocus(direction: direction, in: wsId) {
-                setFocus(handle, in: wsId)
+                focusManager.setFocus(handle, in: wsId)
                 executeLayoutRefreshImmediate()
                 focusWindow(handle)
             }
@@ -537,7 +537,7 @@ extension WMController {
     private func toggleDwindleFullscreen() {
         withDwindleContext { engine, wsId in
             if let handle = engine.toggleFullscreen(in: wsId) {
-                focusedHandle = handle
+                focusManager.setFocus(handle, in: wsId)
                 executeLayoutRefreshImmediate()
             }
         }
