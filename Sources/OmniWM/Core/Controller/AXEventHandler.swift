@@ -291,11 +291,12 @@ final class AXEventHandler: CGSEventDelegate {
                let node = engine.findNode(for: entry.handle),
                let _ = controller.workspaceManager.monitor(for: wsId)
             {
-                var state = controller.workspaceManager.niriViewportState(for: wsId)
-                controller.activateNode(
-                    node, in: wsId, state: &state,
-                    options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
-                )
+                controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+                    controller.activateNode(
+                        node, in: wsId, state: &state,
+                        options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
+                    )
+                }
 
                 if let frame = node.frame {
                     controller.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)

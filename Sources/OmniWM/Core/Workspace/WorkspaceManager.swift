@@ -415,6 +415,19 @@ final class WorkspaceManager {
         niriViewportStates[workspaceId] = state
     }
 
+    func withNiriViewportState(
+        for workspaceId: WorkspaceDescriptor.ID,
+        _ mutate: (inout ViewportState) -> Void
+    ) {
+        var state = niriViewportState(for: workspaceId)
+        mutate(&state)
+        niriViewportStates[workspaceId] = state
+    }
+
+    func setSelection(_ nodeId: NodeId?, for workspaceId: WorkspaceDescriptor.ID) {
+        withNiriViewportState(for: workspaceId) { $0.selectedNodeId = nodeId }
+    }
+
     func updateAnimationSettings(animationsEnabled: Bool? = nil) {
         if let enabled = animationsEnabled {
             currentAnimationSettings.animationsEnabled = enabled

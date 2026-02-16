@@ -248,23 +248,27 @@ final class MouseEventHandler {
             if let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
                let monitor = controller.workspaceManager.monitor(for: wsId)
             {
-                var vstate = controller.workspaceManager.niriViewportState(for: wsId)
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 let gaps = CGFloat(controller.workspaceManager.gaps)
 
                 let isInsertMode = modifiers.contains(.maskShift)
-                if engine.interactiveMoveBegin(
-                    windowId: tiledWindow.id,
-                    windowHandle: tiledWindow.handle,
-                    startLocation: location,
-                    isInsertMode: isInsertMode,
-                    in: wsId,
-                    state: &vstate,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                ) {
+                var moveStarted = false
+                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                    if engine.interactiveMoveBegin(
+                        windowId: tiledWindow.id,
+                        windowHandle: tiledWindow.handle,
+                        startLocation: location,
+                        isInsertMode: isInsertMode,
+                        in: wsId,
+                        state: &vstate,
+                        workingFrame: workingFrame,
+                        gaps: gaps
+                    ) {
+                        moveStarted = true
+                    }
+                }
+                if moveStarted {
                     state.moveIsInsertMode = isInsertMode
-                    controller.workspaceManager.updateNiriViewportState(vstate, for: wsId)
                     state.isMoving = true
                     NSCursor.closedHand.set()
 
@@ -378,17 +382,19 @@ final class MouseEventHandler {
                let wsId = controller.activeWorkspace()?.id,
                let monitor = controller.workspaceManager.monitor(for: wsId)
             {
-                var vstate = controller.workspaceManager.niriViewportState(for: wsId)
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 let gaps = CGFloat(controller.workspaceManager.gaps)
-                if engine.interactiveMoveEnd(
-                    at: location,
-                    in: wsId,
-                    state: &vstate,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                ) {
-                    controller.workspaceManager.updateNiriViewportState(vstate, for: wsId)
+                var didEnd = false
+                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                    didEnd = engine.interactiveMoveEnd(
+                        at: location,
+                        in: wsId,
+                        state: &vstate,
+                        workingFrame: workingFrame,
+                        gaps: gaps
+                    )
+                }
+                if didEnd {
                     controller.executeLayoutRefreshImmediate()
                 }
             }
@@ -406,16 +412,16 @@ final class MouseEventHandler {
            let wsId = controller.activeWorkspace()?.id,
            let monitor = controller.workspaceManager.monitor(for: wsId)
         {
-            var vstate = controller.workspaceManager.niriViewportState(for: wsId)
             let workingFrame = controller.insetWorkingFrame(for: monitor)
             let gaps = CGFloat(controller.workspaceManager.gaps)
 
-            engine.interactiveResizeEnd(
-                state: &vstate,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
-            controller.workspaceManager.updateNiriViewportState(vstate, for: wsId)
+            controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                engine.interactiveResizeEnd(
+                    state: &vstate,
+                    workingFrame: workingFrame,
+                    gaps: gaps
+                )
+            }
             controller.startScrollAnimation(for: wsId)
         }
 
@@ -492,8 +498,9 @@ final class MouseEventHandler {
             if handle != state.lastFocusFollowsMouseHandle, handle != controller.focusedHandle {
                 state.lastFocusFollowsMouseTime = now
                 state.lastFocusFollowsMouseHandle = handle
-                var vstate = controller.workspaceManager.niriViewportState(for: wsId)
-                controller.activateNode(tiledWindow, in: wsId, state: &vstate)
+                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                    controller.activateNode(tiledWindow, in: wsId, state: &vstate)
+                }
             }
             return
         }
@@ -526,15 +533,15 @@ final class MouseEventHandler {
                 let columns = engine.columns(in: wsId)
                 let gap = CGFloat(controller.workspaceManager.gaps)
 
-                var endState = controller.workspaceManager.niriViewportState(for: wsId)
-                endState.endGesture(
-                    columns: columns,
-                    gap: gap,
-                    viewportWidth: insetFrame.width,
-                    centerMode: engine.centerFocusedColumn,
-                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
-                )
-                controller.workspaceManager.updateNiriViewportState(endState, for: wsId)
+                controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
+                    endState.endGesture(
+                        columns: columns,
+                        gap: gap,
+                        viewportWidth: insetFrame.width,
+                        centerMode: engine.centerFocusedColumn,
+                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                    )
+                }
                 controller.startScrollAnimation(for: wsId)
             }
             resetGestureState()
@@ -619,50 +626,48 @@ final class MouseEventHandler {
         wsId: WorkspaceDescriptor.ID
     ) {
         guard let controller else { return }
-        var vstate = controller.workspaceManager.niriViewportState(for: wsId)
-
-        if vstate.viewOffsetPixels.isAnimating {
-            vstate.cancelAnimation()
-        }
-
-        if !vstate.viewOffsetPixels.isGesture {
-            vstate.beginGesture(isTrackpad: isTrackpad)
-        }
-
         guard let monitor = controller.monitorForInteraction() else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportWidth = insetFrame.width
         let gap = CGFloat(controller.workspaceManager.gaps)
         let columns = engine.columns(in: wsId)
 
-        let timestamp = CACurrentMediaTime()
         var targetWindowHandle: WindowHandle?
-        if let steps = vstate.updateGesture(
-            deltaPixels: delta,
-            timestamp: timestamp,
-            columns: columns,
-            gap: gap,
-            viewportWidth: viewportWidth
-        ) {
-            if let currentId = vstate.selectedNodeId,
-               let currentNode = engine.findNode(by: currentId),
-               let newNode = engine.moveSelectionByColumns(
-                   steps: steps,
-                   currentSelection: currentNode,
-                   in: wsId
-               )
-            {
-                vstate.selectedNodeId = newNode.id
+        controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+            if vstate.viewOffsetPixels.isAnimating {
+                vstate.cancelAnimation()
+            }
 
-                if let windowNode = newNode as? NiriWindow {
-                    controller.focusManager.setFocus(windowNode.handle, in: wsId)
-                    engine.updateFocusTimestamp(for: windowNode.id)
-                    targetWindowHandle = windowNode.handle
+            if !vstate.viewOffsetPixels.isGesture {
+                vstate.beginGesture(isTrackpad: isTrackpad)
+            }
+
+            let timestamp = CACurrentMediaTime()
+            if let steps = vstate.updateGesture(
+                deltaPixels: delta,
+                timestamp: timestamp,
+                columns: columns,
+                gap: gap,
+                viewportWidth: viewportWidth
+            ) {
+                if let currentId = vstate.selectedNodeId,
+                   let currentNode = engine.findNode(by: currentId),
+                   let newNode = engine.moveSelectionByColumns(
+                       steps: steps,
+                       currentSelection: currentNode,
+                       in: wsId
+                   )
+                {
+                    vstate.selectedNodeId = newNode.id
+
+                    if let windowNode = newNode as? NiriWindow {
+                        controller.focusManager.setFocus(windowNode.handle, in: wsId)
+                        engine.updateFocusTimestamp(for: windowNode.id)
+                        targetWindowHandle = windowNode.handle
+                    }
                 }
             }
         }
-
-        controller.workspaceManager.updateNiriViewportState(vstate, for: wsId)
         controller.executeLayoutRefreshImmediate()
 
         if let handle = targetWindowHandle {

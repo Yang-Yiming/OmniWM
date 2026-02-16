@@ -1170,26 +1170,25 @@ final class WMController {
         }
 
         if let niriWindow = engine.findNode(for: handle) {
-            var state = workspaceManager.niriViewportState(for: workspaceId)
-            state.selectedNodeId = niriWindow.id
+            workspaceManager.withNiriViewportState(for: workspaceId) { state in
+                state.selectedNodeId = niriWindow.id
 
-            if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
-               let colIdx = engine.columnIndex(of: column, in: workspaceId),
-               let monitor = workspaceManager.monitor(for: workspaceId)
-            {
-                engine.activateWindow(niriWindow.id)
+                if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
+                   let colIdx = engine.columnIndex(of: column, in: workspaceId),
+                   let monitor = self.workspaceManager.monitor(for: workspaceId)
+                {
+                    engine.activateWindow(niriWindow.id)
 
-                let cols = engine.columns(in: workspaceId)
-                let gap = CGFloat(workspaceManager.gaps)
-                state.snapToColumn(
-                    colIdx,
-                    columns: cols,
-                    gap: gap,
-                    viewportWidth: monitor.visibleFrame.width
-                )
+                    let cols = engine.columns(in: workspaceId)
+                    let gap = CGFloat(self.workspaceManager.gaps)
+                    state.snapToColumn(
+                        colIdx,
+                        columns: cols,
+                        gap: gap,
+                        viewportWidth: monitor.visibleFrame.width
+                    )
+                }
             }
-
-            workspaceManager.updateNiriViewportState(state, for: workspaceId)
         }
 
         refreshWindowsAndLayout()
@@ -1272,8 +1271,6 @@ extension WMController {
             )
         }
 
-        workspaceManager.updateNiriViewportState(state, for: workspaceId)
-
         if let windowNode = node as? NiriWindow {
             if options.updateTimestamp {
                 engine.updateFocusTimestamp(for: windowNode.id)
@@ -1290,8 +1287,7 @@ extension WMController {
         }
 
         if options.startAnimation {
-            let updatedState = workspaceManager.niriViewportState(for: workspaceId)
-            if updatedState.viewOffsetPixels.isAnimating {
+            if state.viewOffsetPixels.isAnimating {
                 startScrollAnimation(for: workspaceId)
             }
         }
@@ -1310,7 +1306,6 @@ extension WMController {
             state: ViewportState,
             oldFrames: [WindowHandle: CGRect]
         ) -> Bool {
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
                 .backingScaleFactor ?? 2.0
             let workingArea = WorkingAreaContext(
@@ -1334,27 +1329,22 @@ extension WMController {
             ).frames
             _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
             controller.executeLayoutRefreshImmediate()
-            let updatedState = controller.workspaceManager.niriViewportState(for: wsId)
-            return updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+            return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
         }
 
         func commitWithCapturedAnimation(
             state: ViewportState,
             oldFrames: [WindowHandle: CGRect]
         ) -> Bool {
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             controller.executeLayoutRefreshImmediate()
             let newFrames = engine.captureWindowFrames(in: wsId)
             _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
-            let updatedState = controller.workspaceManager.niriViewportState(for: wsId)
-            return updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+            return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
         }
 
         func commitSimple(state: ViewportState) -> Bool {
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             controller.executeLayoutRefreshImmediate()
-            let updatedState = controller.workspaceManager.niriViewportState(for: wsId)
-            return updatedState.viewOffsetPixels.isAnimating
+            return state.viewOffsetPixels.isAnimating
         }
     }
 
@@ -1366,29 +1356,30 @@ extension WMController {
         layoutRefreshController.runLightSession {
             guard let engine = niriEngine else { return }
             guard let wsId = activeWorkspace()?.id else { return }
-            var state = workspaceManager.niriViewportState(for: wsId)
 
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
-                  let windowNode = currentNode as? NiriWindow
-            else { return }
+            workspaceManager.withNiriViewportState(for: wsId) { state in
+                guard let currentId = state.selectedNodeId,
+                      let currentNode = engine.findNode(by: currentId),
+                      let windowNode = currentNode as? NiriWindow
+                else { return }
 
-            guard let monitor = workspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(workspaceManager.gaps)
+                guard let monitor = self.workspaceManager.monitor(for: wsId) else { return }
+                let workingFrame = self.insetWorkingFrame(for: monitor)
+                let gaps = CGFloat(self.workspaceManager.gaps)
 
-            let ctx = NiriOperationContext(
-                controller: self,
-                engine: engine,
-                wsId: wsId,
-                windowNode: windowNode,
-                monitor: monitor,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
+                let ctx = NiriOperationContext(
+                    controller: self,
+                    engine: engine,
+                    wsId: wsId,
+                    windowNode: windowNode,
+                    monitor: monitor,
+                    workingFrame: workingFrame,
+                    gaps: gaps
+                )
 
-            if operation(ctx, &state) {
-                animatingWorkspaceId = wsId
+                if operation(ctx, &state) {
+                    animatingWorkspaceId = wsId
+                }
             }
         }
 
@@ -1403,11 +1394,12 @@ extension WMController {
         layoutRefreshController.runLightSession {
             guard let engine = niriEngine else { return }
             guard let wsId = activeWorkspace()?.id else { return }
-            var state = workspaceManager.niriViewportState(for: wsId)
             guard let monitor = workspaceManager.monitor(for: wsId) else { return }
             let workingFrame = insetWorkingFrame(for: monitor)
             let gaps = CGFloat(workspaceManager.gaps)
-            perform(engine, wsId, &state, monitor, workingFrame, gaps)
+            workspaceManager.withNiriViewportState(for: wsId) { state in
+                perform(engine, wsId, &state, monitor, workingFrame, gaps)
+            }
         }
     }
 

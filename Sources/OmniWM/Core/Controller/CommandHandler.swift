@@ -179,49 +179,50 @@ final class CommandHandler {
         guard let controller else { return }
         guard let engine = controller.niriEngine else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
-        var state = controller.workspaceManager.niriViewportState(for: wsId)
 
-        guard let currentId = state.selectedNodeId,
-              let currentNode = engine.findNode(by: currentId)
-        else {
-            if let lastFocused = controller.focusManager.lastFocusedByWorkspace[wsId],
-               let lastNode = engine.findNode(for: lastFocused)
-            {
+        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId)
+            else {
+                if let lastFocused = controller.focusManager.lastFocusedByWorkspace[wsId],
+                   let lastNode = engine.findNode(for: lastFocused)
+                {
+                    controller.activateNode(
+                        lastNode, in: wsId, state: &state,
+                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
+                    )
+                } else if let firstHandle = controller.workspaceManager.entries(in: wsId).first?.handle,
+                          let firstNode = engine.findNode(for: firstHandle)
+                {
+                    controller.activateNode(
+                        firstNode, in: wsId, state: &state,
+                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
+                    )
+                }
+                return
+            }
+
+            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+            let gap = CGFloat(controller.workspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+
+            for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
+            }
+
+            if let newNode = engine.focusTarget(
+                direction: direction,
+                currentSelection: currentNode,
+                in: wsId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gap
+            ) {
                 controller.activateNode(
-                    lastNode, in: wsId, state: &state,
-                    options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
-                )
-            } else if let firstHandle = controller.workspaceManager.entries(in: wsId).first?.handle,
-                      let firstNode = engine.findNode(for: firstHandle)
-            {
-                controller.activateNode(
-                    firstNode, in: wsId, state: &state,
-                    options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
+                    newNode, in: wsId, state: &state,
+                    options: .init(activateWindow: false, ensureVisible: false)
                 )
             }
-            return
-        }
-
-        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-        let gap = CGFloat(controller.workspaceManager.gaps)
-        let workingFrame = controller.insetWorkingFrame(for: monitor)
-
-        for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
-            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
-        }
-
-        if let newNode = engine.focusTarget(
-            direction: direction,
-            currentSelection: currentNode,
-            in: wsId,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gap
-        ) {
-            controller.activateNode(
-                newNode, in: wsId, state: &state,
-                options: .init(activateWindow: false, ensureVisible: false)
-            )
         }
     }
 
@@ -252,8 +253,7 @@ final class CommandHandler {
                 options: .init(ensureVisible: false, updateTimestamp: false, startAnimation: false)
             )
 
-            let updatedState = controller.workspaceManager.niriViewportState(for: wsId)
-            if updatedState.viewOffsetPixels.isAnimating {
+            if state.viewOffsetPixels.isAnimating {
                 controller.startScrollAnimation(for: wsId)
             }
         }
@@ -360,7 +360,6 @@ final class CommandHandler {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             controller.startScrollAnimation(for: wsId)
         }
     }
@@ -380,7 +379,6 @@ final class CommandHandler {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             controller.startScrollAnimation(for: wsId)
         }
     }
@@ -393,24 +391,25 @@ final class CommandHandler {
         guard let engine = controller.niriEngine else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-        var state = controller.workspaceManager.niriViewportState(for: wsId)
 
-        guard let currentId = state.selectedNodeId,
-              let currentNode = engine.findNode(by: currentId)
-        else {
-            return
+        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId)
+            else {
+                return
+            }
+
+            let gap = CGFloat(controller.workspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            guard let newNode = navigationAction(engine, currentNode, wsId, &state, workingFrame, gap) else {
+                return
+            }
+
+            controller.activateNode(
+                newNode, in: wsId, state: &state,
+                options: .init(activateWindow: false, ensureVisible: false)
+            )
         }
-
-        let gap = CGFloat(controller.workspaceManager.gaps)
-        let workingFrame = controller.insetWorkingFrame(for: monitor)
-        guard let newNode = navigationAction(engine, currentNode, wsId, &state, workingFrame, gap) else {
-            return
-        }
-
-        controller.activateNode(
-            newNode, in: wsId, state: &state,
-            options: .init(activateWindow: false, ensureVisible: false)
-        )
     }
 
     private func moveWindowInNiri(direction: Direction) {
@@ -447,7 +446,6 @@ final class CommandHandler {
 
             engine.toggleFullscreen(windowNode, state: &state)
 
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
             controller.executeLayoutRefreshImmediate()
             if state.viewOffsetPixels.isAnimating {
                 controller.startScrollAnimation(for: wsId)
@@ -507,8 +505,7 @@ final class CommandHandler {
 
     private func toggleColumnTabbedInNiri() {
         guard let controller else { return }
-        controller.withNiriWorkspaceContext { engine, wsId, _, _, _, _ in
-            let state = controller.workspaceManager.niriViewportState(for: wsId)
+        controller.withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
             if engine.toggleColumnTabbed(in: wsId, state: state) {
                 controller.executeLayoutRefreshImmediate()
                 if engine.hasAnyWindowAnimationsRunning(in: wsId) {

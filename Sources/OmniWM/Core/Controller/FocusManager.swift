@@ -145,11 +145,7 @@ final class FocusManager {
             if let engine,
                let node = engine.findNode(for: focused)
             {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                if state.selectedNodeId != node.id {
-                    state.selectedNodeId = node.id
-                    workspaceManager.updateNiriViewportState(state, for: workspaceId)
-                }
+                workspaceManager.setSelection(node.id, for: workspaceId)
             }
             return
         }
@@ -161,9 +157,7 @@ final class FocusManager {
             if let engine,
                let node = engine.findNode(for: remembered)
             {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                state.selectedNodeId = node.id
-                workspaceManager.updateNiriViewportState(state, for: workspaceId)
+                workspaceManager.setSelection(node.id, for: workspaceId)
             }
             focusWindowAction(remembered)
             return
@@ -175,9 +169,7 @@ final class FocusManager {
             if let engine,
                let node = engine.findNode(for: newHandle)
             {
-                var state = workspaceManager.niriViewportState(for: workspaceId)
-                state.selectedNodeId = node.id
-                workspaceManager.updateNiriViewportState(state, for: workspaceId)
+                workspaceManager.setSelection(node.id, for: workspaceId)
             }
             focusWindowAction(newHandle)
         } else {
