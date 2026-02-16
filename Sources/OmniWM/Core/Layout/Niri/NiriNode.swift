@@ -203,7 +203,7 @@ class NiriNode {
 
     func nextSibling() -> NiriNode? {
         guard let parent else { return nil }
-        guard let index = parent.children.firstIndex(where: { $0.id == self.id }) else { return nil }
+        guard let index = parent.children.firstIndex(where: { $0 === self }) else { return nil }
         let nextIndex = index + 1
         guard nextIndex < parent.children.count else { return nil }
         return parent.children[nextIndex]
@@ -211,7 +211,7 @@ class NiriNode {
 
     func prevSibling() -> NiriNode? {
         guard let parent else { return nil }
-        guard let index = parent.children.firstIndex(where: { $0.id == self.id }) else { return nil }
+        guard let index = parent.children.firstIndex(where: { $0 === self }) else { return nil }
         guard index > 0 else { return nil }
         return parent.children[index - 1]
     }
@@ -224,7 +224,7 @@ class NiriNode {
     }
 
     func insertBefore(_ child: NiriNode, reference: NiriNode) {
-        guard let index = children.firstIndex(where: { $0.id == reference.id }) else {
+        guard let index = children.firstIndex(where: { $0 === reference }) else {
             return
         }
         child.detach()
@@ -234,7 +234,7 @@ class NiriNode {
     }
 
     func insertAfter(_ child: NiriNode, reference: NiriNode) {
-        guard let index = children.firstIndex(where: { $0.id == reference.id }) else {
+        guard let index = children.firstIndex(where: { $0 === reference }) else {
             return
         }
         child.detach()
@@ -246,7 +246,7 @@ class NiriNode {
     func detach() {
         guard let parent else { return }
         let root = findRoot()
-        parent.children.removeAll { $0.id == self.id }
+        parent.children.removeAll { $0 === self }
         self.parent = nil
         root?.unregisterNode(self)
     }
@@ -258,9 +258,9 @@ class NiriNode {
 
     func swapWith(_ sibling: NiriNode) {
         guard let parent,
-              parent.id == sibling.parent?.id,
-              let myIndex = parent.children.firstIndex(where: { $0.id == self.id }),
-              let sibIndex = parent.children.firstIndex(where: { $0.id == sibling.id })
+              parent === sibling.parent,
+              let myIndex = parent.children.firstIndex(where: { $0 === self }),
+              let sibIndex = parent.children.firstIndex(where: { $0 === sibling })
         else {
             return
         }
@@ -268,8 +268,8 @@ class NiriNode {
     }
 
     func swapChildren(_ child1: NiriNode, _ child2: NiriNode) {
-        guard let idx1 = children.firstIndex(where: { $0.id == child1.id }),
-              let idx2 = children.firstIndex(where: { $0.id == child2.id })
+        guard let idx1 = children.firstIndex(where: { $0 === child1 }),
+              let idx2 = children.firstIndex(where: { $0 === child2 })
         else {
             return
         }
@@ -457,8 +457,15 @@ class NiriContainer: NiriNode {
     }
 
     func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {
-        let minW = windowNodes.map(\.constraints.minSize.width).max() ?? 0
-        let maxW = windowNodes.compactMap { $0.constraints.hasMaxWidth ? $0.constraints.maxSize.width : nil }.min()
+        var minW: CGFloat = 0
+        var maxW: CGFloat?
+        for window in windowNodes {
+            minW = max(minW, window.constraints.minSize.width)
+            if window.constraints.hasMaxWidth {
+                let candidateMax = window.constraints.maxSize.width
+                maxW = min(maxW ?? candidateMax, candidateMax)
+            }
+        }
         cachedWidth = resolveSpan(spec: width, isFull: isFullWidth, availableSpace: workingAreaWidth, gaps: gaps, minConstraint: minW, maxConstraint: maxW)
     }
 
@@ -518,7 +525,7 @@ class NiriContainer: NiriNode {
     func adjustActiveTileIdxForRemoval(of node: NiriNode) {
         guard isTabbed else { return }
         let windows = windowNodes
-        guard let idx = windows.firstIndex(where: { $0.id == node.id }) else { return }
+        guard let idx = windows.firstIndex(where: { $0 === node }) else { return }
         if idx == activeTileIdx {
             if windows.count > 1, idx >= windows.count - 1 {
                 activeTileIdx = max(0, idx - 1)

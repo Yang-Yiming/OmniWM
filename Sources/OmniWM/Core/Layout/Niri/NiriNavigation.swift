@@ -133,7 +133,7 @@ extension NiriLayoutEngine {
 
         if let target {
             let windowNodes = container.windowNodes
-            if let idx = windowNodes.firstIndex(where: { $0.id == target.id }) {
+            if let idx = windowNodes.firstIndex(where: { $0 === target }) {
                 container.setActiveTileIdx(idx)
             }
         }

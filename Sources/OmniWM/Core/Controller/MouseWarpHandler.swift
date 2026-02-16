@@ -102,7 +102,7 @@ final class MouseWarpHandler {
         }
 
         if let lastMonitorId = state.lastMonitorId {
-            if let lastMonitor = monitors.first(where: { $0.id == lastMonitorId }) {
+            if let lastMonitor = controller.workspaceManager.monitor(byId: lastMonitorId) {
                 if lastMonitor.id != currentMonitor.id {
                     mouseWarpBackToMonitor(lastMonitor, location: location, margin: margin)
                     return
@@ -164,7 +164,7 @@ final class MouseWarpHandler {
 
     private func mouseWarpClampCursorToNearestMonitor(location: CGPoint, monitors: [Monitor], margin: CGFloat) {
         if let lastMonitorId = state.lastMonitorId,
-           let lastMonitor = monitors.first(where: { $0.id == lastMonitorId })
+           let lastMonitor = controller?.workspaceManager.monitor(byId: lastMonitorId)
         {
             mouseWarpBackToMonitor(lastMonitor, location: location, margin: margin)
             return
@@ -195,7 +195,7 @@ final class MouseWarpHandler {
     }
 
     private func mouseWarpToMonitor(named name: String, edge: Edge, yRatio: CGFloat, monitors: [Monitor], margin: CGFloat) {
-        guard let targetMonitor = monitors.first(where: { $0.name == name }) else { return }
+        guard let targetMonitor = controller?.workspaceManager.monitor(named: name) ?? monitors.first(where: { $0.name == name }) else { return }
 
         let frame = targetMonitor.frame
 

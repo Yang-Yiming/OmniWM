@@ -73,11 +73,21 @@ struct OverviewWindowItem {
 }
 
 struct OverviewLayout {
-    var workspaceSections: [OverviewWorkspaceSection]
+    private struct WindowPosition {
+        let sectionIndex: Int
+        let windowIndex: Int
+    }
+
+    var workspaceSections: [OverviewWorkspaceSection] {
+        didSet { rebuildWindowIndex() }
+    }
     var searchBarFrame: CGRect
     var totalContentHeight: CGFloat
     var scrollOffset: CGFloat
     var scale: CGFloat
+    private var windowPositionByHandle: [WindowHandle: WindowPosition]
+    private var lastHoveredHandle: WindowHandle?
+    private var lastSelectedHandle: WindowHandle?
 
     init() {
         workspaceSections = []
@@ -85,41 +95,91 @@ struct OverviewLayout {
         totalContentHeight = 0
         scrollOffset = 0
         scale = 1.0
+        windowPositionByHandle = [:]
+        lastHoveredHandle = nil
+        lastSelectedHandle = nil
+        rebuildWindowIndex()
     }
 
     var allWindows: [OverviewWindowItem] {
         workspaceSections.flatMap(\.windows)
     }
 
-    mutating func updateWindowFrame(handle: WindowHandle, frame: CGRect) {
+    private mutating func rebuildWindowIndex() {
+        windowPositionByHandle.removeAll(keepingCapacity: true)
         for sectionIndex in workspaceSections.indices {
             for windowIndex in workspaceSections[sectionIndex].windows.indices {
-                if workspaceSections[sectionIndex].windows[windowIndex].handle == handle {
-                    workspaceSections[sectionIndex].windows[windowIndex].overviewFrame = frame
-                    return
-                }
+                let handle = workspaceSections[sectionIndex].windows[windowIndex].handle
+                windowPositionByHandle[handle] = WindowPosition(sectionIndex: sectionIndex, windowIndex: windowIndex)
             }
         }
+        if let lastHoveredHandle, windowPositionByHandle[lastHoveredHandle] == nil {
+            self.lastHoveredHandle = nil
+        }
+        if let lastSelectedHandle, windowPositionByHandle[lastSelectedHandle] == nil {
+            self.lastSelectedHandle = nil
+        }
+    }
+
+    @discardableResult
+    private mutating func mutateWindow(
+        for handle: WindowHandle,
+        _ mutate: (inout OverviewWindowItem) -> Void
+    ) -> Bool {
+        if let position = windowPositionByHandle[handle],
+           workspaceSections.indices.contains(position.sectionIndex),
+           workspaceSections[position.sectionIndex].windows.indices.contains(position.windowIndex)
+        {
+            mutate(&workspaceSections[position.sectionIndex].windows[position.windowIndex])
+            return true
+        }
+        rebuildWindowIndex()
+        guard let position = windowPositionByHandle[handle],
+              workspaceSections.indices.contains(position.sectionIndex),
+              workspaceSections[position.sectionIndex].windows.indices.contains(position.windowIndex)
+        else {
+            return false
+        }
+        mutate(&workspaceSections[position.sectionIndex].windows[position.windowIndex])
+        return true
+    }
+
+    mutating func updateWindowFrame(handle: WindowHandle, frame: CGRect) {
+        _ = mutateWindow(for: handle) { $0.overviewFrame = frame }
     }
 
     mutating func setHovered(handle: WindowHandle?, closeButtonHovered: Bool = false) {
-        for sectionIndex in workspaceSections.indices {
-            for windowIndex in workspaceSections[sectionIndex].windows.indices {
-                let windowHandle = workspaceSections[sectionIndex].windows[windowIndex].handle
-                let isMatch = windowHandle == handle
-                workspaceSections[sectionIndex].windows[windowIndex].isHovered = isMatch
-                workspaceSections[sectionIndex].windows[windowIndex].closeButtonHovered = isMatch && closeButtonHovered
+        if let previous = lastHoveredHandle, previous != handle {
+            _ = mutateWindow(for: previous) {
+                $0.isHovered = false
+                $0.closeButtonHovered = false
             }
         }
+
+        guard let handle else {
+            lastHoveredHandle = nil
+            return
+        }
+
+        let updated = mutateWindow(for: handle) {
+            $0.isHovered = true
+            $0.closeButtonHovered = closeButtonHovered
+        }
+        lastHoveredHandle = updated ? handle : nil
     }
 
     mutating func setSelected(handle: WindowHandle?) {
-        for sectionIndex in workspaceSections.indices {
-            for windowIndex in workspaceSections[sectionIndex].windows.indices {
-                let windowHandle = workspaceSections[sectionIndex].windows[windowIndex].handle
-                workspaceSections[sectionIndex].windows[windowIndex].isSelected = windowHandle == handle
-            }
+        if let previous = lastSelectedHandle, previous != handle {
+            _ = mutateWindow(for: previous) { $0.isSelected = false }
         }
+
+        guard let handle else {
+            lastSelectedHandle = nil
+            return
+        }
+
+        let updated = mutateWindow(for: handle) { $0.isSelected = true }
+        lastSelectedHandle = updated ? handle : nil
     }
 
     func windowAt(point: CGPoint) -> OverviewWindowItem? {
@@ -147,10 +207,14 @@ struct OverviewLayout {
     }
 
     func selectedWindow() -> OverviewWindowItem? {
-        allWindows.first { $0.isSelected }
+        guard let handle = lastSelectedHandle,
+              let position = windowPositionByHandle[handle] else { return nil }
+        return workspaceSections[position.sectionIndex].windows[position.windowIndex]
     }
 
     func hoveredWindow() -> OverviewWindowItem? {
-        allWindows.first { $0.isHovered }
+        guard let handle = lastHoveredHandle,
+              let position = windowPositionByHandle[handle] else { return nil }
+        return workspaceSections[position.sectionIndex].windows[position.windowIndex]
     }
 }

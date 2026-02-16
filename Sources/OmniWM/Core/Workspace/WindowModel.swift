@@ -36,11 +36,45 @@ final class WindowModel {
     private(set) var entries: [WindowHandle: Entry] = [:]
     private var keyToHandle: [WindowKey: WindowHandle] = [:]
     private var handlesByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle]] = [:]
+    private var handleIndexByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle: Int]] = [:]
     private var windowIdToHandle: [Int: WindowHandle] = [:]
 
     struct WindowKey: Hashable {
         let pid: pid_t
         let windowId: Int
+    }
+
+    private func appendHandle(_ handle: WindowHandle, to workspace: WorkspaceDescriptor.ID) {
+        var handles = handlesByWorkspace[workspace, default: []]
+        var indexByHandle = handleIndexByWorkspace[workspace, default: [:]]
+        guard indexByHandle[handle] == nil else { return }
+        indexByHandle[handle] = handles.count
+        handles.append(handle)
+        handlesByWorkspace[workspace] = handles
+        handleIndexByWorkspace[workspace] = indexByHandle
+    }
+
+    private func removeHandle(_ handle: WindowHandle, from workspace: WorkspaceDescriptor.ID) {
+        guard var handles = handlesByWorkspace[workspace],
+              var indexByHandle = handleIndexByWorkspace[workspace],
+              let index = indexByHandle[handle] else { return }
+
+        handles.remove(at: index)
+        indexByHandle.removeValue(forKey: handle)
+
+        if index < handles.count {
+            for i in index ..< handles.count {
+                indexByHandle[handles[i]] = i
+            }
+        }
+
+        if handles.isEmpty {
+            handlesByWorkspace.removeValue(forKey: workspace)
+            handleIndexByWorkspace.removeValue(forKey: workspace)
+        } else {
+            handlesByWorkspace[workspace] = handles
+            handleIndexByWorkspace[workspace] = indexByHandle
+        }
     }
 
     func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle {
@@ -59,7 +93,7 @@ final class WindowModel {
             )
             entries[handle] = entry
             keyToHandle[key] = handle
-            handlesByWorkspace[workspace, default: []].append(handle)
+            appendHandle(handle, to: workspace)
             windowIdToHandle[windowId] = handle
             return handle
         }
@@ -68,8 +102,8 @@ final class WindowModel {
     func updateWorkspace(for handle: WindowHandle, workspace: WorkspaceDescriptor.ID) {
         guard let oldWorkspace = entries[handle]?.workspaceId else { return }
         if oldWorkspace != workspace {
-            handlesByWorkspace[oldWorkspace]?.removeAll { $0 == handle }
-            handlesByWorkspace[workspace, default: []].append(handle)
+            removeHandle(handle, from: oldWorkspace)
+            appendHandle(handle, to: workspace)
         }
         entries[handle]?.workspaceId = workspace
     }
@@ -146,21 +180,21 @@ final class WindowModel {
     func removeMissing(keys activeKeys: Set<WindowKey>) {
         let toRemove = keyToHandle.keys.filter { !activeKeys.contains($0) }
         for key in toRemove {
-            if let handle = keyToHandle[key] {
-                if let entry = entries[handle] {
-                    handlesByWorkspace[entry.workspaceId]?.removeAll { $0 == handle }
-                    windowIdToHandle.removeValue(forKey: entry.windowId)
+                if let handle = keyToHandle[key] {
+                    if let entry = entries[handle] {
+                        removeHandle(handle, from: entry.workspaceId)
+                        windowIdToHandle.removeValue(forKey: entry.windowId)
+                    }
+                    entries.removeValue(forKey: handle)
+                    keyToHandle.removeValue(forKey: key)
                 }
-                entries.removeValue(forKey: handle)
-                keyToHandle.removeValue(forKey: key)
-            }
         }
     }
 
     func removeWindow(key: WindowKey) {
         if let handle = keyToHandle[key] {
             if let entry = entries[handle] {
-                handlesByWorkspace[entry.workspaceId]?.removeAll { $0 == handle }
+                removeHandle(handle, from: entry.workspaceId)
                 windowIdToHandle.removeValue(forKey: entry.windowId)
             }
             entries.removeValue(forKey: handle)

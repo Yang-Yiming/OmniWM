@@ -360,7 +360,7 @@ final class WorkspaceNavigationHandler {
         controller.resolveAndSetWorkspaceFocus(for: targetWorkspace.id)
 
         let monitor = controller.workspaceManager.monitor(for: targetWorkspace.id)
-            ?? controller.workspaceManager.monitors.first(where: { $0.id == currentMonitorId })
+            ?? controller.workspaceManager.monitor(byId: currentMonitorId)
         let workspaceSwitchAnimated = monitor.flatMap { monitor in
             startWorkspaceSwitchAnimation(
                 from: previousWorkspace,
@@ -502,7 +502,7 @@ final class WorkspaceNavigationHandler {
         controller.resolveAndSetWorkspaceFocus(for: prevWorkspace.id)
 
         let monitor = controller.workspaceManager.monitor(for: prevWorkspace.id)
-            ?? controller.workspaceManager.monitors.first(where: { $0.id == currentMonitorId })
+            ?? controller.workspaceManager.monitor(byId: currentMonitorId)
         let workspaceSwitchAnimated = monitor.flatMap { monitor in
             startWorkspaceSwitchAnimation(
                 from: currentWorkspace,

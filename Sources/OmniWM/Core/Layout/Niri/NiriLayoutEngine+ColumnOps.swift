@@ -134,6 +134,7 @@ extension NiriLayoutEngine {
         for column in cols {
             column.width = .proportion(balancedWidth)
             column.isFullWidth = false
+            column.savedWidth = nil
             column.presetWidthIdx = nil
 
             column.animateWidthTo(
@@ -269,7 +270,7 @@ extension NiriLayoutEngine {
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
 
-        let sourceTileIdx = neighborColumn.windowNodes.firstIndex(where: { $0.id == windowToConsume.id }) ?? 0
+        let sourceTileIdx = neighborColumn.windowNodes.firstIndex(where: { $0 === windowToConsume }) ?? 0
         let sourceColX = state.columnX(at: neighborIdx, columns: cols, gap: gaps)
         let sourceColRenderOffset = neighborColumn.renderOffset(at: now)
         let sourceTileOffset = computeTileOffset(column: neighborColumn, tileIdx: sourceTileIdx, gaps: gaps)
@@ -348,7 +349,7 @@ extension NiriLayoutEngine {
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let cols = columns(in: workspaceId)
 
-        let sourceTileIdx = currentColumn.windowNodes.firstIndex(where: { $0.id == window.id }) ?? 0
+        let sourceTileIdx = currentColumn.windowNodes.firstIndex(where: { $0 === window }) ?? 0
         let sourceColX = state.columnX(at: currentColIdx, columns: cols, gap: gaps)
         let sourceColRenderOffset = currentColumn.renderOffset(at: now)
         let sourceTileOffset = computeTileOffset(column: currentColumn, tileIdx: sourceTileIdx, gaps: gaps)

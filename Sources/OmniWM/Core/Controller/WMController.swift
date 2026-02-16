@@ -526,6 +526,7 @@ final class WMController {
         axManager.onAppTerminated = { [weak self] pid in
             guard let self else { return }
             workspaceManager.removeWindowsForApp(pid: pid)
+            appInfoCache.evict(pid: pid)
             refreshWindowsAndLayout()
         }
         AppAXContext.onWindowDestroyed = { [weak self] pid, windowId in
@@ -898,11 +899,11 @@ final class WMController {
         var monitorInfo: [AnyHashable: Any] = [:]
         if let oldId = lastNotifiedMonitorId {
             monitorInfo[OmniWMFocusNotificationKey.oldMonitorIndex] = oldId.displayId
-            if let name = workspaceManager.monitors.first(where: { $0.id == oldId })?.name { monitorInfo[OmniWMFocusNotificationKey.oldMonitorName] = name }
+            if let name = workspaceManager.monitor(byId: oldId)?.name { monitorInfo[OmniWMFocusNotificationKey.oldMonitorName] = name }
         }
         if let newId = currentMonitorId {
             monitorInfo[OmniWMFocusNotificationKey.newMonitorIndex] = newId.displayId
-            if let name = workspaceManager.monitors.first(where: { $0.id == newId })?.name { monitorInfo[OmniWMFocusNotificationKey.newMonitorName] = name }
+            if let name = workspaceManager.monitor(byId: newId)?.name { monitorInfo[OmniWMFocusNotificationKey.newMonitorName] = name }
         }
         postNotificationIfChanged(name: .omniwmFocusedMonitorChanged, current: currentMonitorId, last: &lastNotifiedMonitorId, info: monitorInfo)
     }

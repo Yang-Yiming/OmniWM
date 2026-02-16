@@ -218,7 +218,7 @@ extension NiriLayoutEngine {
 
         let cols = columns(in: workspaceId)
         if let currentCol = column(of: removingNode),
-           let currentIdx = cols.firstIndex(where: { $0.id == currentCol.id })
+           let currentIdx = cols.firstIndex(where: { $0 === currentCol })
         {
             if currentIdx > 0, let window = cols[currentIdx - 1].firstChild() {
                 return window.id

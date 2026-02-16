@@ -14,16 +14,53 @@ struct WorkspaceDescriptor: Identifiable, Hashable {
     }
 }
 
+private struct BiMap<A: Hashable, B: Hashable> {
+    private(set) var forward: [A: B] = [:]
+    private(set) var reverse: [B: A] = [:]
+
+    subscript(forward key: A) -> B? { forward[key] }
+    subscript(reverse key: B) -> A? { reverse[key] }
+
+    mutating func set(_ a: A, _ b: B) {
+        if let oldB = forward[a] { reverse.removeValue(forKey: oldB) }
+        if let oldA = reverse[b] { forward.removeValue(forKey: oldA) }
+        forward[a] = b
+        reverse[b] = a
+    }
+
+    @discardableResult
+    mutating func removeByForward(_ a: A) -> B? {
+        guard let b = forward.removeValue(forKey: a) else { return nil }
+        reverse.removeValue(forKey: b)
+        return b
+    }
+
+    @discardableResult
+    mutating func removeByReverse(_ b: B) -> A? {
+        guard let a = reverse.removeValue(forKey: b) else { return nil }
+        forward.removeValue(forKey: a)
+        return a
+    }
+
+    mutating func removeAll() {
+        forward.removeAll()
+        reverse.removeAll()
+    }
+}
+
 @MainActor
 final class WorkspaceManager {
-    private(set) var monitors: [Monitor] = Monitor.current()
+    private(set) var monitors: [Monitor] = Monitor.current() {
+        didSet { rebuildMonitorIndexes() }
+    }
+    private var _monitorsById: [Monitor.ID: Monitor] = [:]
+    private var _monitorsByName: [String: Monitor] = [:]
     private let settings: SettingsStore
 
     private var workspacesById: [WorkspaceDescriptor.ID: WorkspaceDescriptor] = [:]
     private var workspaceIdByName: [String: WorkspaceDescriptor.ID] = [:]
 
-    private var screenPointToVisibleWorkspace: [CGPoint: WorkspaceDescriptor.ID] = [:]
-    private var visibleWorkspaceToScreenPoint: [WorkspaceDescriptor.ID: CGPoint] = [:]
+    private var visibleWorkspaces: BiMap<CGPoint, WorkspaceDescriptor.ID> = .init()
     private var screenPointToPrevVisibleWorkspace: [CGPoint: WorkspaceDescriptor.ID] = [:]
 
     private(set) var gaps: Double = 8
@@ -42,7 +79,25 @@ final class WorkspaceManager {
         if monitors.isEmpty {
             monitors = [Monitor.fallback()]
         }
+        rebuildMonitorIndexes()
         applySettings()
+    }
+
+    func monitor(byId id: Monitor.ID) -> Monitor? {
+        _monitorsById[id]
+    }
+
+    func monitor(named name: String) -> Monitor? {
+        _monitorsByName[name]
+    }
+
+    private func rebuildMonitorIndexes() {
+        _monitorsById = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
+        var byName: [String: Monitor] = [:]
+        for monitor in monitors where byName[monitor.name] == nil {
+            byName[monitor.name] = monitor
+        }
+        _monitorsByName = byName
     }
 
     var workspaces: [WorkspaceDescriptor] {
@@ -66,7 +121,7 @@ final class WorkspaceManager {
     }
 
     func workspaces(on monitorId: Monitor.ID) -> [WorkspaceDescriptor] {
-        guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return [] }
+        guard let monitor = monitor(byId: monitorId) else { return [] }
         let assigned = sortedWorkspaces().filter { workspace in
             guard let workspaceMonitor = monitorForWorkspace(workspace.id) else { return false }
             return workspaceMonitor.id == monitor.id
@@ -80,17 +135,17 @@ final class WorkspaceManager {
         return activeWorkspaceOrFirst(on: monitor.id)
     }
 
-    func activeWorkspace(on monitor: Monitor.ID) -> WorkspaceDescriptor? {
+    func activeWorkspace(on monitorId: Monitor.ID) -> WorkspaceDescriptor? {
         ensureVisibleWorkspaces()
-        guard let monitor = monitors.first(where: { $0.id == monitor }) else { return nil }
-        guard let workspaceId = screenPointToVisibleWorkspace[monitor.workspaceAnchorPoint] else { return nil }
+        guard let mon = monitor(byId: monitorId) else { return nil }
+        guard let workspaceId = visibleWorkspaces[forward: mon.workspaceAnchorPoint] else { return nil }
         return descriptor(for: workspaceId)
     }
 
     func previousWorkspace(on monitorId: Monitor.ID) -> WorkspaceDescriptor? {
-        guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return nil }
+        guard let monitor = monitor(byId: monitorId) else { return nil }
         guard let prevId = screenPointToPrevVisibleWorkspace[monitor.workspaceAnchorPoint] else { return nil }
-        guard prevId != screenPointToVisibleWorkspace[monitor.workspaceAnchorPoint] else { return nil }
+        guard prevId != visibleWorkspaces[forward: monitor.workspaceAnchorPoint] else { return nil }
         return descriptor(for: prevId)
     }
 
@@ -110,18 +165,18 @@ final class WorkspaceManager {
         adjacentWorkspaceInOrder(on: monitorId, from: workspaceId, offset: -1, wrapAround: wrapAround)
     }
 
-    func activeWorkspaceOrFirst(on monitor: Monitor.ID) -> WorkspaceDescriptor? {
-        if let active = activeWorkspace(on: monitor) {
+    func activeWorkspaceOrFirst(on monitorId: Monitor.ID) -> WorkspaceDescriptor? {
+        if let active = activeWorkspace(on: monitorId) {
             return active
         }
-        guard let monitor = monitors.first(where: { $0.id == monitor }) else { return nil }
-        let stubId = getStubWorkspaceId(forPoint: monitor.workspaceAnchorPoint)
-        _ = setActiveWorkspace(stubId, on: monitor)
+        guard let mon = monitor(byId: monitorId) else { return nil }
+        let stubId = getStubWorkspaceId(forPoint: mon.workspaceAnchorPoint)
+        _ = setActiveWorkspace(stubId, on: mon)
         return descriptor(for: stubId)
     }
 
     func visibleWorkspaceIds() -> Set<WorkspaceDescriptor.ID> {
-        Set(screenPointToVisibleWorkspace.values)
+        Set(visibleWorkspaces.forward.values)
     }
 
     private func adjacentWorkspaceInOrder(
@@ -307,7 +362,7 @@ final class WorkspaceManager {
 
     @discardableResult
     func moveWorkspaceToMonitor(_ workspaceId: WorkspaceDescriptor.ID, to targetMonitorId: Monitor.ID) -> Bool {
-        guard let targetMonitor = monitors.first(where: { $0.id == targetMonitorId }) else { return false }
+        guard let targetMonitor = monitor(byId: targetMonitorId) else { return false }
         guard let sourceMonitor = monitorForWorkspace(workspaceId) else { return false }
 
         if sourceMonitor.id == targetMonitor.id { return false }
@@ -331,8 +386,8 @@ final class WorkspaceManager {
         with workspace2Id: WorkspaceDescriptor.ID,
         on monitor2Id: Monitor.ID
     ) -> Bool {
-        guard let monitor1 = monitors.first(where: { $0.id == monitor1Id }),
-              let monitor2 = monitors.first(where: { $0.id == monitor2Id }),
+        guard let monitor1 = monitor(byId: monitor1Id),
+              let monitor2 = monitor(byId: monitor2Id),
               monitor1Id != monitor2Id else { return false }
 
         let point1 = monitor1.workspaceAnchorPoint
@@ -341,22 +396,18 @@ final class WorkspaceManager {
         guard isValidAssignment(workspaceId: workspace1Id, screen: point2),
               isValidAssignment(workspaceId: workspace2Id, screen: point1) else { return false }
 
-        screenPointToPrevVisibleWorkspace[point1] = screenPointToVisibleWorkspace[point1]
-        screenPointToPrevVisibleWorkspace[point2] = screenPointToVisibleWorkspace[point2]
+        screenPointToPrevVisibleWorkspace[point1] = visibleWorkspaces[forward: point1]
+        screenPointToPrevVisibleWorkspace[point2] = visibleWorkspaces[forward: point2]
 
-        visibleWorkspaceToScreenPoint.removeValue(forKey: workspace1Id)
-        visibleWorkspaceToScreenPoint.removeValue(forKey: workspace2Id)
-        screenPointToVisibleWorkspace.removeValue(forKey: point1)
-        screenPointToVisibleWorkspace.removeValue(forKey: point2)
+        visibleWorkspaces.removeByReverse(workspace1Id)
+        visibleWorkspaces.removeByReverse(workspace2Id)
 
-        visibleWorkspaceToScreenPoint[workspace2Id] = point1
-        screenPointToVisibleWorkspace[point1] = workspace2Id
+        visibleWorkspaces.set(point1, workspace2Id)
         updateWorkspace(workspace2Id) { workspace in
             workspace.assignedMonitorPoint = point1
         }
 
-        visibleWorkspaceToScreenPoint[workspace1Id] = point2
-        screenPointToVisibleWorkspace[point2] = workspace1Id
+        visibleWorkspaces.set(point2, workspace1Id)
         updateWorkspace(workspace1Id) { workspace in
             workspace.assignedMonitorPoint = point2
         }
@@ -366,10 +417,10 @@ final class WorkspaceManager {
 
     func summonWorkspace(named workspaceName: String, to focusedMonitorId: Monitor.ID) -> WorkspaceDescriptor? {
         guard let workspaceId = workspaceId(for: workspaceName, createIfMissing: false) else { return nil }
-        guard let focusedMonitor = monitors.first(where: { $0.id == focusedMonitorId }) else { return nil }
+        guard let focusedMonitor = monitor(byId: focusedMonitorId) else { return nil }
 
         let focusedScreen = focusedMonitor.workspaceAnchorPoint
-        if screenPointToVisibleWorkspace[focusedScreen] == workspaceId { return nil }
+        if visibleWorkspaces[forward: focusedScreen] == workspaceId { return nil }
         guard setActiveWorkspace(workspaceId, onScreenPoint: focusedScreen) else { return nil }
         return descriptor(for: workspaceId)
     }
@@ -381,12 +432,12 @@ final class WorkspaceManager {
     }
 
     func setActiveWorkspace(_ workspaceId: WorkspaceDescriptor.ID, on monitorId: Monitor.ID) -> Bool {
-        guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return false }
+        guard let monitor = monitor(byId: monitorId) else { return false }
         return setActiveWorkspace(workspaceId, on: monitor)
     }
 
     func assignWorkspaceToMonitor(_ workspaceId: WorkspaceDescriptor.ID, monitorId: Monitor.ID) {
-        guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return }
+        guard let monitor = monitor(byId: monitorId) else { return }
         updateWorkspace(workspaceId) { $0.assignedMonitorPoint = monitor.workspaceAnchorPoint }
     }
 
@@ -469,20 +520,19 @@ final class WorkspaceManager {
 
         for id in toRemove {
             workspacesById.removeValue(forKey: id)
-            visibleWorkspaceToScreenPoint.removeValue(forKey: id)
+            visibleWorkspaces.removeByReverse(id)
             niriViewportStates.removeValue(forKey: id)
         }
         if !toRemove.isEmpty {
             _cachedSortedWorkspaces = nil
             workspaceIdByName = workspaceIdByName.filter { !toRemove.contains($0.value) }
-            screenPointToVisibleWorkspace = screenPointToVisibleWorkspace.filter { !toRemove.contains($0.value) }
             screenPointToPrevVisibleWorkspace = screenPointToPrevVisibleWorkspace
                 .filter { !toRemove.contains($0.value) }
         }
     }
 
     func adjacentMonitor(from monitorId: Monitor.ID, direction: Direction, wrapAround: Bool = false) -> Monitor? {
-        guard let current = monitors.first(where: { $0.id == monitorId }) else { return nil }
+        guard let current = monitor(byId: monitorId) else { return nil }
         let axis: Monitor.Orientation = switch direction {
         case .left, .right: .horizontal
         case .up, .down: .vertical
@@ -571,7 +621,7 @@ final class WorkspaceManager {
         }
 
         for (workspaceId, forcedMonitor) in forcedTargets {
-            guard let currentPoint = visibleWorkspaceToScreenPoint[workspaceId] else { continue }
+            guard let currentPoint = visibleWorkspaces[reverse: workspaceId] else { continue }
             if currentPoint != forcedMonitor.workspaceAnchorPoint {
                 _ = setActiveWorkspace(workspaceId, on: forcedMonitor)
             }
@@ -580,7 +630,7 @@ final class WorkspaceManager {
 
     private func ensureVisibleWorkspaces() {
         let currentScreens = Set(monitors.map(\.workspaceAnchorPoint))
-        let mappingScreens = Set(screenPointToVisibleWorkspace.keys)
+        let mappingScreens = Set(visibleWorkspaces.forward.keys)
         screenPointToPrevVisibleWorkspace = screenPointToPrevVisibleWorkspace.filter { currentScreens.contains($0.key) }
         if currentScreens != mappingScreens {
             rearrangeWorkspacesOnMonitors()
@@ -597,7 +647,7 @@ final class WorkspaceManager {
 
         for monitor in monitors {
             let point = monitor.workspaceAnchorPoint
-            if screenPointToVisibleWorkspace[point] == nil {
+            if visibleWorkspaces[forward: point] == nil {
                 var assignedWorkspaceId: WorkspaceDescriptor.ID?
                 for name in sortedNames {
                     guard let descriptions = assignments[name] else { continue }
@@ -619,7 +669,7 @@ final class WorkspaceManager {
     }
 
     private func rearrangeWorkspacesOnMonitors() {
-        var oldVisibleScreens = Set(screenPointToVisibleWorkspace.keys)
+        var oldVisibleScreens = Set(visibleWorkspaces.forward.keys)
         let newScreens = monitors.map(\.workspaceAnchorPoint)
 
         var newScreenToOldScreenMapping: [CGPoint: CGPoint] = [:]
@@ -632,13 +682,12 @@ final class WorkspaceManager {
             }
         }
 
-        let oldScreenPointToVisibleWorkspace = screenPointToVisibleWorkspace
-        screenPointToVisibleWorkspace = [:]
-        visibleWorkspaceToScreenPoint = [:]
+        let oldForward = visibleWorkspaces.forward
+        visibleWorkspaces.removeAll()
 
         for newScreen in newScreens {
             if let oldScreen = newScreenToOldScreenMapping[newScreen],
-               let existingWorkspaceId = oldScreenPointToVisibleWorkspace[oldScreen],
+               let existingWorkspaceId = oldForward[oldScreen],
                setActiveWorkspace(existingWorkspaceId, onScreenPoint: newScreen)
             {
                 continue
@@ -712,7 +761,7 @@ final class WorkspaceManager {
         if let forced = forceAssignedMonitor(for: workspace.name) {
             return forced.workspaceAnchorPoint
         }
-        if let visiblePoint = visibleWorkspaceToScreenPoint[workspaceId] {
+        if let visiblePoint = visibleWorkspaces[reverse: workspaceId] {
             return visiblePoint
         }
         if let assigned = workspace.assignedMonitorPoint {
@@ -743,19 +792,17 @@ final class WorkspaceManager {
     private func setActiveWorkspace(_ workspaceId: WorkspaceDescriptor.ID, onScreenPoint screen: CGPoint) -> Bool {
         guard isValidAssignment(workspaceId: workspaceId, screen: screen) else { return false }
 
-        if let prevMonitorPoint = visibleWorkspaceToScreenPoint[workspaceId] {
-            visibleWorkspaceToScreenPoint.removeValue(forKey: workspaceId)
-            screenPointToPrevVisibleWorkspace[prevMonitorPoint] = screenPointToVisibleWorkspace
-                .removeValue(forKey: prevMonitorPoint)
+        if let prevMonitorPoint = visibleWorkspaces[reverse: workspaceId] {
+            visibleWorkspaces.removeByReverse(workspaceId)
+            screenPointToPrevVisibleWorkspace[prevMonitorPoint] = workspaceId
         }
 
-        if let prevWorkspace = screenPointToVisibleWorkspace[screen] {
+        if let prevWorkspace = visibleWorkspaces[forward: screen] {
             screenPointToPrevVisibleWorkspace[screen] = prevWorkspace
-            visibleWorkspaceToScreenPoint.removeValue(forKey: prevWorkspace)
+            visibleWorkspaces.removeByReverse(prevWorkspace)
         }
 
-        visibleWorkspaceToScreenPoint[workspaceId] = screen
-        screenPointToVisibleWorkspace[screen] = workspaceId
+        visibleWorkspaces.set(screen, workspaceId)
         updateWorkspace(workspaceId) { workspace in
             workspace.assignedMonitorPoint = screen
         }
@@ -764,9 +811,14 @@ final class WorkspaceManager {
 
     private func updateWorkspace(_ workspaceId: WorkspaceDescriptor.ID, update: (inout WorkspaceDescriptor) -> Void) {
         guard var workspace = workspacesById[workspaceId] else { return }
+        let oldName = workspace.name
         update(&workspace)
         workspacesById[workspaceId] = workspace
-        _cachedSortedWorkspaces = nil
+        if workspace.name != oldName {
+            workspaceIdByName.removeValue(forKey: oldName)
+            workspaceIdByName[workspace.name] = workspaceId
+            _cachedSortedWorkspaces = nil
+        }
     }
 
     private func createWorkspace(named name: String) -> WorkspaceDescriptor.ID? {

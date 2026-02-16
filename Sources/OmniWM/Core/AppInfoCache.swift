@@ -11,6 +11,19 @@ final class AppInfoCache {
     }
 
     private var cache: [pid_t: AppInfo] = [:]
+    private var insertionOrder: [pid_t] = []
+    private let maxEntries = 128
+
+    func evict(pid: pid_t) {
+        guard cache.removeValue(forKey: pid) != nil else { return }
+        insertionOrder.removeAll { $0 == pid }
+    }
+
+    func evictAll<S: Sequence>(_ pids: S) where S.Element == pid_t {
+        for pid in pids {
+            evict(pid: pid)
+        }
+    }
 
     func info(for pid: pid_t) -> AppInfo? {
         if let cached = cache[pid] { return cached }
@@ -21,7 +34,12 @@ final class AppInfoCache {
             icon: app.icon,
             activationPolicy: app.activationPolicy
         )
+        if cache.count >= maxEntries, let oldest = insertionOrder.first {
+            insertionOrder.removeFirst()
+            cache.removeValue(forKey: oldest)
+        }
         cache[pid] = info
+        insertionOrder.append(pid)
         return info
     }
 
@@ -31,5 +49,9 @@ final class AppInfoCache {
 
     func bundleId(for pid: pid_t) -> String? {
         info(for: pid)?.bundleId
+    }
+
+    func hasCachedInfo(for pid: pid_t) -> Bool {
+        cache[pid] != nil
     }
 }

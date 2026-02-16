@@ -200,4 +200,60 @@ func makeTestHandle(pid: pid_t = 1) -> WindowHandle {
 
         #expect(state.activeColumnIndex == 2)
     }
+
+    @Test func swapWindowHorizontalTransfersSavedWidthState() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        engine.animationsEnabled = false
+        let wsId = UUID()
+
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let col1 = NiriContainer()
+        let col2 = NiriContainer()
+        root.appendChild(col1)
+        root.appendChild(col2)
+
+        let h1 = makeTestHandle()
+        let h2 = makeTestHandle()
+        let h3 = makeTestHandle()
+        let w1 = NiriWindow(handle: h1)
+        let w2 = NiriWindow(handle: h2)
+        let w3 = NiriWindow(handle: h3)
+
+        col1.appendChild(w1)
+        col1.appendChild(w2)
+        col2.appendChild(w3)
+
+        engine.handleToNode[h1] = w1
+        engine.handleToNode[h2] = w2
+        engine.handleToNode[h3] = w3
+
+        col1.setActiveTileIdx(0)
+        col2.setActiveTileIdx(0)
+
+        col1.width = .proportion(0.6)
+        col1.savedWidth = .proportion(0.4)
+        col1.isFullWidth = true
+
+        col2.width = .proportion(0.3)
+        col2.savedWidth = nil
+        col2.isFullWidth = false
+
+        var state = ViewportState()
+        let swapped = engine.swapWindow(
+            w1,
+            direction: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            gaps: 8
+        )
+
+        #expect(swapped)
+        #expect(col1.isFullWidth == false)
+        #expect(col2.isFullWidth == true)
+        #expect(col1.savedWidth == nil)
+        #expect(col2.savedWidth == .proportion(0.4))
+    }
 }

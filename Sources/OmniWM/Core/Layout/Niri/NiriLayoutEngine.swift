@@ -226,7 +226,7 @@ final class NiriLayoutEngine {
     }
 
     func columnIndex(of column: NiriNode, in workspaceId: WorkspaceDescriptor.ID) -> Int? {
-        columns(in: workspaceId).firstIndex { $0.id == column.id }
+        columns(in: workspaceId).firstIndex { $0 === column }
     }
 
     func activateWindow(_ nodeId: NodeId) {

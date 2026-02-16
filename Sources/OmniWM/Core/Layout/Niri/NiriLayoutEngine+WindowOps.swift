@@ -67,8 +67,8 @@ extension NiriLayoutEngine {
             return false
         }
 
-        let nodeIdx = column.windowNodes.firstIndex { $0.id == node.id }
-        let siblingIdx = column.windowNodes.firstIndex { $0.id == targetSibling.id }
+        let nodeIdx = column.windowNodes.firstIndex { $0 === node }
+        let siblingIdx = column.windowNodes.firstIndex { $0 === targetSibling }
 
         node.swapWith(targetSibling)
 
@@ -203,8 +203,10 @@ extension NiriLayoutEngine {
 
         let sourceWidth = currentColumn.width
         let sourceIsFullWidth = currentColumn.isFullWidth
+        let sourceSavedWidth = currentColumn.savedWidth
         let targetWidth = targetColumn.width
         let targetIsFullWidth = targetColumn.isFullWidth
+        let targetSavedWidth = targetColumn.savedWidth
 
         sourceActiveWindow.detach()
         targetActiveWindow.detach()
@@ -217,8 +219,10 @@ extension NiriLayoutEngine {
 
         currentColumn.width = targetWidth
         currentColumn.isFullWidth = targetIsFullWidth
+        currentColumn.savedWidth = targetSavedWidth
         targetColumn.width = sourceWidth
         targetColumn.isFullWidth = sourceIsFullWidth
+        targetColumn.savedWidth = sourceSavedWidth
 
         currentColumn.setActiveTileIdx(sourceActiveTileIdx)
         targetColumn.setActiveTileIdx(targetActiveTileIdx)
