@@ -112,6 +112,7 @@ import QuartzCore
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
         var alphaUpdates: [(windowId: UInt32, alpha: Float)] = []
         var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
+        var visibleWindowJobs: [(pid: pid_t, windowId: Int)] = []
 
         let time = animationTime ?? CACurrentMediaTime()
 
@@ -143,14 +144,19 @@ import QuartzCore
                 continue
             }
 
+            visibleWindowJobs.append((handle.pid, entry.windowId))
             frameUpdates.append((handle.pid, entry.windowId, frame))
         }
 
         if !hiddenWindowJobs.isEmpty {
+            controller.axManager.suppressFrameWrites(hiddenWindowJobs)
             controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
         }
         if !positionUpdates.isEmpty {
             controller.axManager.applyPositionsViaSkyLight(positionUpdates)
+        }
+        if !visibleWindowJobs.isEmpty {
+            controller.axManager.unsuppressFrameWrites(visibleWindowJobs)
         }
         if !frameUpdates.isEmpty {
             controller.axManager.applyFramesParallel(frameUpdates)
@@ -614,17 +620,22 @@ import QuartzCore
             controller.focusWindow(newHandle)
         }
 
+        let workspaceEntries = controller.workspaceManager.entries(in: pass.wsId)
         var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
-        for entry in controller.workspaceManager.entries(in: pass.wsId) {
+        var visibleWindowJobs: [(pid: pid_t, windowId: Int)] = []
+        for entry in workspaceEntries {
             if hiddenHandles[entry.handle] != nil {
                 hiddenWindowJobs.append((entry.handle.pid, entry.windowId))
+            } else {
+                visibleWindowJobs.append((entry.handle.pid, entry.windowId))
             }
         }
         if !hiddenWindowJobs.isEmpty {
+            controller.axManager.suppressFrameWrites(hiddenWindowJobs)
             controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
         }
 
-        for entry in controller.workspaceManager.entries(in: pass.wsId) {
+        for entry in workspaceEntries {
             if let side = hiddenHandles[entry.handle] {
                 let targetY = frames[entry.handle]?.origin.y
                 lrc.hideWindow(entry, monitor: pass.monitor, side: side, targetY: targetY)
@@ -642,6 +653,9 @@ import QuartzCore
             }
         }
 
+        if !visibleWindowJobs.isEmpty {
+            controller.axManager.unsuppressFrameWrites(visibleWindowJobs)
+        }
         controller.axManager.applyFramesParallel(frameUpdates)
 
         if !useScrollAnimationPath, let focusedHandle = controller.focusedHandle {

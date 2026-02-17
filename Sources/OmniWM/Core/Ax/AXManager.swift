@@ -162,6 +162,18 @@ final class AXManager {
         }
     }
 
+    func suppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
+        for (pid, windowIds) in groupedWindowIdsByPid(entries) {
+            AppAXContext.contexts[pid]?.suppressFrameWrites(for: windowIds)
+        }
+    }
+
+    func unsuppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
+        for (pid, windowIds) in groupedWindowIdsByPid(entries) {
+            AppAXContext.contexts[pid]?.unsuppressFrameWrites(for: windowIds)
+        }
+    }
+
     func applyPositionsViaSkyLight(_ positions: [(windowId: Int, origin: CGPoint)]) {
         let batchPositions = positions.map {
             (windowId: UInt32($0.windowId), origin: ScreenCoordinateSpace.toWindowServer(point: $0.origin))
@@ -198,5 +210,15 @@ final class AXManager {
         }
 
         return true
+    }
+
+    private func groupedWindowIdsByPid(
+        _ entries: [(pid: pid_t, windowId: Int)]
+    ) -> [pid_t: [Int]] {
+        var grouped: [pid_t: [Int]] = [:]
+        for (pid, windowId) in entries {
+            grouped[pid, default: []].append(windowId)
+        }
+        return grouped
     }
 }

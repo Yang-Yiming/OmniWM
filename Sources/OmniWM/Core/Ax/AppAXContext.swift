@@ -10,6 +10,8 @@ final class AppAXContext: @unchecked Sendable {
     private let windows: ThreadGuardedValue<[Int: AXUIElement]>
     private var thread: Thread?
     private var setFrameJobs: [Int: RunLoopJob] = [:]
+    private let suppressedFrameWindowIdsLock = NSLock()
+    private var suppressedFrameWindowIds: Set<Int> = []
     private let axObserver: ThreadGuardedValue<AXObserver?>
     private let subscribedWindowIds: ThreadGuardedValue<Set<Int>>
 
@@ -223,6 +225,7 @@ final class AppAXContext: @unchecked Sendable {
 
         for deadWindowId in deadWindowIds {
             setFrameJobs.removeValue(forKey: deadWindowId)?.cancel()
+            unsuppressFrameWrites(for: [deadWindowId])
         }
 
         return results
@@ -232,6 +235,24 @@ final class AppAXContext: @unchecked Sendable {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
     }
 
+    func suppressFrameWrites(for windowIds: [Int]) {
+        guard !windowIds.isEmpty else { return }
+        suppressedFrameWindowIdsLock.lock()
+        for windowId in windowIds {
+            suppressedFrameWindowIds.insert(windowId)
+        }
+        suppressedFrameWindowIdsLock.unlock()
+    }
+
+    func unsuppressFrameWrites(for windowIds: [Int]) {
+        guard !windowIds.isEmpty else { return }
+        suppressedFrameWindowIdsLock.lock()
+        for windowId in windowIds {
+            suppressedFrameWindowIds.remove(windowId)
+        }
+        suppressedFrameWindowIdsLock.unlock()
+    }
+
     func setFramesBatch(_ frames: [(windowId: Int, frame: CGRect)]) {
         guard let thread else { return }
 
@@ -239,7 +260,7 @@ final class AppAXContext: @unchecked Sendable {
             setFrameJobs[windowId]?.cancel()
         }
 
-        let batchJob = thread.runInLoopAsync { [axApp, windows] job in
+        let batchJob = thread.runInLoopAsync { [self, axApp, windows] job in
             let enhancedUIKey = "AXEnhancedUserInterface" as CFString
             var wasEnabled = false
             var value: CFTypeRef?
@@ -261,6 +282,9 @@ final class AppAXContext: @unchecked Sendable {
 
             for (windowId, frame) in frames {
                 if job.isCancelled { break }
+                if isFrameWriteSuppressed(for: windowId) {
+                    continue
+                }
                 guard let element = windows[windowId] else {
                     continue
                 }
@@ -304,6 +328,13 @@ final class AppAXContext: @unchecked Sendable {
                 await context.destroy()
             }
         }
+    }
+
+    private func isFrameWriteSuppressed(for windowId: Int) -> Bool {
+        suppressedFrameWindowIdsLock.lock()
+        let isSuppressed = suppressedFrameWindowIds.contains(windowId)
+        suppressedFrameWindowIdsLock.unlock()
+        return isSuppressed
     }
 }
 

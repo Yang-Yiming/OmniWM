@@ -4,6 +4,7 @@ import QuartzCore
 
 @MainActor final class LayoutRefreshController: NSObject {
     weak var controller: WMController?
+    static let hiddenWindowEdgeRevealEpsilon: CGFloat = 0.001
 
     struct LayoutState {
         struct ClosingAnimation {
@@ -592,6 +593,7 @@ import QuartzCore
     func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, targetY: CGFloat?) {
         guard let controller else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
+        let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
         if !controller.workspaceManager.isHiddenInCorner(entry.handle) {
             let center = frame.center
             let referenceFrame = center.monitorApproximation(in: controller.workspaceManager.monitors)?
@@ -599,6 +601,8 @@ import QuartzCore
             let proportional = proportionalPosition(topLeft: frame.topLeftCorner, in: referenceFrame)
             controller.workspaceManager.setHiddenProportionalPosition(proportional, for: entry.handle)
         }
+        controller.axManager.suppressFrameWrites([frameEntry])
+        controller.axManager.cancelPendingFrameJobs([frameEntry])
         let yPos = targetY ?? frame.origin.y
         let scale = backingScale(for: monitor)
         let origin = hiddenOrigin(
@@ -611,16 +615,17 @@ import QuartzCore
             monitor: monitor,
             monitors: controller.workspaceManager.monitors
         )
-        let pixel = 1.0 / max(1.0, scale)
-        if abs(frame.origin.x - origin.x) < pixel && abs(frame.origin.y - origin.y) < pixel {
+        let moveEpsilon: CGFloat = 0.01
+        if abs(frame.origin.x - origin.x) < moveEpsilon && abs(frame.origin.y - origin.y) < moveEpsilon {
             return
         }
-        try? AXWindowService.setFrame(entry.axRef, frame: CGRect(origin: origin, size: frame.size))
+        controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)])
     }
 
     func unhideWindow(_ entry: WindowModel.Entry, monitor: Monitor) {
         guard let controller else { return }
         controller.workspaceManager.setHiddenProportionalPosition(nil, for: entry.handle)
+        controller.axManager.unsuppressFrameWrites([(entry.handle.pid, entry.windowId)])
     }
 
     func proportionalPosition(topLeft: CGPoint, in frame: CGRect) -> CGPoint {
@@ -641,7 +646,8 @@ import QuartzCore
         monitor: Monitor,
         monitors: [Monitor]
     ) -> CGPoint {
-        let edgeReveal: CGFloat = isZoomApp(pid) ? 0 : 1.0 / max(1.0, scale)
+        let edgeReveal = Self.hiddenEdgeReveal(isZoomApp: isZoomApp(pid))
+        _ = scale
 
         func origin(for side: HideSide) -> CGPoint {
             switch side {
@@ -677,6 +683,10 @@ import QuartzCore
         }
 
         return primaryOrigin
+    }
+
+    static func hiddenEdgeReveal(isZoomApp: Bool) -> CGFloat {
+        isZoomApp ? 0 : hiddenWindowEdgeRevealEpsilon
     }
 
     func isZoomApp(_ pid: pid_t) -> Bool {
