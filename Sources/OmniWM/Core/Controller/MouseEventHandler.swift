@@ -564,7 +564,7 @@ final class MouseEventHandler {
             resetGestureState()
         }
 
-        guard let currentContext = resolveScrollContext(at: location) else {
+        guard resolveScrollContext(at: location) != nil else {
             resetGestureState()
             return
         }
