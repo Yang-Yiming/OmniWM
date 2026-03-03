@@ -111,7 +111,11 @@ private func referenceInsertionDropzone(
 
     let y: CGFloat = switch position {
     case .before:
-        max(top, targetFrame.minY - gap - newHeight)
+        {
+            let unclamped = targetFrame.minY - gap - newHeight
+            let maxY = max(bottom, top - newHeight)
+            return min(max(bottom, unclamped), maxY)
+        }()
     case .after:
         targetFrame.maxY + gap
     case .swap:
@@ -391,6 +395,53 @@ private func referenceInsertionDropzone(
                     #expect(rectsApproximatelyEqual(zigDropzone, referenceDropzone))
                 }
             }
+        }
+    }
+
+    @MainActor
+    @Test func zigInsertionDropzoneBeforeClampsToColumnBounds() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 6)
+        let wsId = WorkspaceDescriptor.ID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let column = NiriContainer()
+        root.appendChild(column)
+
+        let lowerHandle = makeTestHandle(pid: 8102)
+        let lowerWindow = NiriWindow(handle: lowerHandle)
+        lowerWindow.frame = CGRect(x: 40, y: 100, width: 180, height: 20)
+        column.appendChild(lowerWindow)
+        engine.handleToNode[lowerHandle] = lowerWindow
+
+        let upperHandle = makeTestHandle(pid: 8101)
+        let upperWindow = NiriWindow(handle: upperHandle)
+        upperWindow.frame = CGRect(x: 40, y: 200, width: 180, height: 20)
+        column.appendChild(upperWindow)
+        engine.handleToNode[upperHandle] = upperWindow
+
+        engine.interactionSnapshots[wsId] = NiriLayoutZigKernel.makeInteractionSnapshot(columns: root.columns)
+
+        let lowerDropzone = engine.insertionDropzoneFrame(
+            targetWindowId: lowerWindow.id,
+            position: .before,
+            in: wsId,
+            gaps: 0
+        )
+        let upperDropzone = engine.insertionDropzoneFrame(
+            targetWindowId: upperWindow.id,
+            position: .before,
+            in: wsId,
+            gaps: 0
+        )
+
+        #expect(lowerDropzone != nil)
+        #expect(upperDropzone != nil)
+        if let lowerDropzone {
+            #expect(abs(lowerDropzone.minY - 100) < 0.001)
+        }
+        if let upperDropzone {
+            #expect(abs(upperDropzone.minY - 160) < 0.001)
         }
     }
 

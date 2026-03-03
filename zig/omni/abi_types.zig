@@ -1,0 +1,276 @@
+pub const OmniAxisInput = extern struct {
+    weight: f64,
+    min_constraint: f64,
+    max_constraint: f64,
+    has_max_constraint: u8,
+    is_constraint_fixed: u8,
+    has_fixed_value: u8,
+    fixed_value: f64,
+};
+
+pub const OmniAxisOutput = extern struct {
+    value: f64,
+    was_constrained: u8,
+};
+
+pub const OmniSnapResult = extern struct {
+    view_pos: f64,
+    column_index: usize,
+};
+
+pub const OmniNiriColumnInput = extern struct {
+    span: f64,
+    render_offset_x: f64,
+    render_offset_y: f64,
+    is_tabbed: u8,
+    tab_indicator_width: f64,
+    window_start: usize,
+    window_count: usize,
+};
+
+pub const OmniNiriWindowInput = extern struct {
+    weight: f64,
+    min_constraint: f64,
+    max_constraint: f64,
+    has_max_constraint: u8,
+    is_constraint_fixed: u8,
+    has_fixed_value: u8,
+    fixed_value: f64,
+    sizing_mode: u8,
+    render_offset_x: f64,
+    render_offset_y: f64,
+};
+
+pub const OmniNiriWindowOutput = extern struct {
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    animated_x: f64,
+    animated_y: f64,
+    animated_width: f64,
+    animated_height: f64,
+    resolved_span: f64,
+    was_constrained: u8,
+    hide_side: u8,
+    column_index: usize,
+};
+
+pub const OmniNiriColumnOutput = extern struct {
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    hide_side: u8,
+    is_visible: u8,
+};
+
+pub const OmniNiriHitTestWindow = extern struct {
+    window_index: usize,
+    column_index: usize,
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    is_fullscreen: u8,
+};
+
+pub const OmniNiriResizeHitResult = extern struct {
+    window_index: i64,
+    edges: u8,
+};
+
+pub const OmniNiriMoveTargetResult = extern struct {
+    window_index: i64,
+    insert_position: u8,
+};
+
+pub const OmniNiriDropzoneInput = extern struct {
+    target_frame_x: f64,
+    target_frame_y: f64,
+    target_frame_width: f64,
+    target_frame_height: f64,
+    column_min_y: f64,
+    column_max_y: f64,
+    gap: f64,
+    insert_position: u8,
+    post_insertion_count: usize,
+};
+
+pub const OmniNiriDropzoneResult = extern struct {
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    is_valid: u8,
+};
+
+pub const OmniNiriResizeInput = extern struct {
+    edges: u8,
+    start_x: f64,
+    start_y: f64,
+    current_x: f64,
+    current_y: f64,
+    original_column_width: f64,
+    min_column_width: f64,
+    max_column_width: f64,
+    original_window_weight: f64,
+    min_window_weight: f64,
+    max_window_weight: f64,
+    pixels_per_weight: f64,
+    has_original_view_offset: u8,
+    original_view_offset: f64,
+};
+
+pub const OmniNiriResizeResult = extern struct {
+    changed_width: u8,
+    new_column_width: f64,
+    changed_weight: u8,
+    new_window_weight: f64,
+    adjust_view_offset: u8,
+    new_view_offset: f64,
+};
+
+pub const OmniUuid128 = extern struct {
+    bytes: [16]u8,
+};
+
+pub const OmniNiriStateColumnInput = extern struct {
+    column_id: OmniUuid128,
+    window_start: usize,
+    window_count: usize,
+    active_tile_idx: usize,
+    is_tabbed: u8,
+};
+
+pub const OmniNiriStateWindowInput = extern struct {
+    window_id: OmniUuid128,
+    column_id: OmniUuid128,
+    column_index: usize,
+};
+
+pub const OmniNiriStateValidationResult = extern struct {
+    column_count: usize,
+    window_count: usize,
+    first_invalid_column_index: i64,
+    first_invalid_window_index: i64,
+    first_error_code: i32,
+};
+
+pub const OmniNiriNavigationRequest = extern struct {
+    op: u8,
+    direction: u8,
+    orientation: u8,
+    infinite_loop: u8,
+    selected_window_index: i64,
+    selected_column_index: i64,
+    selected_row_index: i64,
+    step: i64,
+    target_row_index: i64,
+    target_column_index: i64,
+    target_window_index: i64,
+};
+
+pub const OmniNiriNavigationResult = extern struct {
+    has_target: u8,
+    target_window_index: i64,
+    update_source_active_tile: u8,
+    source_column_index: i64,
+    source_active_tile_idx: i64,
+    update_target_active_tile: u8,
+    target_column_index: i64,
+    target_active_tile_idx: i64,
+    refresh_tabbed_visibility_source: u8,
+    refresh_tabbed_visibility_target: u8,
+};
+
+pub const OmniNiriMutationRequest = extern struct {
+    op: u8,
+    direction: u8,
+    infinite_loop: u8,
+    insert_position: u8,
+    source_window_index: i64,
+    target_window_index: i64,
+    max_windows_per_column: i64,
+};
+
+pub const OmniNiriMutationEdit = extern struct {
+    kind: u8,
+    subject_index: i64,
+    related_index: i64,
+    value_a: i64,
+    value_b: i64,
+};
+
+pub const OmniNiriMutationResult = extern struct {
+    applied: u8,
+    has_target_window: u8,
+    target_window_index: i64,
+    edit_count: usize,
+    edits: [OMNI_NIRI_MUTATION_MAX_EDITS]OmniNiriMutationEdit,
+};
+
+pub const MAX_WINDOWS: usize = 512;
+
+pub const OMNI_OK: i32 = 0;
+pub const OMNI_ERR_INVALID_ARGS: i32 = -1;
+pub const OMNI_ERR_OUT_OF_RANGE: i32 = -2;
+
+pub const OMNI_CENTER_NEVER: u8 = 0;
+pub const OMNI_CENTER_ALWAYS: u8 = 1;
+pub const OMNI_CENTER_ON_OVERFLOW: u8 = 2;
+
+pub const OMNI_NIRI_ORIENTATION_HORIZONTAL: u8 = 0;
+pub const OMNI_NIRI_ORIENTATION_VERTICAL: u8 = 1;
+
+pub const OMNI_NIRI_SIZING_NORMAL: u8 = 0;
+pub const OMNI_NIRI_SIZING_FULLSCREEN: u8 = 1;
+
+pub const OMNI_NIRI_HIDE_NONE: u8 = 0;
+pub const OMNI_NIRI_HIDE_LEFT: u8 = 1;
+pub const OMNI_NIRI_HIDE_RIGHT: u8 = 2;
+
+pub const OMNI_NIRI_RESIZE_EDGE_TOP: u8 = 0b0001;
+pub const OMNI_NIRI_RESIZE_EDGE_BOTTOM: u8 = 0b0010;
+pub const OMNI_NIRI_RESIZE_EDGE_LEFT: u8 = 0b0100;
+pub const OMNI_NIRI_RESIZE_EDGE_RIGHT: u8 = 0b1000;
+
+pub const OMNI_NIRI_INSERT_BEFORE: u8 = 0;
+pub const OMNI_NIRI_INSERT_AFTER: u8 = 1;
+pub const OMNI_NIRI_INSERT_SWAP: u8 = 2;
+
+pub const OMNI_NIRI_DIRECTION_LEFT: u8 = 0;
+pub const OMNI_NIRI_DIRECTION_RIGHT: u8 = 1;
+pub const OMNI_NIRI_DIRECTION_UP: u8 = 2;
+pub const OMNI_NIRI_DIRECTION_DOWN: u8 = 3;
+
+pub const OMNI_NIRI_NAV_OP_MOVE_BY_COLUMNS: u8 = 0;
+pub const OMNI_NIRI_NAV_OP_MOVE_VERTICAL: u8 = 1;
+pub const OMNI_NIRI_NAV_OP_FOCUS_TARGET: u8 = 2;
+pub const OMNI_NIRI_NAV_OP_FOCUS_DOWN_OR_LEFT: u8 = 3;
+pub const OMNI_NIRI_NAV_OP_FOCUS_UP_OR_RIGHT: u8 = 4;
+pub const OMNI_NIRI_NAV_OP_FOCUS_COLUMN_FIRST: u8 = 5;
+pub const OMNI_NIRI_NAV_OP_FOCUS_COLUMN_LAST: u8 = 6;
+pub const OMNI_NIRI_NAV_OP_FOCUS_COLUMN_INDEX: u8 = 7;
+pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_INDEX: u8 = 8;
+pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_TOP: u8 = 9;
+pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_BOTTOM: u8 = 10;
+
+pub const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL: u8 = 0;
+pub const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL: u8 = 1;
+pub const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL: u8 = 2;
+pub const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_HORIZONTAL: u8 = 3;
+pub const OMNI_NIRI_MUTATION_OP_SWAP_WINDOWS_BY_MOVE: u8 = 4;
+pub const OMNI_NIRI_MUTATION_OP_INSERT_WINDOW_BY_MOVE: u8 = 5;
+
+pub const OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE: u8 = 0;
+pub const OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS: u8 = 1;
+pub const OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX: u8 = 2;
+pub const OMNI_NIRI_MUTATION_EDIT_SWAP_COLUMN_WIDTH_STATE: u8 = 3;
+pub const OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOW_SIZE_HEIGHT: u8 = 4;
+pub const OMNI_NIRI_MUTATION_EDIT_RESET_WINDOW_SIZE_HEIGHT: u8 = 5;
+pub const OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY: u8 = 6;
+pub const OMNI_NIRI_MUTATION_EDIT_REFRESH_TABBED_VISIBILITY: u8 = 7;
+pub const OMNI_NIRI_MUTATION_EDIT_DELEGATE_MOVE_COLUMN: u8 = 8;
+
+pub const OMNI_NIRI_MUTATION_MAX_EDITS: usize = 32;

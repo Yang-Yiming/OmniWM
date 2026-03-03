@@ -204,6 +204,8 @@ int32_t omni_axis_solve_tabbed(
     OmniAxisOutput *out,
     size_t out_count);
 
+/// Compute viewport offset needed to reveal a target container index.
+/// Returns 0 on success, -1 for invalid args, -2 when index/range is invalid.
 int32_t omni_viewport_compute_visible_offset(
     const double *spans,
     size_t span_count,
@@ -216,6 +218,8 @@ int32_t omni_viewport_compute_visible_offset(
     int64_t from_container_index,
     double *out_target_offset);
 
+/// Find the nearest snap target for projected viewport position.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_viewport_find_snap_target(
     const double *spans,
     size_t span_count,
@@ -227,6 +231,8 @@ int32_t omni_viewport_find_snap_target(
     uint8_t always_center_single_column,
     OmniSnapResult *out_result);
 
+/// Run tiled layout pass and emit window frames.
+/// Returns 0 on success, -1 for invalid args, -2 for range/assignment errors.
 int32_t omni_niri_layout_pass(
     const OmniNiriColumnInput *columns,
     size_t column_count,
@@ -254,6 +260,8 @@ int32_t omni_niri_layout_pass(
     OmniNiriWindowOutput *out_windows,
     size_t out_window_count);
 
+/// Layout-pass v2 also emits optional column frames.
+/// Returns 0 on success, -1 for invalid args, -2 for range/assignment errors.
 int32_t omni_niri_layout_pass_v2(
     const OmniNiriColumnInput *columns,
     size_t column_count,
@@ -283,6 +291,8 @@ int32_t omni_niri_layout_pass_v2(
     OmniNiriColumnOutput *out_columns,
     size_t out_column_count);
 
+/// Hit-test tiled windows and return first containing window index.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_niri_hit_test_tiled(
     const OmniNiriHitTestWindow *windows,
     size_t window_count,
@@ -290,6 +300,8 @@ int32_t omni_niri_hit_test_tiled(
     double point_y,
     int64_t *out_window_index);
 
+/// Hit-test resize edges around tiled windows.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_niri_hit_test_resize(
     const OmniNiriHitTestWindow *windows,
     size_t window_count,
@@ -298,6 +310,8 @@ int32_t omni_niri_hit_test_resize(
     double threshold,
     OmniNiriResizeHitResult *out_result);
 
+/// Resolve move target under cursor, with swap or insert semantics.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_niri_hit_test_move_target(
     const OmniNiriHitTestWindow *windows,
     size_t window_count,
@@ -307,10 +321,14 @@ int32_t omni_niri_hit_test_move_target(
     uint8_t is_insert_mode,
     OmniNiriMoveTargetResult *out_result);
 
+/// Compute insertion dropzone frame for before/after/swap placement.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_niri_insertion_dropzone(
     const OmniNiriDropzoneInput *input,
     OmniNiriDropzoneResult *out_result);
 
+/// Compute interactive resize updates for column width/window weight.
+/// Returns 0 on success, -1 for invalid args.
 int32_t omni_niri_resize_compute(
     const OmniNiriResizeInput *input,
     OmniNiriResizeResult *out_result);
@@ -341,6 +359,8 @@ typedef struct {
     int32_t first_error_code;
 } OmniNiriStateValidationResult;
 
+/// Validate snapshot bounds, ownership, and assignment consistency.
+/// Returns 0 when valid, otherwise -1/-2 and fills first_invalid_* fields.
 int32_t omni_niri_validate_state_snapshot(
     const OmniNiriStateColumnInput *columns,
     size_t column_count,
@@ -396,6 +416,8 @@ typedef struct {
     uint8_t refresh_tabbed_visibility_target;
 } OmniNiriNavigationResult;
 
+/// Resolve navigation request against a validated snapshot.
+/// Returns 0 on success, -1 for invalid args, -2 for range errors.
 int32_t omni_niri_navigation_resolve(
     const OmniNiriStateColumnInput *columns,
     size_t column_count,
@@ -455,6 +477,8 @@ typedef struct {
     OmniNiriMutationEdit edits[OMNI_NIRI_MUTATION_MAX_EDITS];
 } OmniNiriMutationResult;
 
+/// Build mutation edit plan for a snapshot and mutation request.
+/// Returns 0 on success, -1 for invalid args, -2 for range/edit-limit errors.
 int32_t omni_niri_mutation_plan(
     const OmniNiriStateColumnInput *columns,
     size_t column_count,
