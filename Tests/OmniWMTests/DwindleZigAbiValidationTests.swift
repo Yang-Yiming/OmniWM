@@ -53,6 +53,31 @@ private func makeLeafNode(
     )
 }
 
+private func makeSplitNode(
+    nodeMarker: UInt8,
+    firstChildIndex: Int64,
+    secondChildIndex: Int64,
+    orientation: UInt8 = UInt8(truncatingIfNeeded: OMNI_DWINDLE_ORIENTATION_HORIZONTAL.rawValue),
+    ratio: Double = 1.0
+) -> OmniDwindleSeedNode {
+    OmniDwindleSeedNode(
+        node_id: makeUUID(nodeMarker),
+        parent_index: -1,
+        first_child_index: firstChildIndex,
+        second_child_index: secondChildIndex,
+        kind: UInt8(truncatingIfNeeded: OMNI_DWINDLE_NODE_SPLIT.rawValue),
+        orientation: orientation,
+        ratio: ratio,
+        has_window_id: 0,
+        window_id: makeUUID(0),
+        is_fullscreen: 0
+    )
+}
+
+private func approxEqual(_ lhs: Double, _ rhs: Double, epsilon: Double = 0.01) -> Bool {
+    abs(lhs - rhs) <= epsilon
+}
+
 private func defaultLayoutRequest() -> OmniDwindleLayoutRequest {
     OmniDwindleLayoutRequest(
         screen_x: 0,
@@ -373,6 +398,107 @@ private func seedState(
         }
     }
 
+    @Test func calculateLayoutReturnsFrameForSeededSingleWindow() {
+        withDwindleContext { context in
+            let node = makeLeafNode(nodeMarker: 1, windowMarker: 77)
+            let seedRC = seedState(
+                context: context,
+                nodes: [node],
+                seedState: defaultSeedState(rootNodeIndex: 0, selectedNodeIndex: 0)
+            )
+            #expect(seedRC == abiOK)
+            guard seedRC == abiOK else { return }
+
+            var request = defaultLayoutRequest()
+            var frames = [OmniDwindleWindowFrame](
+                repeating: OmniDwindleWindowFrame(
+                    window_id: makeUUID(0),
+                    frame_x: 0,
+                    frame_y: 0,
+                    frame_width: 0,
+                    frame_height: 0
+                ),
+                count: 4
+            )
+            var outCount: Int = 0
+
+            let rc = withUnsafePointer(to: &request) { requestPtr in
+                frames.withUnsafeMutableBufferPointer { frameBuf in
+                    withUnsafeMutablePointer(to: &outCount) { countPtr in
+                        omni_dwindle_ctx_calculate_layout(
+                            context,
+                            requestPtr,
+                            nil,
+                            0,
+                            frameBuf.baseAddress,
+                            frameBuf.count,
+                            countPtr
+                        )
+                    }
+                }
+            }
+
+            #expect(rc == abiOK)
+            #expect(outCount == 1)
+            guard outCount == 1 else { return }
+
+            let frame = frames[0]
+            #expect(frame.window_id.bytes.0 == 77)
+            #expect(approxEqual(frame.frame_x, 240))
+            #expect(approxEqual(frame.frame_y, 0))
+            #expect(approxEqual(frame.frame_width, 1440))
+            #expect(approxEqual(frame.frame_height, 1080))
+        }
+    }
+
+    @Test func calculateLayoutReturnsOutOfRangeWhenFrameCapacityIsInsufficient() {
+        withDwindleContext { context in
+            let root = makeSplitNode(nodeMarker: 1, firstChildIndex: 1, secondChildIndex: 2)
+            let left = makeLeafNode(nodeMarker: 2, parentIndex: 0, windowMarker: 11)
+            let right = makeLeafNode(nodeMarker: 3, parentIndex: 0, windowMarker: 22)
+
+            let seedRC = seedState(
+                context: context,
+                nodes: [root, left, right],
+                seedState: defaultSeedState(rootNodeIndex: 0, selectedNodeIndex: 1)
+            )
+            #expect(seedRC == abiOK)
+            guard seedRC == abiOK else { return }
+
+            var request = defaultLayoutRequest()
+            var frames = [OmniDwindleWindowFrame](
+                repeating: OmniDwindleWindowFrame(
+                    window_id: makeUUID(0),
+                    frame_x: 0,
+                    frame_y: 0,
+                    frame_width: 0,
+                    frame_height: 0
+                ),
+                count: 1
+            )
+            var outCount: Int = 0
+
+            let rc = withUnsafePointer(to: &request) { requestPtr in
+                frames.withUnsafeMutableBufferPointer { frameBuf in
+                    withUnsafeMutablePointer(to: &outCount) { countPtr in
+                        omni_dwindle_ctx_calculate_layout(
+                            context,
+                            requestPtr,
+                            nil,
+                            0,
+                            frameBuf.baseAddress,
+                            frameBuf.count,
+                            countPtr
+                        )
+                    }
+                }
+            }
+
+            #expect(rc == abiErrOutOfRange)
+            #expect(outCount == 2)
+        }
+    }
+
     @Test func findNeighborRejectsInvalidArgs() {
         withDwindleContext { context in
             var hasNeighbor: UInt8 = 0
@@ -403,6 +529,73 @@ private func seedState(
                 )
             }
             #expect(nilOutRC == abiErrInvalidArgs)
+        }
+    }
+
+    @Test func findNeighborReturnsResolvedNeighborAfterLayout() {
+        withDwindleContext { context in
+            let root = makeSplitNode(nodeMarker: 1, firstChildIndex: 1, secondChildIndex: 2)
+            let left = makeLeafNode(nodeMarker: 2, parentIndex: 0, windowMarker: 51)
+            let right = makeLeafNode(nodeMarker: 3, parentIndex: 0, windowMarker: 52)
+
+            let seedRC = seedState(
+                context: context,
+                nodes: [root, left, right],
+                seedState: defaultSeedState(rootNodeIndex: 0, selectedNodeIndex: 1)
+            )
+            #expect(seedRC == abiOK)
+            guard seedRC == abiOK else { return }
+
+            var request = defaultLayoutRequest()
+            var frames = [OmniDwindleWindowFrame](
+                repeating: OmniDwindleWindowFrame(
+                    window_id: makeUUID(0),
+                    frame_x: 0,
+                    frame_y: 0,
+                    frame_width: 0,
+                    frame_height: 0
+                ),
+                count: 4
+            )
+            var outCount: Int = 0
+            let layoutRC = withUnsafePointer(to: &request) { requestPtr in
+                frames.withUnsafeMutableBufferPointer { frameBuf in
+                    withUnsafeMutablePointer(to: &outCount) { countPtr in
+                        omni_dwindle_ctx_calculate_layout(
+                            context,
+                            requestPtr,
+                            nil,
+                            0,
+                            frameBuf.baseAddress,
+                            frameBuf.count,
+                            countPtr
+                        )
+                    }
+                }
+            }
+
+            #expect(layoutRC == abiOK)
+            #expect(outCount == 2)
+            guard layoutRC == abiOK else { return }
+
+            var hasNeighbor: UInt8 = 0
+            var neighbor = makeUUID(0)
+            let rc = withUnsafeMutablePointer(to: &hasNeighbor) { hasNeighborPtr in
+                withUnsafeMutablePointer(to: &neighbor) { neighborPtr in
+                    omni_dwindle_ctx_find_neighbor(
+                        context,
+                        left.window_id,
+                        UInt8(truncatingIfNeeded: OMNI_DWINDLE_DIRECTION_RIGHT.rawValue),
+                        8.0,
+                        hasNeighborPtr,
+                        neighborPtr
+                    )
+                }
+            }
+
+            #expect(rc == abiOK)
+            #expect(hasNeighbor == 1)
+            #expect(neighbor.bytes.0 == right.window_id.bytes.0)
         }
     }
 
