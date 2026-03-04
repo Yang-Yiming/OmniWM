@@ -2,20 +2,6 @@ import AppKit
 import Foundation
 
 extension ViewportState {
-    func viewPosPixels(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-        return activeColX + viewOffsetPixels.current()
-    }
-
-    func targetViewPosPixels(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-        return activeColX + viewOffsetPixels.target()
-    }
-
-    func currentViewOffset() -> CGFloat {
-        viewOffsetPixels.current()
-    }
-
     func stationary() -> CGFloat {
         switch viewOffsetPixels {
         case .static(let offset):

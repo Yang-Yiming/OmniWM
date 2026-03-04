@@ -20,62 +20,6 @@ extension NiriLayoutEngine {
         )
     }
 
-    func hiddenWindowHandles(
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: ViewportState,
-        workingFrame: CGRect? = nil,
-        gaps: CGFloat = 0
-    ) -> [WindowHandle: HideSide] {
-        let cols = columns(in: workspaceId)
-        guard !cols.isEmpty else { return [:] }
-
-        guard let workingFrame else {
-            return [:]
-        }
-
-        let viewOffset = state.viewOffsetPixels.current()
-        let viewLeft = -viewOffset
-        let viewRight = viewLeft + workingFrame.width
-
-        var columnPositions = [CGFloat]()
-        columnPositions.reserveCapacity(cols.count)
-        var runningX: CGFloat = 0
-        for column in cols {
-            columnPositions.append(runningX)
-            runningX += column.cachedWidth + gaps
-        }
-
-        var hiddenHandles = [WindowHandle: HideSide]()
-        for (colIdx, column) in cols.enumerated() {
-            let colX = columnPositions[colIdx]
-            let colRight = colX + column.cachedWidth
-
-            if colRight <= viewLeft {
-                for window in column.windowNodes {
-                    hiddenHandles[window.handle] = .left
-                }
-            } else if colX >= viewRight {
-                for window in column.windowNodes {
-                    hiddenHandles[window.handle] = .right
-                }
-            } else {
-                for window in column.windowNodes {
-                    if let windowFrame = window.frame {
-                        let visibleWidth = min(windowFrame.maxX, workingFrame.maxX) - max(
-                            windowFrame.minX,
-                            workingFrame.minX
-                        )
-                        if visibleWidth < 1.0 {
-                            let side: HideSide = windowFrame.midX < workingFrame.midX ? .left : .right
-                            hiddenHandles[window.handle] = side
-                        }
-                    }
-                }
-            }
-        }
-        return hiddenHandles
-    }
-
     func updateWindowConstraints(for handle: WindowHandle, constraints: WindowSizeConstraints) {
         guard let node = handleToNode[handle] else { return }
         node.constraints = constraints
