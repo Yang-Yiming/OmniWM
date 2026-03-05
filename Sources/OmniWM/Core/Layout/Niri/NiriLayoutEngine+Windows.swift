@@ -20,7 +20,7 @@ extension NiriLayoutEngine {
         workspaceId: WorkspaceDescriptor.ID?,
         sourceHandle: WindowHandle? = nil,
         reason: String
-    ) -> Never {
+    ) {
         let workspaceDescription = workspaceId.map { String(describing: $0) } ?? "nil"
         let sourceDescription: String
         if let sourceHandle {
@@ -28,9 +28,55 @@ extension NiriLayoutEngine {
         } else {
             sourceDescription = "nil"
         }
-        preconditionFailure(
-            "Niri lifecycle \(op) contract failed: workspace=\(workspaceDescription), source=\(sourceDescription), reason=\(reason)"
+        NSLog(
+            "Niri lifecycle %@ contract failed: workspace=%@ source=%@ reason=%@",
+            String(describing: op),
+            workspaceDescription,
+            sourceDescription,
+            reason
         )
+    }
+
+    private func fallbackAddWindow(
+        handle: WindowHandle,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> NiriWindow {
+        if let existing = handleToNode[handle] {
+            return existing
+        }
+
+        let root = ensureRoot(for: workspaceId)
+        let targetColumn: NiriContainer
+        if let claimed = claimEmptyColumnIfWorkspaceEmpty(in: root) {
+            targetColumn = claimed
+        } else if let first = root.columns.first {
+            targetColumn = first
+        } else {
+            let created = NiriContainer()
+            root.appendChild(created)
+            targetColumn = created
+        }
+
+        let window = NiriWindow(handle: handle)
+        targetColumn.appendChild(window)
+        targetColumn.setActiveTileIdx(max(0, targetColumn.windowNodes.count - 1))
+        updateTabbedColumnVisibility(column: targetColumn)
+        handleToNode[handle] = window
+        clearRuntimeMirrorState(for: workspaceId)
+        return window
+    }
+
+    private func fallbackRemoveWindow(
+        handle: WindowHandle,
+        workspaceId: WorkspaceDescriptor.ID?
+    ) {
+        closingHandles.remove(handle)
+        if let window = handleToNode.removeValue(forKey: handle) {
+            window.remove()
+        }
+        if let workspaceId {
+            clearRuntimeMirrorState(for: workspaceId)
+        }
     }
 
     func updateWindowConstraints(for handle: WindowHandle, constraints: WindowSizeConstraints) {
@@ -75,6 +121,7 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "runtime preparation failed"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
 
         let focusedWindowId: NodeId?
@@ -114,6 +161,7 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx apply failed rc=\(applyOutcome.rc)"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
         guard applyOutcome.applied else {
             lifecycleContractFailure(
@@ -122,6 +170,7 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx apply returned applied=false"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
 
         guard let delta = applyOutcome.delta else {
@@ -131,20 +180,22 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx delta missing after apply"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
 
-        guard applyProjectedLifecycleRuntimeExport(
+        guard case .success = applyProjectedLifecycleRuntimeExport(
             context: prepared.context,
             workspaceId: workspaceId,
             incomingHandlesById: [handle.id: handle],
             delta: delta
-        ) != nil else {
+        ) else {
             lifecycleContractFailure(
                 op: .addWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
                 reason: "runtime lifecycle projection failed"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
         guard let targetWindow = handleToNode[handle] else {
             lifecycleContractFailure(
@@ -153,6 +204,7 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "missing projected incoming window node"
             )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
 
         return targetWindow
@@ -167,6 +219,8 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "source node has no root workspace"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: nil)
+            return
         }
 
         guard let prepared = prepareLifecycleRuntime(
@@ -179,6 +233,8 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "runtime preparation failed"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
         guard root(for: workspaceId)?.findNode(by: node.id) is NiriWindow else {
             lifecycleContractFailure(
@@ -187,6 +243,8 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "source window missing from runtime snapshot"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
 
         let request = NiriStateZigKernel.MutationRequest(
@@ -208,6 +266,8 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx apply failed rc=\(applyOutcome.rc)"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
         guard applyOutcome.applied else {
             lifecycleContractFailure(
@@ -216,6 +276,8 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx apply returned applied=false"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
 
         guard let delta = applyOutcome.delta else {
@@ -225,19 +287,23 @@ extension NiriLayoutEngine {
                 sourceHandle: handle,
                 reason: "ctx delta missing after apply"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
 
-        guard applyProjectedRuntimeExport(
+        guard case .success = applyProjectedRuntimeExport(
             context: prepared.context,
             workspaceId: workspaceId,
             delta: delta
-        ) != nil else {
+        ) else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
                 reason: "runtime snapshot projection failed"
             )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
         }
     }
 

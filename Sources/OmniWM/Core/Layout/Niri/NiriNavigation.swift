@@ -152,11 +152,11 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        guard applyProjectedRuntimeExport(
+        guard case .success = applyProjectedRuntimeExport(
             context: context,
             workspaceId: workspaceId,
             delta: outcome.delta
-        ) != nil else {
+        ) else {
             return nil
         }
 

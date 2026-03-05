@@ -129,13 +129,19 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> MoveHoverTarget? {
         guard let interaction = interactionState(for: workspaceId) else { return nil }
-        guard let result = NiriLayoutZigKernel.hitTestMoveTarget(
-            context: interaction.context,
-            interaction: interaction.index,
-            point: point,
-            excludingWindowId: excludingWindowId,
-            isInsertMode: isInsertMode
-        ) else {
+        let moveTarget: NiriLayoutZigKernel.MoveTargetResult?
+        do {
+            moveTarget = try NiriLayoutZigKernel.hitTestMoveTarget(
+                context: interaction.context,
+                interaction: interaction.index,
+                point: point,
+                excludingWindowId: excludingWindowId,
+                isInsertMode: isInsertMode
+            )
+        } catch {
+            return nil
+        }
+        guard let result = moveTarget else {
             return nil
         }
 
@@ -232,12 +238,16 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) -> CGRect? {
         guard let interaction = interactionState(for: workspaceId) else { return nil }
-        return NiriLayoutZigKernel.insertionDropzoneFrame(
-            context: interaction.context,
-            interaction: interaction.index,
-            targetWindowId: targetWindowId,
-            position: position,
-            gap: gaps
-        )
+        do {
+            return try NiriLayoutZigKernel.insertionDropzoneFrame(
+                context: interaction.context,
+                interaction: interaction.index,
+                targetWindowId: targetWindowId,
+                position: position,
+                gap: gaps
+            )
+        } catch {
+            return nil
+        }
     }
 }

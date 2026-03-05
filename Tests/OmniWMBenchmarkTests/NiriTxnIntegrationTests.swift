@@ -693,7 +693,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let frame = CGRect(x: 0, y: 0, width: 1200, height: 900)
         column.resolveAndCacheWidth(workingAreaWidth: frame.width, gaps: 10)
-        let result = NiriLayoutZigKernel.run(
+        let result = try NiriLayoutZigKernel.run(
             context: context,
             columns: engine.columns(in: workspace.id),
             orientation: .horizontal,

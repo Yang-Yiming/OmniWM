@@ -251,6 +251,34 @@ enum NiriStateZigKernel {
         let windows: [RuntimeWindowState]
     }
 
+    enum RuntimeExportDecodeError: Error, Equatable, CustomStringConvertible {
+        case runtimeCallFailed(operation: String, rc: Int32)
+        case countOutOfRange(field: String, count: Int, max: Int)
+        case missingBuffer(field: String, count: Int)
+
+        var rc: Int32 {
+            switch self {
+            case let .runtimeCallFailed(_, rc):
+                return rc
+            case .countOutOfRange:
+                return Int32(OMNI_ERR_OUT_OF_RANGE)
+            case .missingBuffer:
+                return Int32(OMNI_ERR_INVALID_ARGS)
+            }
+        }
+
+        var description: String {
+            switch self {
+            case let .runtimeCallFailed(operation, rc):
+                return "\(operation) failed rc=\(rc)"
+            case let .countOutOfRange(field, count, max):
+                return "runtime export \(field) out of range count=\(count) max=\(max)"
+            case let .missingBuffer(field, count):
+                return "runtime export \(field) missing buffer for count=\(count)"
+            }
+        }
+    }
+
     struct DeltaColumnRecord: Equatable {
         let column: RuntimeColumnState
         let orderIndex: Int
@@ -419,6 +447,54 @@ enum NiriStateZigKernel {
 
     private static func zeroUUID() -> OmniUuid128 {
         OmniUuid128()
+    }
+
+    private static let runtimeExportMaxEntries = 512
+
+    private static func validatedRuntimeExportCount<T: BinaryInteger>(
+        _ rawCount: T,
+        field: String
+    ) throws -> Int {
+        if rawCount < 0 {
+            throw RuntimeExportDecodeError.countOutOfRange(
+                field: field,
+                count: Int(clamping: rawCount),
+                max: runtimeExportMaxEntries
+            )
+        }
+        let count = Int(clamping: rawCount)
+        guard count <= runtimeExportMaxEntries else {
+            throw RuntimeExportDecodeError.countOutOfRange(
+                field: field,
+                count: count,
+                max: runtimeExportMaxEntries
+            )
+        }
+        return count
+    }
+
+    private static func validatedRefreshHintCount(_ rawCount: UInt8) throws -> Int {
+        let count = Int(rawCount)
+        let maxCount = Int(OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS)
+        guard count <= maxCount else {
+            throw RuntimeExportDecodeError.countOutOfRange(
+                field: "refresh_tabbed_visibility_count",
+                count: count,
+                max: maxCount
+            )
+        }
+        return count
+    }
+
+    private static func validateRuntimePointer<T>(
+        _ pointer: UnsafePointer<T>?,
+        count: Int,
+        field: String
+    ) throws -> UnsafePointer<T>? {
+        if count > 0, pointer == nil {
+            throw RuntimeExportDecodeError.missingBuffer(field: field, count: count)
+        }
+        return pointer
     }
 
     private static func navigationOpCode(_ op: NavigationOp) -> UInt8 {
@@ -735,6 +811,102 @@ enum NiriStateZigKernel {
         return RuntimeStateExport(columns: columns, windows: windows)
     }
 
+    private static func decodeRuntimeStateExport(
+        _ rawExport: OmniNiriRuntimeStateExport
+    ) throws -> RuntimeStateExport {
+        let columnCount = try validatedRuntimeExportCount(rawExport.column_count, field: "column_count")
+        let windowCount = try validatedRuntimeExportCount(rawExport.window_count, field: "window_count")
+        let columnBase = try validateRuntimePointer(
+            rawExport.columns,
+            count: columnCount,
+            field: "columns"
+        )
+        let windowBase = try validateRuntimePointer(
+            rawExport.windows,
+            count: windowCount,
+            field: "windows"
+        )
+
+        let columns: [RuntimeColumnState]
+        if let columnBase, columnCount > 0 {
+            let rawColumns = Array(UnsafeBufferPointer(start: columnBase, count: columnCount))
+            columns = rawColumns.map { column in
+                RuntimeColumnState(
+                    columnId: nodeId(from: column.column_id),
+                    windowStart: column.window_start,
+                    windowCount: column.window_count,
+                    activeTileIdx: column.active_tile_idx,
+                    isTabbed: column.is_tabbed != 0,
+                    sizeValue: column.size_value,
+                    widthKind: column.width_kind,
+                    isFullWidth: column.is_full_width != 0,
+                    hasSavedWidth: column.has_saved_width != 0,
+                    savedWidthKind: column.saved_width_kind,
+                    savedWidthValue: column.saved_width_value
+                )
+            }
+        } else {
+            columns = []
+        }
+
+        let windows: [RuntimeWindowState]
+        if let windowBase, windowCount > 0 {
+            let rawWindows = Array(UnsafeBufferPointer(start: windowBase, count: windowCount))
+            windows = rawWindows.map { window in
+                RuntimeWindowState(
+                    windowId: nodeId(from: window.window_id),
+                    columnId: nodeId(from: window.column_id),
+                    columnIndex: window.column_index,
+                    sizeValue: window.size_value,
+                    heightKind: window.height_kind,
+                    heightValue: window.height_value
+                )
+            }
+        } else {
+            windows = []
+        }
+
+        return RuntimeStateExport(columns: columns, windows: windows)
+    }
+
+    static func validateAndDecodeRuntimeStateExport(
+        _ rawExport: OmniNiriRuntimeStateExport
+    ) -> Result<RuntimeStateExport, RuntimeExportDecodeError> {
+        do {
+            return .success(try decodeRuntimeStateExport(rawExport))
+        } catch let error as RuntimeExportDecodeError {
+            return .failure(error)
+        } catch {
+            return .failure(
+                .runtimeCallFailed(operation: "omni_niri_runtime_snapshot.decode", rc: Int32(OMNI_ERR_INVALID_ARGS))
+            )
+        }
+    }
+
+    static func snapshotRuntimeStateResult(
+        context: NiriLayoutZigKernel.LayoutContext
+    ) -> Result<RuntimeStateExport, RuntimeExportDecodeError> {
+        var rawExport = OmniNiriRuntimeStateExport(
+            columns: nil,
+            column_count: 0,
+            windows: nil,
+            window_count: 0
+        )
+
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawExport) { exportPtr in
+                omni_niri_runtime_snapshot(raw, exportPtr)
+            }
+        }
+        guard rc == OMNI_OK else {
+            return .failure(
+                .runtimeCallFailed(operation: "omni_niri_runtime_snapshot", rc: rc)
+            )
+        }
+
+        return validateAndDecodeRuntimeStateExport(rawExport)
+    }
+
     static func seedRuntimeState(
         context: NiriLayoutZigKernel.LayoutContext,
         snapshot: Snapshot
@@ -803,62 +975,15 @@ enum NiriStateZigKernel {
     static func snapshotRuntimeState(
         context: NiriLayoutZigKernel.LayoutContext
     ) -> (rc: Int32, export: RuntimeStateExport) {
-        var rawExport = OmniNiriRuntimeStateExport(
-            columns: nil,
-            column_count: 0,
-            windows: nil,
-            window_count: 0
-        )
-
-        let rc = context.withRawContext { raw in
-            withUnsafeMutablePointer(to: &rawExport) { exportPtr in
-                omni_niri_runtime_snapshot(raw, exportPtr)
-            }
+        switch snapshotRuntimeStateResult(context: context) {
+        case let .success(export):
+            return (rc: Int32(OMNI_OK), export: export)
+        case let .failure(error):
+            return (
+                rc: error.rc,
+                export: RuntimeStateExport(columns: [], windows: [])
+            )
         }
-        guard rc == OMNI_OK else {
-            return (rc: rc, export: RuntimeStateExport(columns: [], windows: []))
-        }
-
-        let columns: [RuntimeColumnState]
-        if let base = rawExport.columns, rawExport.column_count > 0 {
-            let rawColumns = Array(UnsafeBufferPointer(start: base, count: rawExport.column_count))
-            columns = rawColumns.map { column in
-                RuntimeColumnState(
-                    columnId: nodeId(from: column.column_id),
-                    windowStart: column.window_start,
-                    windowCount: column.window_count,
-                    activeTileIdx: column.active_tile_idx,
-                    isTabbed: column.is_tabbed != 0,
-                    sizeValue: column.size_value,
-                    widthKind: column.width_kind,
-                    isFullWidth: column.is_full_width != 0,
-                    hasSavedWidth: column.has_saved_width != 0,
-                    savedWidthKind: column.saved_width_kind,
-                    savedWidthValue: column.saved_width_value
-                )
-            }
-        } else {
-            columns = []
-        }
-
-        let windows: [RuntimeWindowState]
-        if let base = rawExport.windows, rawExport.window_count > 0 {
-            let rawWindows = Array(UnsafeBufferPointer(start: base, count: rawExport.window_count))
-            windows = rawWindows.map { window in
-                RuntimeWindowState(
-                    windowId: nodeId(from: window.window_id),
-                    columnId: nodeId(from: window.column_id),
-                    columnIndex: window.column_index,
-                    sizeValue: window.size_value,
-                    heightKind: window.height_kind,
-                    heightValue: window.height_value
-                )
-            }
-        } else {
-            windows = []
-        }
-
-        return (rc: rc, export: RuntimeStateExport(columns: columns, windows: windows))
     }
 
     private static func emptyNavigationTxnPayload() -> OmniNiriTxnNavigationPayload {
@@ -927,41 +1052,63 @@ enum NiriStateZigKernel {
         )
     }
 
-    static func exportDelta(
-        context: NiriLayoutZigKernel.LayoutContext
-    ) -> (rc: Int32, export: DeltaExport) {
-        var rawExport = OmniNiriTxnDeltaExport()
+    private static func emptyDeltaExport() -> DeltaExport {
+        DeltaExport(
+            columns: [],
+            windows: [],
+            removedColumnIds: [],
+            removedWindowIds: [],
+            refreshTabbedVisibilityColumnIds: [],
+            resetAllColumnCachedWidths: false,
+            delegatedMoveColumn: nil,
+            targetWindowId: nil,
+            targetNode: nil,
+            sourceSelectionWindowId: nil,
+            targetSelectionWindowId: nil,
+            movedWindowId: nil,
+            generation: 0
+        )
+    }
 
-        let rc = context.withRawContext { raw in
-            withUnsafeMutablePointer(to: &rawExport) { exportPtr in
-                omni_niri_ctx_export_delta(raw, exportPtr)
-            }
-        }
+    private static func decodeDeltaExport(
+        _ rawExport: OmniNiriTxnDeltaExport
+    ) throws -> DeltaExport {
+        let columnCount = try validatedRuntimeExportCount(rawExport.column_count, field: "delta_column_count")
+        let windowCount = try validatedRuntimeExportCount(rawExport.window_count, field: "delta_window_count")
+        let removedColumnCount = try validatedRuntimeExportCount(
+            rawExport.removed_column_count,
+            field: "removed_column_count"
+        )
+        let removedWindowCount = try validatedRuntimeExportCount(
+            rawExport.removed_window_count,
+            field: "removed_window_count"
+        )
+        let refreshCount = try validatedRefreshHintCount(rawExport.refresh_tabbed_visibility_count)
 
-        guard rc == OMNI_OK else {
-            return (
-                rc: rc,
-                export: DeltaExport(
-                    columns: [],
-                    windows: [],
-                    removedColumnIds: [],
-                    removedWindowIds: [],
-                    refreshTabbedVisibilityColumnIds: [],
-                    resetAllColumnCachedWidths: false,
-                    delegatedMoveColumn: nil,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    sourceSelectionWindowId: nil,
-                    targetSelectionWindowId: nil,
-                    movedWindowId: nil,
-                    generation: 0
-                )
-            )
-        }
+        let columnBase = try validateRuntimePointer(
+            rawExport.columns,
+            count: columnCount,
+            field: "delta_columns"
+        )
+        let windowBase = try validateRuntimePointer(
+            rawExport.windows,
+            count: windowCount,
+            field: "delta_windows"
+        )
+        let removedColumnBase = try validateRuntimePointer(
+            rawExport.removed_column_ids,
+            count: removedColumnCount,
+            field: "removed_column_ids"
+        )
+        let removedWindowBase = try validateRuntimePointer(
+            rawExport.removed_window_ids,
+            count: removedWindowCount,
+            field: "removed_window_ids"
+        )
 
         var columns: [DeltaColumnRecord] = []
-        if let base = rawExport.columns, rawExport.column_count > 0 {
-            let rawColumns = Array(UnsafeBufferPointer(start: base, count: rawExport.column_count))
+        if let columnBase, columnCount > 0 {
+            let rawColumns = Array(UnsafeBufferPointer(start: columnBase, count: columnCount))
             columns = rawColumns.map { column in
                 DeltaColumnRecord(
                     column: RuntimeColumnState(
@@ -983,8 +1130,8 @@ enum NiriStateZigKernel {
         }
 
         var windows: [DeltaWindowRecord] = []
-        if let base = rawExport.windows, rawExport.window_count > 0 {
-            let rawWindows = Array(UnsafeBufferPointer(start: base, count: rawExport.window_count))
+        if let windowBase, windowCount > 0 {
+            let rawWindows = Array(UnsafeBufferPointer(start: windowBase, count: windowCount))
             windows = rawWindows.map { window in
                 DeltaWindowRecord(
                     window: RuntimeWindowState(
@@ -1001,20 +1148,27 @@ enum NiriStateZigKernel {
             }
         }
 
-        var removedColumnIds: [NodeId] = []
-        if let base = rawExport.removed_column_ids, rawExport.removed_column_count > 0 {
-            removedColumnIds = Array(UnsafeBufferPointer(start: base, count: rawExport.removed_column_count)).map(nodeId(from:))
+        let removedColumnIds: [NodeId]
+        if let removedColumnBase, removedColumnCount > 0 {
+            removedColumnIds = Array(
+                UnsafeBufferPointer(start: removedColumnBase, count: removedColumnCount)
+            ).map(nodeId(from:))
+        } else {
+            removedColumnIds = []
         }
 
-        var removedWindowIds: [NodeId] = []
-        if let base = rawExport.removed_window_ids, rawExport.removed_window_count > 0 {
-            removedWindowIds = Array(UnsafeBufferPointer(start: base, count: rawExport.removed_window_count)).map(nodeId(from:))
+        let removedWindowIds: [NodeId]
+        if let removedWindowBase, removedWindowCount > 0 {
+            removedWindowIds = Array(
+                UnsafeBufferPointer(start: removedWindowBase, count: removedWindowCount)
+            ).map(nodeId(from:))
+        } else {
+            removedWindowIds = []
         }
 
-        let refreshCount = max(0, min(Int(OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS), Int(rawExport.refresh_tabbed_visibility_count)))
         var refreshIds: [NodeId] = []
         refreshIds.reserveCapacity(refreshCount)
-        withUnsafePointer(to: &rawExport.refresh_tabbed_visibility_column_ids) { tuplePtr in
+        withUnsafePointer(to: rawExport.refresh_tabbed_visibility_column_ids) { tuplePtr in
             let base = UnsafeRawPointer(tuplePtr).assumingMemoryBound(to: OmniUuid128.self)
             for idx in 0 ..< refreshCount {
                 refreshIds.append(nodeId(from: base[idx]))
@@ -1022,9 +1176,17 @@ enum NiriStateZigKernel {
         }
 
         let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
-        if rawExport.has_delegate_move_column != 0,
-           let direction = direction(from: rawExport.delegate_move_direction) {
-            delegatedMoveColumn = (nodeId(from: rawExport.delegate_move_column_id), direction)
+        if rawExport.has_delegate_move_column != 0 {
+            guard let resolvedDirection = direction(from: rawExport.delegate_move_direction) else {
+                throw RuntimeExportDecodeError.runtimeCallFailed(
+                    operation: "omni_niri_ctx_export_delta.decode_delegate_move_direction",
+                    rc: Int32(OMNI_ERR_INVALID_ARGS)
+                )
+            }
+            delegatedMoveColumn = (
+                nodeId(from: rawExport.delegate_move_column_id),
+                resolvedDirection
+            )
         } else {
             delegatedMoveColumn = nil
         }
@@ -1041,32 +1203,72 @@ enum NiriStateZigKernel {
             targetNode = nil
         }
 
-        return (
-            rc: rc,
-            export: DeltaExport(
-                columns: columns,
-                windows: windows,
-                removedColumnIds: removedColumnIds,
-                removedWindowIds: removedWindowIds,
-                refreshTabbedVisibilityColumnIds: refreshIds,
-                resetAllColumnCachedWidths: rawExport.reset_all_column_cached_widths != 0,
-                delegatedMoveColumn: delegatedMoveColumn,
-                targetWindowId: rawExport.has_target_window_id != 0
-                    ? nodeId(from: rawExport.target_window_id)
-                    : nil,
-                targetNode: targetNode,
-                sourceSelectionWindowId: rawExport.has_source_selection_window_id != 0
-                    ? nodeId(from: rawExport.source_selection_window_id)
-                    : nil,
-                targetSelectionWindowId: rawExport.has_target_selection_window_id != 0
-                    ? nodeId(from: rawExport.target_selection_window_id)
-                    : nil,
-                movedWindowId: rawExport.has_moved_window_id != 0
-                    ? nodeId(from: rawExport.moved_window_id)
-                    : nil,
-                generation: rawExport.generation
-            )
+        return DeltaExport(
+            columns: columns,
+            windows: windows,
+            removedColumnIds: removedColumnIds,
+            removedWindowIds: removedWindowIds,
+            refreshTabbedVisibilityColumnIds: refreshIds,
+            resetAllColumnCachedWidths: rawExport.reset_all_column_cached_widths != 0,
+            delegatedMoveColumn: delegatedMoveColumn,
+            targetWindowId: rawExport.has_target_window_id != 0
+                ? nodeId(from: rawExport.target_window_id)
+                : nil,
+            targetNode: targetNode,
+            sourceSelectionWindowId: rawExport.has_source_selection_window_id != 0
+                ? nodeId(from: rawExport.source_selection_window_id)
+                : nil,
+            targetSelectionWindowId: rawExport.has_target_selection_window_id != 0
+                ? nodeId(from: rawExport.target_selection_window_id)
+                : nil,
+            movedWindowId: rawExport.has_moved_window_id != 0
+                ? nodeId(from: rawExport.moved_window_id)
+                : nil,
+            generation: rawExport.generation
         )
+    }
+
+    static func validateAndDecodeDeltaExport(
+        _ rawExport: OmniNiriTxnDeltaExport
+    ) -> Result<DeltaExport, RuntimeExportDecodeError> {
+        do {
+            return .success(try decodeDeltaExport(rawExport))
+        } catch let error as RuntimeExportDecodeError {
+            return .failure(error)
+        } catch {
+            return .failure(
+                .runtimeCallFailed(operation: "omni_niri_ctx_export_delta.decode", rc: Int32(OMNI_ERR_INVALID_ARGS))
+            )
+        }
+    }
+
+    static func exportDeltaResult(
+        context: NiriLayoutZigKernel.LayoutContext
+    ) -> Result<DeltaExport, RuntimeExportDecodeError> {
+        var rawExport = OmniNiriTxnDeltaExport()
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawExport) { exportPtr in
+                omni_niri_ctx_export_delta(raw, exportPtr)
+            }
+        }
+        guard rc == OMNI_OK else {
+            return .failure(
+                .runtimeCallFailed(operation: "omni_niri_ctx_export_delta", rc: rc)
+            )
+        }
+
+        return validateAndDecodeDeltaExport(rawExport)
+    }
+
+    static func exportDelta(
+        context: NiriLayoutZigKernel.LayoutContext
+    ) -> (rc: Int32, export: DeltaExport) {
+        switch exportDeltaResult(context: context) {
+        case let .success(export):
+            return (rc: Int32(OMNI_OK), export: export)
+        case let .failure(error):
+            return (rc: error.rc, export: emptyDeltaExport())
+        }
     }
 
     static func applyTxn(_ request: TxnRequest) -> TxnOutcome {

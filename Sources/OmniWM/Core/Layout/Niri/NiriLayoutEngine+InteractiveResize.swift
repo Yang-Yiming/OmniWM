@@ -9,12 +9,18 @@ extension NiriLayoutEngine {
     ) -> ResizeHitTestResult? {
         let threshold = threshold ?? resizeConfiguration.edgeThreshold
         guard let interaction = interactionState(for: workspaceId) else { return nil }
-        guard let hit = NiriLayoutZigKernel.hitTestResize(
-            context: interaction.context,
-            interaction: interaction.index,
-            point: point,
-            threshold: threshold
-        ) else {
+        let hitResult: NiriLayoutZigKernel.ResizeHitResult?
+        do {
+            hitResult = try NiriLayoutZigKernel.hitTestResize(
+                context: interaction.context,
+                interaction: interaction.index,
+                point: point,
+                threshold: threshold
+            )
+        } catch {
+            return nil
+        }
+        guard let hit = hitResult else {
             return nil
         }
 
@@ -32,11 +38,15 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NiriWindow? {
         guard let interaction = interactionState(for: workspaceId) else { return nil }
-        return NiriLayoutZigKernel.hitTestTiled(
-            context: interaction.context,
-            interaction: interaction.index,
-            point: point
-        )
+        do {
+            return try NiriLayoutZigKernel.hitTestTiled(
+                context: interaction.context,
+                interaction: interaction.index,
+                point: point
+            )
+        } catch {
+            return nil
+        }
     }
 
     func interactiveResizeBegin(
@@ -114,21 +124,26 @@ extension NiriLayoutEngine {
             )
             : 0
 
-        let result = NiriLayoutZigKernel.computeResize(
-            .init(
-                edges: resize.edges,
-                startLocation: resize.startMouseLocation,
-                currentLocation: currentLocation,
-                originalColumnWidth: resize.originalColumnWidth ?? 0,
-                minColumnWidth: minColumnWidth,
-                maxColumnWidth: maxColumnWidth,
-                originalWindowWeight: resize.originalWindowHeight ?? 0,
-                minWindowWeight: resizeConfiguration.minWindowWeight,
-                maxWindowWeight: resizeConfiguration.maxWindowWeight,
-                pixelsPerWeight: pixelsPerWeight,
-                originalViewOffset: resize.originalViewOffset
+        let result: NiriLayoutZigKernel.ResizeComputationResult
+        do {
+            result = try NiriLayoutZigKernel.computeResize(
+                .init(
+                    edges: resize.edges,
+                    startLocation: resize.startMouseLocation,
+                    currentLocation: currentLocation,
+                    originalColumnWidth: resize.originalColumnWidth ?? 0,
+                    minColumnWidth: minColumnWidth,
+                    maxColumnWidth: maxColumnWidth,
+                    originalWindowWeight: resize.originalWindowHeight ?? 0,
+                    minWindowWeight: resizeConfiguration.minWindowWeight,
+                    maxWindowWeight: resizeConfiguration.maxWindowWeight,
+                    pixelsPerWeight: pixelsPerWeight,
+                    originalViewOffset: resize.originalViewOffset
+                )
             )
-        )
+        } catch {
+            return false
+        }
 
         var changed = false
         if hasHorizontal, result.changedWidth {

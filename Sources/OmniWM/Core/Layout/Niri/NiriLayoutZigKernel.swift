@@ -88,6 +88,32 @@ enum NiriLayoutZigKernel {
         let insertPosition: InsertPosition
     }
 
+    enum KernelCallError: Error, Equatable, CustomStringConvertible {
+        case runtimeRenderFailed(initialRC: Int32, reseedRC: Int32?, retryRC: Int32?, columns: Int, windows: Int)
+        case hitTestTiledFailed(rc: Int32)
+        case hitTestResizeFailed(rc: Int32)
+        case hitTestMoveTargetFailed(rc: Int32)
+        case insertionDropzoneFailed(rc: Int32)
+        case resizeComputeFailed(rc: Int32)
+
+        var description: String {
+            switch self {
+            case let .runtimeRenderFailed(initialRC, reseedRC, retryRC, columns, windows):
+                return "omni_niri_runtime_render failed initial_rc=\(initialRC) reseed_rc=\(reseedRC.map(String.init) ?? "n/a") retry_rc=\(retryRC.map(String.init) ?? "n/a") columns=\(columns) windows=\(windows)"
+            case let .hitTestTiledFailed(rc):
+                return "omni_niri_ctx_hit_test_tiled failed rc=\(rc)"
+            case let .hitTestResizeFailed(rc):
+                return "omni_niri_ctx_hit_test_resize failed rc=\(rc)"
+            case let .hitTestMoveTargetFailed(rc):
+                return "omni_niri_ctx_hit_test_move_target failed rc=\(rc)"
+            case let .insertionDropzoneFailed(rc):
+                return "omni_niri_ctx_insertion_dropzone failed rc=\(rc)"
+            case let .resizeComputeFailed(rc):
+                return "omni_niri_resize_compute failed rc=\(rc)"
+            }
+        }
+    }
+
     private static func orientationCode(_ orientation: Monitor.Orientation) -> UInt8 {
         switch orientation {
         case .horizontal:
@@ -163,7 +189,7 @@ enum NiriLayoutZigKernel {
         scale: CGFloat,
         tabIndicatorWidth: CGFloat,
         time: TimeInterval
-    ) -> LayoutPassResult {
+    ) throws -> LayoutPassResult {
         guard !columns.isEmpty else {
             return LayoutPassResult(windows: [], columns: [])
         }
@@ -357,10 +383,15 @@ enum NiriLayoutZigKernel {
             rc = initialRC
         }
 
-        precondition(
-            rc == OMNI_OK,
-            "omni_niri_runtime_render failed initial_rc=\(initialRC) reseed_rc=\(reseedRC.map(String.init) ?? "n/a") retry_rc=\(retryRC.map(String.init) ?? "n/a") columns=\(columnInputs.count) windows=\(windowInputs.count)"
-        )
+        guard rc == OMNI_OK else {
+            throw KernelCallError.runtimeRenderFailed(
+                initialRC: initialRC,
+                reseedRC: reseedRC,
+                retryRC: retryRC,
+                columns: columnInputs.count,
+                windows: windowInputs.count
+            )
+        }
 
         let windows = zip(flatWindows, rawOutputs).map { window, output in
             WindowResult(
@@ -436,7 +467,7 @@ enum NiriLayoutZigKernel {
         context: LayoutContext,
         interaction: InteractionIndex,
         point: CGPoint
-    ) -> NiriWindow? {
+    ) throws -> NiriWindow? {
         guard !interaction.windowEntries.isEmpty else { return nil }
 
         var outIndex: Int64 = -1
@@ -449,7 +480,9 @@ enum NiriLayoutZigKernel {
             )
         }
 
-        precondition(rc == OMNI_OK, "omni_niri_ctx_hit_test_tiled failed rc=\(rc)")
+        guard rc == OMNI_OK else {
+            throw KernelCallError.hitTestTiledFailed(rc: rc)
+        }
         guard outIndex >= 0, outIndex < Int64(interaction.windowEntries.count) else { return nil }
         return interaction.windowEntries[Int(outIndex)].window
     }
@@ -459,7 +492,7 @@ enum NiriLayoutZigKernel {
         interaction: InteractionIndex,
         point: CGPoint,
         threshold: CGFloat
-    ) -> ResizeHitResult? {
+    ) throws -> ResizeHitResult? {
         guard !interaction.windowEntries.isEmpty else { return nil }
 
         var out = OmniNiriResizeHitResult(window_index: -1, edges: 0)
@@ -473,7 +506,9 @@ enum NiriLayoutZigKernel {
             )
         }
 
-        precondition(rc == OMNI_OK, "omni_niri_ctx_hit_test_resize failed rc=\(rc)")
+        guard rc == OMNI_OK else {
+            throw KernelCallError.hitTestResizeFailed(rc: rc)
+        }
         guard out.window_index >= 0, out.window_index < Int64(interaction.windowEntries.count) else { return nil }
 
         let index = Int(out.window_index)
@@ -495,7 +530,7 @@ enum NiriLayoutZigKernel {
         point: CGPoint,
         excludingWindowId: NodeId,
         isInsertMode: Bool
-    ) -> MoveTargetResult? {
+    ) throws -> MoveTargetResult? {
         guard !interaction.windowEntries.isEmpty else { return nil }
 
         let excludingIndex = interaction.windowIndexByNodeId[excludingWindowId].map(Int64.init) ?? -1
@@ -515,7 +550,9 @@ enum NiriLayoutZigKernel {
             )
         }
 
-        precondition(rc == OMNI_OK, "omni_niri_ctx_hit_test_move_target failed rc=\(rc)")
+        guard rc == OMNI_OK else {
+            throw KernelCallError.hitTestMoveTargetFailed(rc: rc)
+        }
         guard out.window_index >= 0, out.window_index < Int64(interaction.windowEntries.count) else { return nil }
         guard let position = insertPositionFromCode(out.insert_position) else { return nil }
 
@@ -531,7 +568,7 @@ enum NiriLayoutZigKernel {
         targetWindowId: NodeId,
         position: InsertPosition,
         gap: CGFloat
-    ) -> CGRect? {
+    ) throws -> CGRect? {
         guard let windowIndex = interaction.windowIndexByNodeId[targetWindowId] else { return nil }
 
         var rawOutput = OmniNiriDropzoneResult(
@@ -550,7 +587,9 @@ enum NiriLayoutZigKernel {
                 outputPtr
             )
         }
-        precondition(rc == OMNI_OK, "omni_niri_ctx_insertion_dropzone failed rc=\(rc)")
+        guard rc == OMNI_OK else {
+            throw KernelCallError.insertionDropzoneFailed(rc: rc)
+        }
         guard rawOutput.is_valid != 0 else { return nil }
         return CGRect(
             x: rawOutput.frame_x,
@@ -560,7 +599,7 @@ enum NiriLayoutZigKernel {
         )
     }
 
-    static func computeResize(_ input: ResizeComputationInput) -> ResizeComputationResult {
+    static func computeResize(_ input: ResizeComputationInput) throws -> ResizeComputationResult {
         var rawInput = OmniNiriResizeInput(
             edges: resizeEdgeCode(input.edges),
             start_x: Double(input.startLocation.x),
@@ -591,7 +630,9 @@ enum NiriLayoutZigKernel {
                 omni_niri_resize_compute(inputPtr, outputPtr)
             }
         }
-        precondition(rc == OMNI_OK, "omni_niri_resize_compute failed rc=\(rc)")
+        guard rc == OMNI_OK else {
+            throw KernelCallError.resizeComputeFailed(rc: rc)
+        }
 
         return ResizeComputationResult(
             changedWidth: rawOutput.changed_width != 0,

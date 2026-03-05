@@ -37,6 +37,24 @@ enum NiriViewportZigMath {
         let initialVelocity: Double
     }
 
+    enum ViewportMathError: Error, CustomStringConvertible {
+        case invalidInput(operation: String, reason: String)
+        case kernelCallFailed(operation: String, rc: Int32, details: String)
+
+        var description: String {
+            switch self {
+            case let .invalidInput(operation, reason):
+                return "\(operation) invalid input: \(reason)"
+            case let .kernelCallFailed(operation, rc, details):
+                return "\(operation) failed rc=\(rc) \(details)"
+            }
+        }
+    }
+
+    private static func report(_ error: ViewportMathError) {
+        NSLog("NiriViewportZigMath error: %@", error.description)
+    }
+
     private static func centerModeCode(_ centerMode: CenterFocusedColumn) -> UInt8 {
         switch centerMode {
         case .never:
@@ -58,7 +76,15 @@ enum NiriViewportZigMath {
         alwaysCenterSingleColumn: Bool,
         fromContainerIndex: Int?
     ) -> CGFloat {
-        precondition(containerIndex >= 0, "NiriViewportZigMath.computeVisibleOffset requires non-negative containerIndex")
+        guard containerIndex >= 0 else {
+            report(
+                .invalidInput(
+                    operation: "omni_viewport_compute_visible_offset",
+                    reason: "containerIndex must be non-negative"
+                )
+            )
+            return currentViewStart
+        }
 
         var outTarget: Double = 0
         let fromIndex = Int64(fromContainerIndex ?? -1)
@@ -81,12 +107,14 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_compute_visible_offset failed rc=\(rc) span_count=\(spans.count) " +
-                    "container_index=\(containerIndex) gap=\(gap) viewport_span=\(viewportSpan) " +
-                    "current_view_start=\(currentViewStart) center_mode=\(centerModeCode(centerMode)) " +
-                    "always_center_single_column=\(alwaysCenterSingleColumn) from_container_index=\(fromIndex)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_compute_visible_offset",
+                    rc: rc,
+                    details: "span_count=\(spans.count) container_index=\(containerIndex) gap=\(gap) viewport_span=\(viewportSpan) current_view_start=\(currentViewStart) center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn) from_container_index=\(fromIndex)"
+                )
             )
+            return currentViewStart
         }
         return CGFloat(outTarget)
     }
@@ -103,9 +131,22 @@ enum NiriViewportZigMath {
         fromContainerIndex: Int?,
         scale: CGFloat
     ) -> TransitionPlan {
-        precondition(currentActiveIndex >= 0, "NiriViewportZigMath.transitionPlan requires non-negative currentActiveIndex")
-        precondition(requestedIndex >= 0, "NiriViewportZigMath.transitionPlan requires non-negative requestedIndex")
-        precondition(scale > 0, "NiriViewportZigMath.transitionPlan requires positive scale")
+        guard currentActiveIndex >= 0, requestedIndex >= 0, scale > 0 else {
+            report(
+                .invalidInput(
+                    operation: "omni_viewport_transition_to_column",
+                    reason: "currentActiveIndex/requestedIndex must be non-negative and scale must be positive"
+                )
+            )
+            return TransitionPlan(
+                resolvedColumnIndex: max(0, requestedIndex),
+                offsetDelta: 0,
+                adjustedTargetOffset: currentTargetOffset,
+                targetOffset: currentTargetOffset,
+                snapDelta: 0,
+                snapToTargetImmediately: true
+            )
+        }
 
         var out = OmniViewportTransitionResult(
             resolved_column_index: 0,
@@ -137,12 +178,20 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_transition_to_column failed rc=\(rc) span_count=\(spans.count) " +
-                    "current_active_index=\(currentActiveIndex) requested_index=\(requestedIndex) gap=\(gap) " +
-                    "viewport_span=\(viewportSpan) current_target_offset=\(currentTargetOffset) " +
-                    "center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn) " +
-                    "from_container_index=\(fromIndex) scale=\(scale)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_transition_to_column",
+                    rc: rc,
+                    details: "span_count=\(spans.count) current_active_index=\(currentActiveIndex) requested_index=\(requestedIndex) gap=\(gap) viewport_span=\(viewportSpan) current_target_offset=\(currentTargetOffset) center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn) from_container_index=\(fromIndex) scale=\(scale)"
+                )
+            )
+            return TransitionPlan(
+                resolvedColumnIndex: max(0, requestedIndex),
+                offsetDelta: 0,
+                adjustedTargetOffset: currentTargetOffset,
+                targetOffset: currentTargetOffset,
+                snapDelta: 0,
+                snapToTargetImmediately: true
             )
         }
 
@@ -168,8 +217,19 @@ enum NiriViewportZigMath {
         fromContainerIndex: Int?,
         epsilon: CGFloat = 0.001
     ) -> EnsureVisiblePlan {
-        precondition(activeContainerIndex >= 0, "NiriViewportZigMath.ensureVisiblePlan requires non-negative activeContainerIndex")
-        precondition(targetContainerIndex >= 0, "NiriViewportZigMath.ensureVisiblePlan requires non-negative targetContainerIndex")
+        guard activeContainerIndex >= 0, targetContainerIndex >= 0 else {
+            report(
+                .invalidInput(
+                    operation: "omni_viewport_ensure_visible",
+                    reason: "activeContainerIndex and targetContainerIndex must be non-negative"
+                )
+            )
+            return EnsureVisiblePlan(
+                targetOffset: currentOffset,
+                offsetDelta: 0,
+                isNoop: true
+            )
+        }
 
         var out = OmniViewportEnsureVisibleResult(
             target_offset: 0,
@@ -198,12 +258,17 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_ensure_visible failed rc=\(rc) span_count=\(spans.count) " +
-                    "active_container_index=\(activeContainerIndex) target_container_index=\(targetContainerIndex) " +
-                    "gap=\(gap) viewport_span=\(viewportSpan) current_offset=\(currentOffset) " +
-                    "center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn) " +
-                    "from_container_index=\(fromIndex) epsilon=\(epsilon)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_ensure_visible",
+                    rc: rc,
+                    details: "span_count=\(spans.count) active_container_index=\(activeContainerIndex) target_container_index=\(targetContainerIndex) gap=\(gap) viewport_span=\(viewportSpan) current_offset=\(currentOffset) center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn) from_container_index=\(fromIndex) epsilon=\(epsilon)"
+                )
+            )
+            return EnsureVisiblePlan(
+                targetOffset: currentOffset,
+                offsetDelta: 0,
+                isNoop: true
             )
         }
 
@@ -248,10 +313,18 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_scroll_step failed rc=\(rc) span_count=\(spans.count) delta_pixels=\(deltaPixels) " +
-                    "viewport_span=\(viewportSpan) gap=\(gap) current_offset=\(currentOffset) " +
-                    "selection_progress=\(selectionProgress) change_selection=\(changeSelection)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_scroll_step",
+                    rc: rc,
+                    details: "span_count=\(spans.count) delta_pixels=\(deltaPixels) viewport_span=\(viewportSpan) gap=\(gap) current_offset=\(currentOffset) selection_progress=\(selectionProgress) change_selection=\(changeSelection)"
+                )
+            )
+            return ScrollStepResult(
+                applied: false,
+                newOffset: currentOffset,
+                selectionProgress: selectionProgress,
+                selectionSteps: nil
             )
         }
 
@@ -278,10 +351,16 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_gesture_begin failed rc=\(rc) current_view_offset=\(currentViewOffset) " +
-                    "is_trackpad=\(isTrackpad)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_gesture_begin",
+                    rc: rc,
+                    details: "current_view_offset=\(currentViewOffset) is_trackpad=\(isTrackpad)"
+                )
             )
+            state.is_trackpad = isTrackpad ? 1 : 0
+            state.current_view_offset = Double(currentViewOffset)
+            state.stationary_view_offset = Double(currentViewOffset)
         }
 
         return state
@@ -301,7 +380,14 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError("omni_viewport_gesture_velocity failed rc=\(rc)")
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_gesture_velocity",
+                    rc: rc,
+                    details: ""
+                )
+            )
+            return 0
         }
 
         return outVelocity
@@ -317,7 +403,19 @@ enum NiriViewportZigMath {
         viewportSpan: CGFloat,
         selectionProgress: CGFloat
     ) -> GestureUpdateResult {
-        precondition(activeContainerIndex >= 0, "NiriViewportZigMath.gestureUpdate requires non-negative activeContainerIndex")
+        guard activeContainerIndex >= 0 else {
+            report(
+                .invalidInput(
+                    operation: "omni_viewport_gesture_update",
+                    reason: "activeContainerIndex must be non-negative"
+                )
+            )
+            return GestureUpdateResult(
+                currentViewOffset: state.current_view_offset,
+                selectionProgress: selectionProgress,
+                selectionSteps: nil
+            )
+        }
 
         var out = OmniViewportGestureUpdateResult(
             current_view_offset: 0,
@@ -346,11 +444,17 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_gesture_update failed rc=\(rc) span_count=\(spans.count) " +
-                    "active_container_index=\(activeContainerIndex) delta_pixels=\(deltaPixels) " +
-                    "timestamp=\(timestamp) gap=\(gap) viewport_span=\(viewportSpan) " +
-                    "selection_progress=\(selectionProgress)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_gesture_update",
+                    rc: rc,
+                    details: "span_count=\(spans.count) active_container_index=\(activeContainerIndex) delta_pixels=\(deltaPixels) timestamp=\(timestamp) gap=\(gap) viewport_span=\(viewportSpan) selection_progress=\(selectionProgress)"
+                )
+            )
+            return GestureUpdateResult(
+                currentViewOffset: state.current_view_offset,
+                selectionProgress: selectionProgress,
+                selectionSteps: nil
             )
         }
 
@@ -370,7 +474,20 @@ enum NiriViewportZigMath {
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool
     ) -> GestureEndResult {
-        precondition(activeContainerIndex >= 0, "NiriViewportZigMath.gestureEnd requires non-negative activeContainerIndex")
+        guard activeContainerIndex >= 0 else {
+            report(
+                .invalidInput(
+                    operation: "omni_viewport_gesture_end",
+                    reason: "activeContainerIndex must be non-negative"
+                )
+            )
+            return GestureEndResult(
+                resolvedColumnIndex: 0,
+                springFrom: state.current_view_offset,
+                springTo: state.current_view_offset,
+                initialVelocity: 0
+            )
+        }
 
         var mutableState = state
         var out = OmniViewportGestureEndResult(
@@ -399,10 +516,18 @@ enum NiriViewportZigMath {
         }
 
         if rc != OMNI_OK {
-            fatalError(
-                "omni_viewport_gesture_end failed rc=\(rc) span_count=\(spans.count) " +
-                    "active_container_index=\(activeContainerIndex) gap=\(gap) viewport_span=\(viewportSpan) " +
-                    "center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn)"
+            report(
+                .kernelCallFailed(
+                    operation: "omni_viewport_gesture_end",
+                    rc: rc,
+                    details: "span_count=\(spans.count) active_container_index=\(activeContainerIndex) gap=\(gap) viewport_span=\(viewportSpan) center_mode=\(centerModeCode(centerMode)) always_center_single_column=\(alwaysCenterSingleColumn)"
+                )
+            )
+            return GestureEndResult(
+                resolvedColumnIndex: activeContainerIndex,
+                springFrom: mutableState.current_view_offset,
+                springTo: mutableState.current_view_offset,
+                initialVelocity: 0
             )
         }
 

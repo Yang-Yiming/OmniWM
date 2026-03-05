@@ -223,22 +223,28 @@ extension NiriLayoutEngine {
         case .vertical: workingFrame.height
         }
 
-        let kernelResults = NiriLayoutZigKernel.run(
-            context: layoutContext,
-            columns: containers,
-            orientation: orientation,
-            primaryGap: primaryGap,
-            secondaryGap: secondaryGap,
-            workingFrame: workingFrame,
-            viewFrame: viewFrame,
-            fullscreenFrame: offsetFullscreenRect,
-            viewStart: viewStart,
-            viewportSpan: viewportSpan,
-            workspaceOffset: workspaceOffset,
-            scale: effectiveScale,
-            tabIndicatorWidth: renderStyle.tabIndicatorWidth,
-            time: time
-        )
+        let kernelResults: NiriLayoutZigKernel.LayoutPassResult
+        do {
+            kernelResults = try NiriLayoutZigKernel.run(
+                context: layoutContext,
+                columns: containers,
+                orientation: orientation,
+                primaryGap: primaryGap,
+                secondaryGap: secondaryGap,
+                workingFrame: workingFrame,
+                viewFrame: viewFrame,
+                fullscreenFrame: offsetFullscreenRect,
+                viewStart: viewStart,
+                viewportSpan: viewportSpan,
+                workspaceOffset: workspaceOffset,
+                scale: effectiveScale,
+                tabIndicatorWidth: renderStyle.tabIndicatorWidth,
+                time: time
+            )
+        } catch {
+            interactionIndexes.removeValue(forKey: workspaceId)
+            return
+        }
 
         for result in kernelResults.columns {
             result.column.frame = result.frame.roundedToPhysicalPixels(scale: effectiveScale)

@@ -63,21 +63,15 @@ extension NiriLayoutEngine {
             )
         }
 
-        guard applyProjectedRuntimeExport(
-            context: targetContext,
-            workspaceId: prepared.targetWorkspaceId,
-            delta: applyOutcome.targetDelta,
+        guard case .success = applyProjectedWorkspaceRuntimeExports(
+            sourceContext: sourceContext,
+            sourceWorkspaceId: prepared.sourceWorkspaceId,
+            targetContext: targetContext,
+            targetWorkspaceId: prepared.targetWorkspaceId,
+            sourceDelta: applyOutcome.sourceDelta,
+            targetDelta: applyOutcome.targetDelta,
             refreshMirrorStateFromExport: false
-        ) != nil else {
-            return nil
-        }
-
-        guard applyProjectedRuntimeExport(
-            context: sourceContext,
-            workspaceId: prepared.sourceWorkspaceId,
-            delta: applyOutcome.sourceDelta,
-            refreshMirrorStateFromExport: false
-        ) != nil else {
+        ) else {
             return nil
         }
 
