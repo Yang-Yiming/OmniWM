@@ -530,6 +530,54 @@ pub const OmniNiriTxnResult = extern struct {
     removed_window_count: usize,
 };
 
+pub const OmniNiriRuntimeSeedRequest = extern struct {
+    columns: [*c]const OmniNiriRuntimeColumnState,
+    column_count: usize,
+    windows: [*c]const OmniNiriRuntimeWindowState,
+    window_count: usize,
+};
+
+pub const OmniNiriRuntimeCommandRequest = extern struct {
+    txn: OmniNiriTxnRequest,
+};
+
+pub const OmniNiriRuntimeCommandResult = extern struct {
+    txn: OmniNiriTxnResult,
+};
+
+pub const OmniNiriRuntimeRenderRequest = extern struct {
+    columns: [*c]const OmniNiriColumnInput,
+    column_count: usize,
+    windows: [*c]const OmniNiriWindowInput,
+    window_count: usize,
+    working_x: f64,
+    working_y: f64,
+    working_width: f64,
+    working_height: f64,
+    view_x: f64,
+    view_y: f64,
+    view_width: f64,
+    view_height: f64,
+    fullscreen_x: f64,
+    fullscreen_y: f64,
+    fullscreen_width: f64,
+    fullscreen_height: f64,
+    primary_gap: f64,
+    secondary_gap: f64,
+    view_start: f64,
+    viewport_span: f64,
+    workspace_offset: f64,
+    scale: f64,
+    orientation: u8,
+};
+
+pub const OmniNiriRuntimeRenderOutput = extern struct {
+    windows: [*c]OmniNiriWindowOutput,
+    window_count: usize,
+    columns: [*c]OmniNiriColumnOutput,
+    column_count: usize,
+};
+
 pub const OmniDwindleSeedNode = extern struct {
     node_id: OmniUuid128,
     parent_index: i64,

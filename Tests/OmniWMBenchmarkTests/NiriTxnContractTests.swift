@@ -9,6 +9,7 @@ final class NiriTxnContractTests: XCTestCase {
         "omni_niri_ctx_apply_workspace",
         "omni_niri_ctx_export_runtime_state",
         "NiriStateZigRuntimeProjector",
+        "NiriStateZigDeltaProjector",
     ]
 
     private func repoRootURL() -> URL {
@@ -57,6 +58,11 @@ final class NiriTxnContractTests: XCTestCase {
             FileManager.default.fileExists(atPath: runtimeProjectorPath),
             "Legacy runtime projector file should not exist after txn+delta cutover."
         )
+        let deltaProjectorPath = niriSourceDirURL().appendingPathComponent("NiriStateZigDeltaProjector.swift").path
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: deltaProjectorPath),
+            "Delta projector file should not exist after runtime snapshot cutover."
+        )
 
         for fileURL in try niriSwiftFiles() {
             let content = try String(contentsOf: fileURL, encoding: .utf8)
@@ -70,7 +76,9 @@ final class NiriTxnContractTests: XCTestCase {
         let kernelURL = niriSourceDirURL().appendingPathComponent("NiriStateZigKernel.swift")
         let kernelContent = try String(contentsOf: kernelURL, encoding: .utf8)
 
-        XCTAssertTrue(kernelContent.contains("omni_niri_ctx_apply_txn"))
+        XCTAssertTrue(kernelContent.contains("omni_niri_runtime_apply_command"))
+        XCTAssertTrue(kernelContent.contains("omni_niri_runtime_seed"))
+        XCTAssertTrue(kernelContent.contains("omni_niri_runtime_snapshot"))
         XCTAssertTrue(kernelContent.contains("omni_niri_ctx_export_delta"))
     }
 

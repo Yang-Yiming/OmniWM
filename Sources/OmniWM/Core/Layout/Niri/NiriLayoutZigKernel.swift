@@ -17,7 +17,7 @@ enum NiriLayoutZigKernel {
         fileprivate let raw: OpaquePointer
 
         init?() {
-            guard let raw = omni_niri_layout_context_create() else { return nil }
+            guard let raw = omni_niri_runtime_create() else { return nil }
             self.raw = raw
         }
 
@@ -27,7 +27,7 @@ enum NiriLayoutZigKernel {
         }
 
         deinit {
-            omni_niri_layout_context_destroy(raw)
+            omni_niri_runtime_destroy(raw)
         }
     }
 
@@ -288,11 +288,57 @@ enum NiriLayoutZigKernel {
             windowInputs.withUnsafeBufferPointer { winBuf in
                 rawOutputs.withUnsafeMutableBufferPointer { winOutBuf in
                     rawColumnOutputs.withUnsafeMutableBufferPointer { colOutBuf in
-                            omni_niri_layout_pass_v3(
-                                context.raw,
-                                colBuf.baseAddress,
-                                colBuf.count,
-                                winBuf.baseAddress,
+                        var renderRequest = OmniNiriRuntimeRenderRequest(
+                            columns: colBuf.baseAddress,
+                            column_count: colBuf.count,
+                            windows: winBuf.baseAddress,
+                            window_count: winBuf.count,
+                            working_x: Double(workingFrame.origin.x),
+                            working_y: Double(workingFrame.origin.y),
+                            working_width: Double(workingFrame.width),
+                            working_height: Double(workingFrame.height),
+                            view_x: Double(viewFrame.origin.x),
+                            view_y: Double(viewFrame.origin.y),
+                            view_width: Double(viewFrame.width),
+                            view_height: Double(viewFrame.height),
+                            fullscreen_x: Double(fullscreenFrame.origin.x),
+                            fullscreen_y: Double(fullscreenFrame.origin.y),
+                            fullscreen_width: Double(fullscreenFrame.width),
+                            fullscreen_height: Double(fullscreenFrame.height),
+                            primary_gap: Double(primaryGap),
+                            secondary_gap: Double(secondaryGap),
+                            view_start: Double(viewStart),
+                            viewport_span: Double(viewportSpan),
+                            workspace_offset: Double(workspaceOffset),
+                            scale: Double(scale),
+                            orientation: orientationCode(orientation)
+                        )
+                        var renderOutput = OmniNiriRuntimeRenderOutput(
+                            windows: winOutBuf.baseAddress,
+                            window_count: winOutBuf.count,
+                            columns: colOutBuf.baseAddress,
+                            column_count: colOutBuf.count
+                        )
+                        let runtimeRC = withUnsafePointer(to: &renderRequest) { requestPtr in
+                            withUnsafeMutablePointer(to: &renderOutput) { outputPtr in
+                                omni_niri_runtime_render(
+                                    context.raw,
+                                    context.raw,
+                                    requestPtr,
+                                    outputPtr
+                                )
+                            }
+                        }
+                        if runtimeRC == OMNI_OK {
+                            return runtimeRC
+                        }
+
+                        // Fallback while runtime/render parity is being rolled out.
+                        return omni_niri_layout_pass_v3(
+                            context.raw,
+                            colBuf.baseAddress,
+                            colBuf.count,
+                            winBuf.baseAddress,
                             winBuf.count,
                             Double(workingFrame.origin.x),
                             Double(workingFrame.origin.y),

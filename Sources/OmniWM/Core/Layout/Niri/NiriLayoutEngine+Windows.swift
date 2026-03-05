@@ -222,26 +222,18 @@ extension NiriLayoutEngine {
             )
         }
 
-        let projection = NiriStateZigDeltaProjector.project(
-            delta: delta,
+        guard applyProjectedRuntimeExport(
+            context: prepared.context,
             workspaceId: workspaceId,
-            engine: self
-        )
-        guard projection.applied else {
-            let reason = projection.failureReason ?? "unknown projection failure"
+            delta: delta
+        ) != nil else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "runtime projection failed: \(reason)"
+                reason: "runtime snapshot projection failed"
             )
         }
-
-        setRuntimeMirrorState(
-            for: workspaceId,
-            columnCount: delta.columns.count,
-            windowCount: delta.windows.count
-        )
     }
 
     @discardableResult

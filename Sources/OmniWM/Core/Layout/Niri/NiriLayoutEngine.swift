@@ -98,12 +98,6 @@ struct NiriRenderStyle {
 }
 
 final class NiriLayoutEngine {
-    struct RuntimeMirrorState {
-        var isSeeded: Bool
-        var columnCount: Int
-        var windowCount: Int
-    }
-
     var monitors: [Monitor.ID: NiriMonitor] = [:]
 
     var roots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
@@ -138,7 +132,7 @@ final class NiriLayoutEngine {
     var moveConfiguration = MoveConfiguration.default
     var layoutContexts: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.LayoutContext] = [:]
     var interactionIndexes: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.InteractionIndex] = [:]
-    var runtimeMirrorStates: [WorkspaceDescriptor.ID: RuntimeMirrorState] = [:]
+    var runtimeSeededWorkspaces: Set<WorkspaceDescriptor.ID> = []
 
     var windowMovementAnimationConfig: SpringConfig = .balanced.with(
         epsilon: 0.0001,
@@ -239,16 +233,12 @@ final class NiriLayoutEngine {
         )
         guard rc == 0 else { return false }
 
-        runtimeMirrorStates[workspaceId] = RuntimeMirrorState(
-            isSeeded: true,
-            columnCount: snapshot.columns.count,
-            windowCount: snapshot.windows.count
-        )
+        runtimeSeededWorkspaces.insert(workspaceId)
         return true
     }
 
     func clearRuntimeMirrorState(for workspaceId: WorkspaceDescriptor.ID) {
-        runtimeMirrorStates.removeValue(forKey: workspaceId)
+        runtimeSeededWorkspaces.remove(workspaceId)
     }
 
     func wrapIndex(_ idx: Int, total: Int) -> Int? {

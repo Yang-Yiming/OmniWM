@@ -13,6 +13,7 @@ const abi = @import("omni/abi_types.zig");
 const state_validation = @import("omni/state_validation.zig");
 const interaction = @import("omni/interaction.zig");
 const layout_context = @import("omni/layout_context.zig");
+const runtime = @import("omni/runtime.zig");
 const viewport = @import("omni/viewport.zig");
 const dwindle = @import("omni/dwindle.zig");
 
@@ -297,6 +298,68 @@ export fn omni_niri_ctx_export_delta(
 ) i32 {
     return layout_context.omni_niri_ctx_export_delta_impl(
         context,
+        out_export,
+    );
+}
+
+/// Create a Niri runtime owner for authoritative workspace state.
+export fn omni_niri_runtime_create() [*c]runtime.OmniNiriRuntime {
+    return runtime.omni_niri_runtime_create_impl();
+}
+
+/// Destroy a Niri runtime owner.
+export fn omni_niri_runtime_destroy(runtime_context: [*c]runtime.OmniNiriRuntime) void {
+    runtime.omni_niri_runtime_destroy_impl(runtime_context);
+}
+
+/// Seed authoritative runtime state.
+export fn omni_niri_runtime_seed(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    request: [*c]const abi.OmniNiriRuntimeSeedRequest,
+) i32 {
+    return runtime.omni_niri_runtime_seed_impl(
+        runtime_context,
+        request,
+    );
+}
+
+/// Apply one runtime command (navigation/mutation/workspace transaction).
+export fn omni_niri_runtime_apply_command(
+    source_runtime: [*c]runtime.OmniNiriRuntime,
+    target_runtime: [*c]runtime.OmniNiriRuntime,
+    request: [*c]const abi.OmniNiriRuntimeCommandRequest,
+    out_result: [*c]abi.OmniNiriRuntimeCommandResult,
+) i32 {
+    return runtime.omni_niri_runtime_apply_command_impl(
+        source_runtime,
+        target_runtime,
+        request,
+        out_result,
+    );
+}
+
+/// Render current runtime state into frame outputs.
+export fn omni_niri_runtime_render(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    layout: [*c]layout_context.OmniNiriLayoutContext,
+    request: [*c]const abi.OmniNiriRuntimeRenderRequest,
+    out_output: [*c]abi.OmniNiriRuntimeRenderOutput,
+) i32 {
+    return runtime.omni_niri_runtime_render_impl(
+        runtime_context,
+        layout,
+        request,
+        out_output,
+    );
+}
+
+/// Snapshot full runtime state buffers.
+export fn omni_niri_runtime_snapshot(
+    runtime_context: [*c]const runtime.OmniNiriRuntime,
+    out_export: [*c]abi.OmniNiriRuntimeStateExport,
+) i32 {
+    return runtime.omni_niri_runtime_snapshot_impl(
+        runtime_context,
         out_export,
     );
 }

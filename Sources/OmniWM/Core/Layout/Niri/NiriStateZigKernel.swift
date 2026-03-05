@@ -960,6 +960,12 @@ enum NiriStateZigKernel {
             rawWindows.withUnsafeBufferPointer { windowBuf in
                 let columnPtr = columnBuf.count > 0 ? columnBuf.baseAddress : nil
                 let windowPtr = windowBuf.count > 0 ? windowBuf.baseAddress : nil
+                var request = OmniNiriRuntimeSeedRequest(
+                    columns: columnPtr,
+                    column_count: columnBuf.count,
+                    windows: windowPtr,
+                    window_count: windowBuf.count
+                )
 
                 guard !(columnBuf.count > 0 && columnPtr == nil),
                       !(windowBuf.count > 0 && windowPtr == nil)
@@ -967,16 +973,73 @@ enum NiriStateZigKernel {
                     return Int32(OMNI_ERR_INVALID_ARGS)
                 }
                 return context.withRawContext { raw in
-                    omni_niri_ctx_seed_runtime_state(
-                        raw,
-                        columnPtr,
-                        columnBuf.count,
-                        windowPtr,
-                        windowBuf.count
-                    )
+                    withUnsafePointer(to: &request) { requestPtr in
+                        omni_niri_runtime_seed(raw, requestPtr)
+                    }
                 }
             }
         }
+    }
+
+    static func snapshotRuntimeState(
+        context: NiriLayoutZigKernel.LayoutContext
+    ) -> (rc: Int32, export: RuntimeStateExport) {
+        var rawExport = OmniNiriRuntimeStateExport(
+            columns: nil,
+            column_count: 0,
+            windows: nil,
+            window_count: 0
+        )
+
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawExport) { exportPtr in
+                omni_niri_runtime_snapshot(raw, exportPtr)
+            }
+        }
+        guard rc == OMNI_OK else {
+            return (rc: rc, export: RuntimeStateExport(columns: [], windows: []))
+        }
+
+        let columns: [RuntimeColumnState]
+        if let base = rawExport.columns, rawExport.column_count > 0 {
+            let rawColumns = Array(UnsafeBufferPointer(start: base, count: rawExport.column_count))
+            columns = rawColumns.map { column in
+                RuntimeColumnState(
+                    columnId: nodeId(from: column.column_id),
+                    windowStart: column.window_start,
+                    windowCount: column.window_count,
+                    activeTileIdx: column.active_tile_idx,
+                    isTabbed: column.is_tabbed != 0,
+                    sizeValue: column.size_value,
+                    widthKind: column.width_kind,
+                    isFullWidth: column.is_full_width != 0,
+                    hasSavedWidth: column.has_saved_width != 0,
+                    savedWidthKind: column.saved_width_kind,
+                    savedWidthValue: column.saved_width_value
+                )
+            }
+        } else {
+            columns = []
+        }
+
+        let windows: [RuntimeWindowState]
+        if let base = rawExport.windows, rawExport.window_count > 0 {
+            let rawWindows = Array(UnsafeBufferPointer(start: base, count: rawExport.window_count))
+            windows = rawWindows.map { window in
+                RuntimeWindowState(
+                    windowId: nodeId(from: window.window_id),
+                    columnId: nodeId(from: window.column_id),
+                    columnIndex: window.column_index,
+                    sizeValue: window.size_value,
+                    heightKind: window.height_kind,
+                    heightValue: window.height_value
+                )
+            }
+        } else {
+            windows = []
+        }
+
+        return (rc: rc, export: RuntimeStateExport(columns: columns, windows: windows))
     }
 
     private static func emptyNavigationTxnPayload() -> OmniNiriTxnNavigationPayload {
@@ -1245,7 +1308,7 @@ enum NiriStateZigKernel {
             )
         }
 
-        var rawRequest = OmniNiriTxnRequest(
+        let rawRequest = OmniNiriTxnRequest(
             kind: kind.rawValue,
             navigation: rawNavigation,
             mutation: rawMutation,
@@ -1254,20 +1317,22 @@ enum NiriStateZigKernel {
             max_delta_windows: 0,
             max_removed_ids: 0
         )
+        var rawRuntimeRequest = OmniNiriRuntimeCommandRequest(txn: rawRequest)
 
-        var rawResult = OmniNiriTxnResult()
+        var rawRuntimeResult = OmniNiriRuntimeCommandResult()
         let rc = sourceContext.withRawContext { sourceRaw in
-            withUnsafePointer(to: &rawRequest) { requestPtr in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+            withUnsafePointer(to: &rawRuntimeRequest) { requestPtr in
+                withUnsafeMutablePointer(to: &rawRuntimeResult) { resultPtr in
                     if let targetContext {
                         return targetContext.withRawContext { targetRaw in
-                            omni_niri_ctx_apply_txn(sourceRaw, targetRaw, requestPtr, resultPtr)
+                            omni_niri_runtime_apply_command(sourceRaw, targetRaw, requestPtr, resultPtr)
                         }
                     }
-                    return omni_niri_ctx_apply_txn(sourceRaw, nil, requestPtr, resultPtr)
+                    return omni_niri_runtime_apply_command(sourceRaw, nil, requestPtr, resultPtr)
                 }
             }
         }
+        let rawResult = rawRuntimeResult.txn
 
         let targetNode: RuntimeNodeTarget?
         if rc == OMNI_OK,

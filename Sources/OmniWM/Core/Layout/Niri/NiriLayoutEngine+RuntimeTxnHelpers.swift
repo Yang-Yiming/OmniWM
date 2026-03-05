@@ -1,16 +1,8 @@
 import Foundation
 
 extension NiriLayoutEngine {
-    func setRuntimeMirrorState(
-        for workspaceId: WorkspaceDescriptor.ID,
-        columnCount: Int,
-        windowCount: Int
-    ) {
-        runtimeMirrorStates[workspaceId] = RuntimeMirrorState(
-            isSeeded: true,
-            columnCount: columnCount,
-            windowCount: windowCount
-        )
+    func markRuntimeSeeded(for workspaceId: WorkspaceDescriptor.ID) {
+        runtimeSeededWorkspaces.insert(workspaceId)
     }
 
     func prepareSeededRuntimeContext(
@@ -20,7 +12,7 @@ extension NiriLayoutEngine {
         guard let context = ensureLayoutContext(for: workspaceId) else {
             return nil
         }
-        if let mirror = runtimeMirrorStates[workspaceId], mirror.isSeeded {
+        if runtimeSeededWorkspaces.contains(workspaceId) {
             return context
         }
 
@@ -33,11 +25,7 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        setRuntimeMirrorState(
-            for: workspaceId,
-            columnCount: resolvedSnapshot.columns.count,
-            windowCount: resolvedSnapshot.windows.count
-        )
+        markRuntimeSeeded(for: workspaceId)
         return context
     }
 
@@ -48,19 +36,13 @@ extension NiriLayoutEngine {
         delta: NiriStateZigKernel.DeltaExport? = nil,
         refreshMirrorStateFromExport: Bool = true
     ) -> NiriStateZigKernel.DeltaExport? {
-        let resolvedDelta: NiriStateZigKernel.DeltaExport
-        if let delta {
-            resolvedDelta = delta
-        } else {
-            let exported = NiriStateZigKernel.exportDelta(context: context)
-            guard exported.rc == 0 else {
-                return nil
-            }
-            resolvedDelta = exported.export
+        let runtimeSnapshot = NiriStateZigKernel.snapshotRuntimeState(context: context)
+        guard runtimeSnapshot.rc == 0 else {
+            return nil
         }
 
-        let projection = NiriStateZigDeltaProjector.project(
-            delta: resolvedDelta,
+        let projection = NiriStateZigRuntimeSnapshotApplier.project(
+            export: runtimeSnapshot.export,
             workspaceId: workspaceId,
             engine: self
         )
@@ -69,14 +51,15 @@ extension NiriLayoutEngine {
         }
 
         if refreshMirrorStateFromExport {
-            setRuntimeMirrorState(
-                for: workspaceId,
-                columnCount: resolvedDelta.columns.count,
-                windowCount: resolvedDelta.windows.count
-            )
+            markRuntimeSeeded(for: workspaceId)
         }
 
-        return resolvedDelta
+        if let delta {
+            return delta
+        }
+
+        let exportedDelta = NiriStateZigKernel.exportDelta(context: context)
+        return exportedDelta.rc == 0 ? exportedDelta.export : nil
     }
 
     @discardableResult
@@ -87,19 +70,13 @@ extension NiriLayoutEngine {
         delta: NiriStateZigKernel.DeltaExport? = nil,
         refreshMirrorStateFromExport: Bool = true
     ) -> NiriStateZigKernel.DeltaExport? {
-        let resolvedDelta: NiriStateZigKernel.DeltaExport
-        if let delta {
-            resolvedDelta = delta
-        } else {
-            let exported = NiriStateZigKernel.exportDelta(context: context)
-            guard exported.rc == 0 else {
-                return nil
-            }
-            resolvedDelta = exported.export
+        let runtimeSnapshot = NiriStateZigKernel.snapshotRuntimeState(context: context)
+        guard runtimeSnapshot.rc == 0 else {
+            return nil
         }
 
-        let projection = NiriStateZigDeltaProjector.projectLifecycle(
-            delta: resolvedDelta,
+        let projection = NiriStateZigRuntimeSnapshotApplier.projectLifecycle(
+            export: runtimeSnapshot.export,
             workspaceId: workspaceId,
             engine: self,
             incomingHandlesById: incomingHandlesById
@@ -109,14 +86,15 @@ extension NiriLayoutEngine {
         }
 
         if refreshMirrorStateFromExport {
-            setRuntimeMirrorState(
-                for: workspaceId,
-                columnCount: resolvedDelta.columns.count,
-                windowCount: resolvedDelta.windows.count
-            )
+            markRuntimeSeeded(for: workspaceId)
         }
 
-        return resolvedDelta
+        if let delta {
+            return delta
+        }
+
+        let exportedDelta = NiriStateZigKernel.exportDelta(context: context)
+        return exportedDelta.rc == 0 ? exportedDelta.export : nil
     }
 
     func navigationRefreshColumnIds(

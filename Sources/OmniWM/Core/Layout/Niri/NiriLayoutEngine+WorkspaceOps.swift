@@ -93,16 +93,8 @@ extension NiriLayoutEngine {
             movedHandle = nil
         }
 
-        setRuntimeMirrorState(
-            for: prepared.sourceWorkspaceId,
-            columnCount: applyOutcome.sourceDelta?.columns.count ?? 0,
-            windowCount: applyOutcome.sourceDelta?.windows.count ?? 0
-        )
-        setRuntimeMirrorState(
-            for: prepared.targetWorkspaceId,
-            columnCount: applyOutcome.targetDelta?.columns.count ?? 0,
-            windowCount: applyOutcome.targetDelta?.windows.count ?? 0
-        )
+        markRuntimeSeeded(for: prepared.sourceWorkspaceId)
+        markRuntimeSeeded(for: prepared.targetWorkspaceId)
 
         return WorkspaceApplyOutcome(
             applied: true,

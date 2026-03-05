@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 typedef struct OmniNiriLayoutContext OmniNiriLayoutContext;
+typedef struct OmniNiriRuntime OmniNiriRuntime;
 typedef struct OmniDwindleLayoutContext OmniDwindleLayoutContext;
 
 /// Input descriptor for one window on a single axis.
@@ -947,6 +948,54 @@ typedef struct {
     size_t removed_window_count;
 } OmniNiriTxnResult;
 
+typedef struct {
+    const OmniNiriRuntimeColumnState *columns;
+    size_t column_count;
+    const OmniNiriRuntimeWindowState *windows;
+    size_t window_count;
+} OmniNiriRuntimeSeedRequest;
+
+typedef struct {
+    OmniNiriTxnRequest txn;
+} OmniNiriRuntimeCommandRequest;
+
+typedef struct {
+    OmniNiriTxnResult txn;
+} OmniNiriRuntimeCommandResult;
+
+typedef struct {
+    const OmniNiriColumnInput *columns;
+    size_t column_count;
+    const OmniNiriWindowInput *windows;
+    size_t window_count;
+    double working_x;
+    double working_y;
+    double working_width;
+    double working_height;
+    double view_x;
+    double view_y;
+    double view_width;
+    double view_height;
+    double fullscreen_x;
+    double fullscreen_y;
+    double fullscreen_width;
+    double fullscreen_height;
+    double primary_gap;
+    double secondary_gap;
+    double view_start;
+    double viewport_span;
+    double workspace_offset;
+    double scale;
+    uint8_t orientation;
+} OmniNiriRuntimeRenderRequest;
+
+typedef struct {
+    OmniNiriWindowOutput *windows;
+    size_t window_count;
+    OmniNiriColumnOutput *columns;
+    size_t column_count;
+} OmniNiriRuntimeRenderOutput;
+
 /// Apply one Niri runtime transaction and update context-owned delta buffers.
 /// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
 int32_t omni_niri_ctx_apply_txn(
@@ -960,6 +1009,41 @@ int32_t omni_niri_ctx_apply_txn(
 int32_t omni_niri_ctx_export_delta(
     const OmniNiriLayoutContext *context,
     OmniNiriTxnDeltaExport *out_export);
+
+/// Create a Niri runtime owner for authoritative state.
+/// Returns NULL on allocation failure.
+OmniNiriRuntime *omni_niri_runtime_create(void);
+
+/// Destroy a runtime owner.
+void omni_niri_runtime_destroy(OmniNiriRuntime *runtime);
+
+/// Seed authoritative runtime state.
+/// Returns 0 on success, -1 for invalid args, -2 for capacity/range failures.
+int32_t omni_niri_runtime_seed(
+    OmniNiriRuntime *runtime,
+    const OmniNiriRuntimeSeedRequest *request);
+
+/// Apply one runtime command (navigation/mutation/workspace transaction).
+/// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
+int32_t omni_niri_runtime_apply_command(
+    OmniNiriRuntime *source_runtime,
+    OmniNiriRuntime *target_runtime,
+    const OmniNiriRuntimeCommandRequest *request,
+    OmniNiriRuntimeCommandResult *out_result);
+
+/// Render current runtime state into frame outputs.
+/// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
+int32_t omni_niri_runtime_render(
+    OmniNiriRuntime *runtime,
+    OmniNiriLayoutContext *layout_context,
+    const OmniNiriRuntimeRenderRequest *request,
+    OmniNiriRuntimeRenderOutput *out_output);
+
+/// Export full runtime snapshot pointers/counts.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_snapshot(
+    const OmniNiriRuntime *runtime,
+    OmniNiriRuntimeStateExport *out_export);
 
 typedef enum {
     OMNI_DWINDLE_NODE_SPLIT = 0,
