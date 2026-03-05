@@ -4,7 +4,15 @@ import Foundation
 extension NiriLayoutEngine {
     private struct LifecycleRuntimePreparation {
         let context: NiriLayoutZigKernel.LayoutContext
-        let indexLookup: NiriStateZigKernel.IndexLookup
+    }
+
+    private func canonicalSelectedNodeId(
+        _ selectedNodeId: NodeId?,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> NodeId? {
+        guard let selectedNodeId else { return nil }
+        guard root(for: workspaceId)?.findNode(by: selectedNodeId) != nil else { return nil }
+        return selectedNodeId
     }
 
     private func lifecycleContractFailure(
@@ -41,7 +49,6 @@ extension NiriLayoutEngine {
         }
 
         let workspaceColumns = columns(in: workspaceId)
-        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
         guard let context = prepareSeededRuntimeContext(
             for: workspaceId,
             snapshot: NiriStateZigKernel.makeSnapshot(columns: workspaceColumns)
@@ -49,7 +56,7 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        return LifecycleRuntimePreparation(context: context, indexLookup: indexLookup)
+        return LifecycleRuntimePreparation(context: context)
     }
 
     func addWindow(
@@ -70,27 +77,25 @@ extension NiriLayoutEngine {
             )
         }
 
-        let selectedTarget = NiriStateZigKernel.mutationNodeTarget(
-            for: selectedNodeId,
-            indexLookup: prepared.indexLookup
-        )
-
-        let focusedWindowIndex: Int
+        let focusedWindowId: NodeId?
         if let focusedHandle,
            let focusedNode = handleToNode[focusedHandle],
-           let resolvedFocusedIndex = prepared.indexLookup.windowIndexByNodeId[focusedNode.id]
+           root(for: workspaceId)?.findNode(by: focusedNode.id) is NiriWindow
         {
-            focusedWindowIndex = resolvedFocusedIndex
+            focusedWindowId = focusedNode.id
         } else {
-            focusedWindowIndex = -1
+            focusedWindowId = nil
         }
+        let sanitizedSelectedNodeId = canonicalSelectedNodeId(
+            selectedNodeId,
+            in: workspaceId
+        )
 
         let request = NiriStateZigKernel.MutationRequest(
             op: .addWindow,
             maxVisibleColumns: maxVisibleColumns,
-            selectedNodeKind: selectedTarget.kind,
-            selectedNodeIndex: selectedTarget.index,
-            focusedWindowIndex: focusedWindowIndex
+            selectedNodeId: sanitizedSelectedNodeId,
+            focusedWindowId: focusedWindowId
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
@@ -175,7 +180,7 @@ extension NiriLayoutEngine {
                 reason: "runtime preparation failed"
             )
         }
-        guard let sourceWindowIndex = prepared.indexLookup.windowIndexByNodeId[node.id] else {
+        guard root(for: workspaceId)?.findNode(by: node.id) is NiriWindow else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
@@ -186,7 +191,7 @@ extension NiriLayoutEngine {
 
         let request = NiriStateZigKernel.MutationRequest(
             op: .removeWindow,
-            sourceWindowIndex: sourceWindowIndex
+            sourceWindowId: node.id
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
@@ -285,15 +290,14 @@ extension NiriLayoutEngine {
         ) else {
             return columns(in: workspaceId).first?.firstChild()?.id
         }
-
-        let selectedTarget = NiriStateZigKernel.mutationNodeTarget(
-            for: selectedNodeId,
-            indexLookup: prepared.indexLookup
+        let sanitizedSelectedNodeId = canonicalSelectedNodeId(
+            selectedNodeId,
+            in: workspaceId
         )
+
         let request = NiriStateZigKernel.MutationRequest(
             op: .validateSelection,
-            selectedNodeKind: selectedTarget.kind,
-            selectedNodeIndex: selectedTarget.index
+            selectedNodeId: sanitizedSelectedNodeId
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,
@@ -318,13 +322,13 @@ extension NiriLayoutEngine {
         ) else {
             return nil
         }
-        guard let sourceWindowIndex = prepared.indexLookup.windowIndexByNodeId[removingNodeId] else {
+        guard root(for: workspaceId)?.findNode(by: removingNodeId) is NiriWindow else {
             return nil
         }
 
         let request = NiriStateZigKernel.MutationRequest(
             op: .fallbackSelectionOnRemoval,
-            sourceWindowIndex: sourceWindowIndex
+            sourceWindowId: removingNodeId
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,

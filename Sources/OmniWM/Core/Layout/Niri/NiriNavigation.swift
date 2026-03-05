@@ -3,6 +3,28 @@ import CZigLayout
 import Foundation
 
 extension NiriLayoutEngine {
+    private func navigationSelectionIds(
+        for node: NiriNode,
+        snapshot: NiriStateZigKernel.Snapshot
+    ) -> (sourceWindowId: NodeId?, sourceColumnId: NodeId?)? {
+        if let windowIndex = snapshot.windowIndexByNodeId[node.id],
+           snapshot.windowEntries.indices.contains(windowIndex)
+        {
+            let entry = snapshot.windowEntries[windowIndex]
+            return (sourceWindowId: entry.window.id, sourceColumnId: entry.column.id)
+        }
+
+        guard let columnIndex = snapshot.columnIndexByNodeId[node.id],
+              snapshot.columnEntries.indices.contains(columnIndex)
+        else {
+            return nil
+        }
+
+        let columnEntry = snapshot.columnEntries[columnIndex]
+        guard columnEntry.windowCount > 0 else { return nil }
+        return (sourceWindowId: nil, sourceColumnId: columnEntry.column.id)
+    }
+
     private func column(
         for columnId: NodeId,
         snapshot: NiriStateZigKernel.Snapshot
@@ -81,25 +103,29 @@ extension NiriLayoutEngine {
         orientation: Monitor.Orientation = .horizontal,
         step: Int = 0,
         targetRowIndex: Int = -1,
-        targetColumnIndex: Int = -1,
-        targetWindowIndex: Int = -1,
+        focusColumnIndex: Int = -1,
+        focusWindowIndex: Int = -1,
         allowMissingSelection: Bool = false
     ) -> NiriNode? {
-        let selection = NiriStateZigKernel.makeSelectionContext(node: currentSelection, snapshot: snapshot)
+        let selection = navigationSelectionIds(
+            for: currentSelection,
+            snapshot: snapshot
+        )
         if selection == nil, !allowMissingSelection {
             return nil
         }
 
         let request = NiriStateZigKernel.NavigationRequest(
             op: op,
-            selection: selection,
+            sourceWindowId: selection?.sourceWindowId,
+            sourceColumnId: selection?.sourceColumnId,
             direction: direction,
             orientation: orientation,
             infiniteLoop: infiniteLoop,
             step: step,
             targetRowIndex: targetRowIndex,
-            targetColumnIndex: targetColumnIndex,
-            targetWindowIndex: targetWindowIndex
+            focusColumnIndex: focusColumnIndex,
+            focusWindowIndex: focusWindowIndex
         )
 
         guard let workspaceId else {
@@ -517,7 +543,7 @@ extension NiriLayoutEngine {
             workspaceId: workspaceId,
             op: .focusColumnIndex,
             currentSelection: currentSelection,
-            targetColumnIndex: columnIndex,
+            focusColumnIndex: columnIndex,
             allowMissingSelection: true
         )
         else {
@@ -552,7 +578,7 @@ extension NiriLayoutEngine {
             workspaceId: workspaceId,
             op: .focusWindowIndex,
             currentSelection: currentSelection,
-            targetWindowIndex: windowIndex
+            focusWindowIndex: windowIndex
         )
         else {
             return nil

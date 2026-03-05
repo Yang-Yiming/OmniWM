@@ -17,6 +17,32 @@ final class NiriTxnIntegrationTests: XCTestCase {
         return NiriWindow(handle: handle)
     }
 
+    private func makeSeededSingleWindowContext(
+        workspaceName: String
+    ) throws -> (
+        engine: NiriLayoutEngine,
+        workspace: WorkspaceDescriptor,
+        context: NiriLayoutZigKernel.LayoutContext,
+        column: NiriContainer,
+        window: NiriWindow
+    ) {
+        let workspace = WorkspaceDescriptor(name: workspaceName)
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3, infiniteLoop: false)
+        let root = engine.ensureRoot(for: workspace.id)
+        let column = try XCTUnwrap(root.columns.first)
+        let window = makeWindow()
+        column.appendChild(window)
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        return (engine: engine, workspace: workspace, context: context, column: column, window: window)
+    }
+
     func testNavigationTxnUpdatesActiveTileAndExportsDelta() throws {
         let workspace = WorkspaceDescriptor(name: "txn-nav")
         let engine = NiriLayoutEngine()
@@ -36,12 +62,10 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let selection = try XCTUnwrap(
-            NiriStateZigKernel.makeSelectionContext(node: firstWindow, snapshot: snapshot)
-        )
         let request = NiriStateZigKernel.NavigationRequest(
             op: .focusWindowBottom,
-            selection: selection
+            sourceWindowId: firstWindow.id,
+            sourceColumnId: column.id
         )
 
         let outcome = NiriStateZigKernel.applyNavigation(
@@ -76,10 +100,9 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[leftWindow.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .moveWindowHorizontal,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: leftWindow.id,
             direction: .right,
             maxWindowsPerColumn: engine.maxWindowsPerColumn
         )
@@ -116,10 +139,9 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[movingWindow.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .createColumnAndMove,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: movingWindow.id,
             direction: .right,
             maxVisibleColumns: engine.maxVisibleColumns
         )
@@ -166,10 +188,9 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[sourceActiveWindow.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .swapWindowHorizontal,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: sourceActiveWindow.id,
             direction: .right,
             infiniteLoop: false
         )
@@ -216,10 +237,9 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(sourceSnapshot.windowIndexByNodeId[movingWindow.id])
         let request = NiriStateZigKernel.WorkspaceRequest(
             op: .moveWindowToWorkspace,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: movingWindow.id,
             maxVisibleColumns: engine.maxVisibleColumns
         )
 
@@ -250,7 +270,6 @@ final class NiriTxnIntegrationTests: XCTestCase {
         let window = makeWindow()
         column.appendChild(window)
 
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
         let context = try XCTUnwrap(NiriLayoutZigKernel.LayoutContext())
         XCTAssertEqual(
             NiriStateZigKernel.seedRuntimeState(
@@ -260,10 +279,9 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[window.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .removeWindow,
-            sourceWindowIndex: sourceWindowIndex
+            sourceWindowId: window.id
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
@@ -283,7 +301,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(exported.export.windows.count, 0)
     }
 
-    func testNavigationTxnRejectsOutOfRangeSelectedWindowIndex() throws {
+    func testNavigationTxnRejectsUnknownSourceWindowId() throws {
         let workspace = WorkspaceDescriptor(name: "txn-nav-out-of-range")
         let engine = NiriLayoutEngine()
         let root = engine.ensureRoot(for: workspace.id)
@@ -299,11 +317,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let request = NiriStateZigKernel.NavigationRequest(
             op: .focusWindowBottom,
-            selection: .init(
-                selectedWindowIndex: 99,
-                selectedColumnIndex: 0,
-                selectedRowIndex: 0
-            )
+            sourceWindowId: NodeId(uuid: UUID())
         )
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
@@ -314,7 +328,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertFalse(outcome.applied)
     }
 
-    func testMutationTxnValidateSelectionUsesSelectedAndFocusedWindowIndices() throws {
+    func testMutationTxnValidateSelectionUsesSelectedAndFocusedWindowIds() throws {
         let workspace = WorkspaceDescriptor(name: "txn-selected-focused-coherence")
         let engine = NiriLayoutEngine()
         let root = engine.ensureRoot(for: workspace.id)
@@ -329,12 +343,10 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let selectedWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[selectedWindow.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .validateSelection,
-            selectedNodeKind: .window,
-            selectedNodeIndex: selectedWindowIndex,
-            focusedWindowIndex: selectedWindowIndex
+            selectedNodeId: selectedWindow.id,
+            focusedWindowId: selectedWindow.id
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
@@ -346,7 +358,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(outcome.targetNode?.nodeId, selectedWindow.id)
     }
 
-    func testMutationTxnMoveWindowToColumnHonorsSourceAndTargetIndices() throws {
+    func testMutationTxnMoveWindowToColumnHonorsSourceAndTargetIds() throws {
         let workspace = WorkspaceDescriptor(name: "txn-source-target-coherence")
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
         let root = engine.ensureRoot(for: workspace.id)
@@ -366,13 +378,11 @@ final class NiriTxnIntegrationTests: XCTestCase {
             Int32(OMNI_OK)
         )
 
-        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[movingWindow.id])
-        let targetColumnIndex = try XCTUnwrap(snapshot.columnIndexByNodeId[targetColumn.id])
         let request = NiriStateZigKernel.MutationRequest(
             op: .moveWindowToColumn,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: movingWindow.id,
             maxWindowsPerColumn: engine.maxWindowsPerColumn,
-            targetColumnIndex: targetColumnIndex
+            targetColumnId: targetColumn.id
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
@@ -388,7 +398,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(movedRecord.window.columnId, targetResidentRecord.window.columnId)
     }
 
-    func testWorkspaceTxnRejectsOutOfRangeSourceWindowIndex() throws {
+    func testWorkspaceTxnRejectsUnknownSourceWindowId() throws {
         let sourceWorkspace = WorkspaceDescriptor(name: "txn-source-out-of-range")
         let targetWorkspace = WorkspaceDescriptor(name: "txn-target-out-of-range")
         let engine = NiriLayoutEngine(maxVisibleColumns: 3)
@@ -414,7 +424,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let request = NiriStateZigKernel.WorkspaceRequest(
             op: .moveWindowToWorkspace,
-            sourceWindowIndex: 77,
+            sourceWindowId: NodeId(uuid: UUID()),
             maxVisibleColumns: engine.maxVisibleColumns
         )
         let outcome = NiriStateZigKernel.applyWorkspace(
@@ -429,5 +439,283 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_OUT_OF_RANGE))
         XCTAssertFalse(outcome.applied)
+    }
+
+    func testMutationTxnRejectsMissingRequiredSourceWindowId() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-missing-source-id")
+        let engine = NiriLayoutEngine()
+        let root = engine.ensureRoot(for: workspace.id)
+        let column = try XCTUnwrap(root.columns.first)
+        column.appendChild(makeWindow())
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        let request = NiriStateZigKernel.MutationRequest(op: .removeWindow)
+        let outcome = NiriStateZigKernel.applyMutation(
+            context: context,
+            request: .init(
+                request: request,
+                placeholderColumnId: UUID()
+            )
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_INVALID_ARGS))
+        XCTAssertFalse(outcome.applied)
+    }
+
+    func testMutationTxnRejectsUnknownTargetColumnId() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-unknown-target-column")
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let root = engine.ensureRoot(for: workspace.id)
+        let sourceColumn = try XCTUnwrap(root.columns.first)
+        let movingWindow = makeWindow()
+        sourceColumn.appendChild(movingWindow)
+
+        let targetColumn = NiriContainer()
+        root.appendChild(targetColumn)
+        targetColumn.appendChild(makeWindow())
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        let request = NiriStateZigKernel.MutationRequest(
+            op: .moveWindowToColumn,
+            sourceWindowId: movingWindow.id,
+            maxWindowsPerColumn: engine.maxWindowsPerColumn,
+            targetColumnId: NodeId(uuid: UUID())
+        )
+        let outcome = NiriStateZigKernel.applyMutation(
+            context: context,
+            request: .init(request: request, placeholderColumnId: UUID())
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_OUT_OF_RANGE))
+        XCTAssertFalse(outcome.applied)
+    }
+
+    func testWorkspaceTxnRejectsSourceWindowIdFromWrongWorkspace() throws {
+        let sourceWorkspace = WorkspaceDescriptor(name: "txn-source-ownership")
+        let targetWorkspace = WorkspaceDescriptor(name: "txn-target-ownership")
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
+
+        let sourceRoot = engine.ensureRoot(for: sourceWorkspace.id)
+        let sourceColumn = try XCTUnwrap(sourceRoot.columns.first)
+        sourceColumn.appendChild(makeWindow())
+
+        let targetRoot = engine.ensureRoot(for: targetWorkspace.id)
+        let targetColumn = try XCTUnwrap(targetRoot.columns.first)
+        let targetWindow = makeWindow()
+        targetColumn.appendChild(targetWindow)
+
+        let sourceSnapshot = NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
+        let targetSnapshot = NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
+        let sourceContext = try XCTUnwrap(engine.ensureLayoutContext(for: sourceWorkspace.id))
+        let targetContext = try XCTUnwrap(engine.ensureLayoutContext(for: targetWorkspace.id))
+
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: sourceContext, snapshot: sourceSnapshot),
+            Int32(OMNI_OK)
+        )
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: targetContext, snapshot: targetSnapshot),
+            Int32(OMNI_OK)
+        )
+
+        let request = NiriStateZigKernel.WorkspaceRequest(
+            op: .moveWindowToWorkspace,
+            sourceWindowId: targetWindow.id,
+            maxVisibleColumns: engine.maxVisibleColumns
+        )
+        let outcome = NiriStateZigKernel.applyWorkspace(
+            sourceContext: sourceContext,
+            targetContext: targetContext,
+            request: .init(
+                request: request,
+                targetCreatedColumnId: UUID(),
+                sourcePlaceholderColumnId: UUID()
+            )
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_OUT_OF_RANGE))
+        XCTAssertFalse(outcome.applied)
+    }
+
+    func testMutationTxnRequiredIdGuardsRejectMissingIds() throws {
+        let fixture = try makeSeededSingleWindowContext(workspaceName: "txn-required-id-guards")
+
+        let missingSourceWindowOps: [NiriStateZigKernel.MutationOp] = [
+            .moveWindowVertical,
+            .swapWindowVertical,
+            .moveWindowHorizontal,
+            .swapWindowHorizontal,
+            .swapWindowsByMove,
+            .insertWindowByMove,
+            .moveWindowToColumn,
+            .createColumnAndMove,
+            .insertWindowInNewColumn,
+            .consumeWindow,
+            .expelWindow,
+            .removeWindow,
+            .fallbackSelectionOnRemoval,
+        ]
+        for op in missingSourceWindowOps {
+            let request = NiriStateZigKernel.MutationRequest(op: op)
+            let outcome = NiriStateZigKernel.applyMutation(
+                context: fixture.context,
+                request: .init(request: request)
+            )
+            XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_INVALID_ARGS), "Expected missing source window ID rejection for \(op)")
+            XCTAssertFalse(outcome.applied)
+        }
+
+        let missingSourceColumnOps: [NiriStateZigKernel.MutationOp] = [
+            .moveColumn,
+            .cleanupEmptyColumn,
+            .normalizeWindowSizes,
+        ]
+        for op in missingSourceColumnOps {
+            let request = NiriStateZigKernel.MutationRequest(op: op)
+            let outcome = NiriStateZigKernel.applyMutation(
+                context: fixture.context,
+                request: .init(request: request)
+            )
+            XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_INVALID_ARGS), "Expected missing source column ID rejection for \(op)")
+            XCTAssertFalse(outcome.applied)
+        }
+
+        let missingTargetColumnOps: [NiriStateZigKernel.MutationOp] = [
+            .moveWindowToColumn,
+        ]
+        for op in missingTargetColumnOps {
+            let request = NiriStateZigKernel.MutationRequest(
+                op: op,
+                sourceWindowId: fixture.window.id,
+                maxWindowsPerColumn: fixture.engine.maxWindowsPerColumn
+            )
+            let outcome = NiriStateZigKernel.applyMutation(
+                context: fixture.context,
+                request: .init(request: request)
+            )
+            XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_INVALID_ARGS), "Expected missing target column ID rejection for \(op)")
+            XCTAssertFalse(outcome.applied)
+        }
+    }
+
+    func testNavigationTxnRequiredSelectionGuardsRejectMissingSelectionIds() throws {
+        let fixture = try makeSeededSingleWindowContext(workspaceName: "txn-required-nav-selection")
+
+        let requiredSelectionOps: [NiriStateZigKernel.NavigationOp] = [
+            .moveByColumns,
+            .moveVertical,
+            .focusTarget,
+            .focusDownOrLeft,
+            .focusUpOrRight,
+            .focusWindowIndex,
+            .focusWindowTop,
+            .focusWindowBottom,
+        ]
+
+        for op in requiredSelectionOps {
+            let request = NiriStateZigKernel.NavigationRequest(op: op)
+            let outcome = NiriStateZigKernel.applyNavigation(
+                context: fixture.context,
+                request: .init(request: request)
+            )
+            XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_INVALID_ARGS), "Expected missing navigation selection ID rejection for \(op)")
+            XCTAssertFalse(outcome.applied)
+        }
+    }
+
+    func testEngineAddWindowIgnoresUnknownSelectedNodeId() {
+        let workspace = WorkspaceDescriptor(name: "txn-engine-add-window-stale-selection")
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
+        _ = engine.ensureRoot(for: workspace.id)
+
+        let pid = getpid()
+        let handle = WindowHandle(
+            id: UUID(),
+            pid: pid,
+            axElement: AXUIElementCreateApplication(pid)
+        )
+
+        let added = engine.addWindow(
+            handle: handle,
+            to: workspace.id,
+            afterSelection: NodeId(uuid: UUID())
+        )
+
+        XCTAssertEqual(added.windowId, handle.id)
+        XCTAssertNotNil(engine.findNode(by: added.id))
+    }
+
+    func testMutationTxnValidateSelectionAcceptsUnknownSelectedNodeId() throws {
+        let fixture = try makeSeededSingleWindowContext(workspaceName: "txn-validate-selection-unknown-selected-id")
+        let request = NiriStateZigKernel.MutationRequest(
+            op: .validateSelection,
+            selectedNodeId: NodeId(uuid: UUID())
+        )
+        let outcome = NiriStateZigKernel.applyTxn(
+            .mutation(
+                context: fixture.context,
+                request: .init(request: request)
+            )
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
+        XCTAssertFalse(outcome.applied)
+        XCTAssertEqual(outcome.targetNode?.kind, .window)
+        XCTAssertEqual(outcome.targetNode?.nodeId, fixture.window.id)
+    }
+
+    func testRuntimeRenderRecoversFromCountDriftByReseedingAndRetrying() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-runtime-render-retry")
+        let engine = NiriLayoutEngine()
+        let root = engine.ensureRoot(for: workspace.id)
+        let column = try XCTUnwrap(root.columns.first)
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: context,
+                export: NiriStateZigKernel.RuntimeStateExport(columns: [], windows: [])
+            ),
+            Int32(OMNI_OK)
+        )
+
+        let frame = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        column.resolveAndCacheWidth(workingAreaWidth: frame.width, gaps: 10)
+        let result = NiriLayoutZigKernel.run(
+            context: context,
+            columns: engine.columns(in: workspace.id),
+            orientation: .horizontal,
+            primaryGap: 10,
+            secondaryGap: 10,
+            workingFrame: frame,
+            viewFrame: frame,
+            fullscreenFrame: frame,
+            viewStart: 0,
+            viewportSpan: frame.width,
+            workspaceOffset: 0,
+            scale: 2,
+            tabIndicatorWidth: 0,
+            time: 0
+        )
+
+        XCTAssertEqual(result.columns.count, 1)
+        XCTAssertEqual(result.windows.count, 0)
+
+        let exported = NiriStateZigKernel.snapshotRuntimeState(context: context)
+        XCTAssertEqual(exported.rc, Int32(OMNI_OK))
+        XCTAssertEqual(exported.export.columns.count, 1)
+        XCTAssertEqual(exported.export.windows.count, 0)
     }
 }

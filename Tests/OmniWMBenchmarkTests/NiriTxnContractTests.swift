@@ -94,4 +94,35 @@ final class NiriTxnContractTests: XCTestCase {
         XCTAssertFalse(zigContent.contains("omni_niri_ctx_apply_mutation_impl"))
         XCTAssertFalse(zigContent.contains("omni_niri_ctx_apply_workspace_impl"))
     }
+
+    func testNiriOpsAndNavigationHaveNoSwiftIndexLookupCommandPath() throws {
+        let fileNames = [
+            "NiriLayoutEngine+ColumnOps.swift",
+            "NiriLayoutEngine+WindowOps.swift",
+            "NiriLayoutEngine+WorkspaceOps.swift",
+            "NiriLayoutEngine+Windows.swift",
+            "NiriNavigation.swift",
+        ]
+
+        for fileName in fileNames {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(content.contains("makeIndexLookup("), "Found legacy index lookup in \(fileName)")
+            XCTAssertFalse(content.contains("makeSelectionContext("), "Found legacy selection context lookup in \(fileName)")
+            XCTAssertFalse(content.contains("mutationNodeTarget("), "Found legacy mutation target lookup in \(fileName)")
+            XCTAssertFalse(content.contains("IndexLookup"), "Found legacy IndexLookup type usage in \(fileName)")
+        }
+    }
+
+    func testSwiftRenderPathHasNoLegacyLayoutFallback() throws {
+        let kernelURL = niriSourceDirURL().appendingPathComponent("NiriLayoutZigKernel.swift")
+        let kernelContent = try String(contentsOf: kernelURL, encoding: .utf8)
+
+        XCTAssertTrue(kernelContent.contains("omni_niri_runtime_render("))
+        XCTAssertFalse(kernelContent.contains("omni_niri_layout_pass_v3("))
+        XCTAssertTrue(kernelContent.contains("OMNI_ERR_OUT_OF_RANGE"))
+        XCTAssertTrue(kernelContent.contains("seedRuntimeState("))
+        XCTAssertTrue(kernelContent.contains("reseed_rc="))
+        XCTAssertTrue(kernelContent.contains("retry_rc="))
+    }
 }

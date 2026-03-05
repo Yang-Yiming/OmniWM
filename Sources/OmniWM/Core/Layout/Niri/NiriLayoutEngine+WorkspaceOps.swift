@@ -132,14 +132,16 @@ extension NiriLayoutEngine {
         let targetRoot = ensureRoot(for: targetWorkspaceId)
         let sourceColumns = sourceRoot.columns
         let targetColumns = targetRoot.columns
-        let sourceIndexLookup = NiriStateZigKernel.makeIndexLookup(columns: sourceColumns)
-        guard let sourceWindowIndex = sourceIndexLookup.windowIndexByNodeId[window.id] else {
+        let sourceWindowExists = sourceColumns.contains { column in
+            column.windowNodes.contains(where: { $0.id == window.id })
+        }
+        guard sourceWindowExists else {
             return nil
         }
 
         let request = NiriStateZigKernel.WorkspaceRequest(
             op: .moveWindowToWorkspace,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: window.id,
             maxVisibleColumns: maxVisibleColumns
         )
 
@@ -168,14 +170,13 @@ extension NiriLayoutEngine {
         let targetRoot = ensureRoot(for: targetWorkspaceId)
         let sourceColumns = sourceRoot.columns
         let targetColumns = targetRoot.columns
-        let sourceIndexLookup = NiriStateZigKernel.makeIndexLookup(columns: sourceColumns)
-        guard let sourceColumnIndex = sourceIndexLookup.columnIndexByNodeId[column.id] else {
+        guard sourceColumns.contains(where: { $0.id == column.id }) else {
             return nil
         }
 
         let request = NiriStateZigKernel.WorkspaceRequest(
             op: .moveColumnToWorkspace,
-            sourceColumnIndex: sourceColumnIndex
+            sourceColumnId: column.id
         )
 
         return WorkspacePreparedRequest(

@@ -164,7 +164,11 @@ extension NiriLayoutEngine {
             return
         }
 
-        guard let layoutContext = ensureLayoutContext(for: workspaceId) else { return }
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: containers)
+        guard let layoutContext = prepareSeededRuntimeContext(
+            for: workspaceId,
+            snapshot: snapshot
+        ) else { return }
 
         let workingFrame = workingArea?.workingFrame ?? monitorFrame
         let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame

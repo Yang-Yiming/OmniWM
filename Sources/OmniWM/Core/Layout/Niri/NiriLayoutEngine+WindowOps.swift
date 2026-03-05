@@ -4,7 +4,6 @@ import Foundation
 extension NiriLayoutEngine {
     private struct WindowMutationPreparedRequest {
         let workspaceColumns: [NiriContainer]
-        let indexLookup: NiriStateZigKernel.IndexLookup
         let request: NiriStateZigKernel.MutationRequest
     }
 
@@ -30,25 +29,25 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> WindowMutationPreparedRequest? {
         let workspaceColumns = columns(in: workspaceId)
-        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
-        guard let sourceWindowIndex = indexLookup.windowIndexByNodeId[sourceWindow.id] else {
+        let sourceWindowExists = workspaceColumns.contains { column in
+            column.windowNodes.contains(where: { $0.id == sourceWindow.id })
+        }
+        guard sourceWindowExists else {
             return nil
         }
-
-        let targetWindowIndex: Int
         if let targetWindow {
-            guard let resolvedTargetWindowIndex = indexLookup.windowIndexByNodeId[targetWindow.id] else {
+            let targetWindowExists = workspaceColumns.contains { column in
+                column.windowNodes.contains(where: { $0.id == targetWindow.id })
+            }
+            guard targetWindowExists else {
                 return nil
             }
-            targetWindowIndex = resolvedTargetWindowIndex
-        } else {
-            targetWindowIndex = -1
         }
 
         let request = NiriStateZigKernel.MutationRequest(
             op: op,
-            sourceWindowIndex: sourceWindowIndex,
-            targetWindowIndex: targetWindowIndex,
+            sourceWindowId: sourceWindow.id,
+            targetWindowId: targetWindow?.id,
             direction: direction,
             infiniteLoop: infiniteLoop,
             insertPosition: insertPosition,
@@ -57,7 +56,6 @@ extension NiriLayoutEngine {
 
         return WindowMutationPreparedRequest(
             workspaceColumns: workspaceColumns,
-            indexLookup: indexLookup,
             request: request
         )
     }

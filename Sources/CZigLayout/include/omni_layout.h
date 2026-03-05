@@ -878,13 +878,18 @@ typedef struct {
     uint8_t direction;
     uint8_t orientation;
     uint8_t infinite_loop;
-    int64_t selected_window_index;
-    int64_t selected_column_index;
-    int64_t selected_row_index;
+    uint8_t has_source_window_id;
+    OmniUuid128 source_window_id;
+    uint8_t has_source_column_id;
+    OmniUuid128 source_column_id;
+    uint8_t has_target_window_id;
+    OmniUuid128 target_window_id;
+    uint8_t has_target_column_id;
+    OmniUuid128 target_column_id;
     int64_t step;
     int64_t target_row_index;
-    int64_t target_column_index;
-    int64_t target_window_index;
+    int64_t focus_column_index;
+    int64_t focus_window_index;
 } OmniNiriTxnNavigationPayload;
 
 typedef struct {
@@ -892,16 +897,21 @@ typedef struct {
     uint8_t direction;
     uint8_t infinite_loop;
     uint8_t insert_position;
-    int64_t source_window_index;
-    int64_t target_window_index;
+    uint8_t has_source_window_id;
+    OmniUuid128 source_window_id;
+    uint8_t has_target_window_id;
+    OmniUuid128 target_window_id;
     int64_t max_windows_per_column;
-    int64_t source_column_index;
-    int64_t target_column_index;
+    uint8_t has_source_column_id;
+    OmniUuid128 source_column_id;
+    uint8_t has_target_column_id;
+    OmniUuid128 target_column_id;
     int64_t insert_column_index;
     int64_t max_visible_columns;
-    uint8_t selected_node_kind;
-    int64_t selected_node_index;
-    int64_t focused_window_index;
+    uint8_t has_selected_node_id;
+    OmniUuid128 selected_node_id;
+    uint8_t has_focused_window_id;
+    OmniUuid128 focused_window_id;
     uint8_t has_incoming_window_id;
     OmniUuid128 incoming_window_id;
     uint8_t has_created_column_id;
@@ -912,8 +922,10 @@ typedef struct {
 
 typedef struct {
     uint8_t op;
-    int64_t source_window_index;
-    int64_t source_column_index;
+    uint8_t has_source_window_id;
+    OmniUuid128 source_window_id;
+    uint8_t has_source_column_id;
+    OmniUuid128 source_column_id;
     int64_t max_visible_columns;
     uint8_t has_target_created_column_id;
     OmniUuid128 target_created_column_id;

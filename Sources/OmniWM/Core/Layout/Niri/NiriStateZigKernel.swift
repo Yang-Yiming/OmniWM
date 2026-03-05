@@ -2,13 +2,6 @@ import CZigLayout
 import Foundation
 
 enum NiriStateZigKernel {
-    struct IndexLookup {
-        var windowIndexByNodeId: [NodeId: Int]
-        var columnIndexByNodeId: [NodeId: Int]
-        var rowIndexByWindowId: [NodeId: Int]
-        var firstWindowIndexByColumnId: [NodeId: Int]
-    }
-
     struct Snapshot {
         struct ColumnEntry {
             let column: NiriContainer
@@ -30,12 +23,6 @@ enum NiriStateZigKernel {
         var windowEntries: [WindowEntry]
         var windowIndexByNodeId: [NodeId: Int]
         var columnIndexByNodeId: [NodeId: Int]
-    }
-
-    struct SelectionContext {
-        let selectedWindowIndex: Int
-        let selectedColumnIndex: Int
-        let selectedRowIndex: Int
     }
 
     enum NavigationOp {
@@ -86,26 +73,21 @@ enum NiriStateZigKernel {
         case moveColumnToWorkspace = 1
     }
 
-    struct MutationNodeTarget {
-        let kind: MutationNodeKind
-        let index: Int
-    }
-
     struct WorkspaceRequest {
         let op: WorkspaceOp
-        let sourceWindowIndex: Int
-        let sourceColumnIndex: Int
+        let sourceWindowId: NodeId?
+        let sourceColumnId: NodeId?
         let maxVisibleColumns: Int
 
         init(
             op: WorkspaceOp,
-            sourceWindowIndex: Int = -1,
-            sourceColumnIndex: Int = -1,
+            sourceWindowId: NodeId? = nil,
+            sourceColumnId: NodeId? = nil,
             maxVisibleColumns: Int = -1
         ) {
             self.op = op
-            self.sourceWindowIndex = sourceWindowIndex
-            self.sourceColumnIndex = sourceColumnIndex
+            self.sourceWindowId = sourceWindowId
+            self.sourceColumnId = sourceColumnId
             self.maxVisibleColumns = maxVisibleColumns
         }
     }
@@ -115,85 +97,87 @@ enum NiriStateZigKernel {
         let direction: Direction?
         let orientation: Monitor.Orientation
         let infiniteLoop: Bool
-        let selectedWindowIndex: Int
-        let selectedColumnIndex: Int
-        let selectedRowIndex: Int
+        let sourceWindowId: NodeId?
+        let sourceColumnId: NodeId?
+        let targetWindowId: NodeId?
+        let targetColumnId: NodeId?
         let step: Int
         let targetRowIndex: Int
-        let targetColumnIndex: Int
-        let targetWindowIndex: Int
+        let focusColumnIndex: Int
+        let focusWindowIndex: Int
 
         init(
             op: NavigationOp,
-            selection: SelectionContext?,
+            sourceWindowId: NodeId? = nil,
+            sourceColumnId: NodeId? = nil,
             direction: Direction? = nil,
             orientation: Monitor.Orientation = .horizontal,
             infiniteLoop: Bool = false,
             step: Int = 0,
             targetRowIndex: Int = -1,
-            targetColumnIndex: Int = -1,
-            targetWindowIndex: Int = -1
+            focusColumnIndex: Int = -1,
+            focusWindowIndex: Int = -1,
+            targetWindowId: NodeId? = nil,
+            targetColumnId: NodeId? = nil
         ) {
             self.op = op
             self.direction = direction
             self.orientation = orientation
             self.infiniteLoop = infiniteLoop
-            selectedWindowIndex = selection?.selectedWindowIndex ?? -1
-            selectedColumnIndex = selection?.selectedColumnIndex ?? -1
-            selectedRowIndex = selection?.selectedRowIndex ?? -1
+            self.sourceWindowId = sourceWindowId
+            self.sourceColumnId = sourceColumnId
+            self.targetWindowId = targetWindowId
+            self.targetColumnId = targetColumnId
             self.step = step
             self.targetRowIndex = targetRowIndex
-            self.targetColumnIndex = targetColumnIndex
-            self.targetWindowIndex = targetWindowIndex
+            self.focusColumnIndex = focusColumnIndex
+            self.focusWindowIndex = focusWindowIndex
         }
     }
 
     struct MutationRequest {
         let op: MutationOp
-        let sourceWindowIndex: Int
-        let targetWindowIndex: Int
+        let sourceWindowId: NodeId?
+        let targetWindowId: NodeId?
         let direction: Direction?
         let infiniteLoop: Bool
         let insertPosition: InsertPosition?
         let maxWindowsPerColumn: Int
-        let sourceColumnIndex: Int
-        let targetColumnIndex: Int
+        let sourceColumnId: NodeId?
+        let targetColumnId: NodeId?
         let insertColumnIndex: Int
         let maxVisibleColumns: Int
-        let selectedNodeKind: MutationNodeKind
-        let selectedNodeIndex: Int
-        let focusedWindowIndex: Int
+        let selectedNodeId: NodeId?
+        let focusedWindowId: NodeId?
 
         init(
             op: MutationOp,
-            sourceWindowIndex: Int = -1,
-            targetWindowIndex: Int = -1,
+            sourceWindowId: NodeId? = nil,
+            targetWindowId: NodeId? = nil,
             direction: Direction? = nil,
             infiniteLoop: Bool = false,
             insertPosition: InsertPosition? = nil,
             maxWindowsPerColumn: Int = 1,
-            sourceColumnIndex: Int = -1,
-            targetColumnIndex: Int = -1,
+            sourceColumnId: NodeId? = nil,
+            targetColumnId: NodeId? = nil,
             insertColumnIndex: Int = -1,
             maxVisibleColumns: Int = -1,
-            selectedNodeKind: MutationNodeKind = .none,
-            selectedNodeIndex: Int = -1,
-            focusedWindowIndex: Int = -1
+            selectedNodeId: NodeId? = nil,
+            focusedWindowId: NodeId? = nil
         ) {
             self.op = op
-            self.sourceWindowIndex = sourceWindowIndex
-            self.targetWindowIndex = targetWindowIndex
+            self.sourceWindowId = sourceWindowId
+            self.targetWindowId = targetWindowId
             self.direction = direction
             self.infiniteLoop = infiniteLoop
             self.insertPosition = insertPosition
             self.maxWindowsPerColumn = maxWindowsPerColumn
-            self.sourceColumnIndex = sourceColumnIndex
-            self.targetColumnIndex = targetColumnIndex
+            self.sourceColumnId = sourceColumnId
+            self.targetColumnId = targetColumnId
             self.insertColumnIndex = insertColumnIndex
             self.maxVisibleColumns = maxVisibleColumns
-            self.selectedNodeKind = selectedNodeKind
-            self.selectedNodeIndex = selectedNodeIndex
-            self.focusedWindowIndex = focusedWindowIndex
+            self.selectedNodeId = selectedNodeId
+            self.focusedWindowId = focusedWindowId
         }
     }
 
@@ -518,17 +502,6 @@ enum NiriStateZigKernel {
         }
     }
 
-    private static func mutationNodeKindCode(_ kind: MutationNodeKind) -> UInt8 {
-        switch kind {
-        case .none:
-            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_NONE.rawValue)
-        case .window:
-            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_WINDOW.rawValue)
-        case .column:
-            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_COLUMN.rawValue)
-        }
-    }
-
     private static func navigationDirectionCode(_ direction: Direction?) -> UInt8 {
         switch direction {
         case .left:
@@ -718,160 +691,6 @@ enum NiriStateZigKernel {
         )
     }
 
-    static func makeIndexLookup(columns: [NiriContainer]) -> IndexLookup {
-        let estimatedWindowCount = columns.reduce(0) { partial, column in
-            partial + column.windowNodes.count
-        }
-
-        var windowIndexByNodeId: [NodeId: Int] = [:]
-        windowIndexByNodeId.reserveCapacity(estimatedWindowCount)
-
-        var columnIndexByNodeId: [NodeId: Int] = [:]
-        columnIndexByNodeId.reserveCapacity(columns.count + estimatedWindowCount)
-
-        var rowIndexByWindowId: [NodeId: Int] = [:]
-        rowIndexByWindowId.reserveCapacity(estimatedWindowCount)
-
-        var firstWindowIndexByColumnId: [NodeId: Int] = [:]
-        firstWindowIndexByColumnId.reserveCapacity(columns.count)
-
-        var windowIndex = 0
-        for (columnIndex, column) in columns.enumerated() {
-            columnIndexByNodeId[column.id] = columnIndex
-            let windows = column.windowNodes
-            if !windows.isEmpty {
-                firstWindowIndexByColumnId[column.id] = windowIndex
-            }
-
-            for (rowIndex, window) in windows.enumerated() {
-                windowIndexByNodeId[window.id] = windowIndex
-                columnIndexByNodeId[window.id] = columnIndex
-                rowIndexByWindowId[window.id] = rowIndex
-                windowIndex += 1
-            }
-        }
-
-        return IndexLookup(
-            windowIndexByNodeId: windowIndexByNodeId,
-            columnIndexByNodeId: columnIndexByNodeId,
-            rowIndexByWindowId: rowIndexByWindowId,
-            firstWindowIndexByColumnId: firstWindowIndexByColumnId
-        )
-    }
-
-    static func makeSelectionContext(node: NiriNode, snapshot: Snapshot) -> SelectionContext? {
-        if let windowIndex = snapshot.windowIndexByNodeId[node.id],
-           snapshot.windowEntries.indices.contains(windowIndex)
-        {
-            let entry = snapshot.windowEntries[windowIndex]
-            return SelectionContext(
-                selectedWindowIndex: windowIndex,
-                selectedColumnIndex: entry.columnIndex,
-                selectedRowIndex: entry.rowIndex
-            )
-        }
-
-        guard let columnIndex = snapshot.columnIndexByNodeId[node.id],
-              snapshot.columnEntries.indices.contains(columnIndex)
-        else {
-            return nil
-        }
-
-        let columnEntry = snapshot.columnEntries[columnIndex]
-        guard columnEntry.windowCount > 0 else { return nil }
-
-        // Match Swift fallback in updateActiveTileIdx(for:in:) when node is not a window.
-        return SelectionContext(
-            selectedWindowIndex: columnEntry.windowStart,
-            selectedColumnIndex: columnIndex,
-            selectedRowIndex: 0
-        )
-    }
-
-    static func makeSelectionContext(node: NiriNode, indexLookup: IndexLookup) -> SelectionContext? {
-        if let selectedWindowIndex = indexLookup.windowIndexByNodeId[node.id],
-           let selectedColumnIndex = indexLookup.columnIndexByNodeId[node.id],
-           let selectedRowIndex = indexLookup.rowIndexByWindowId[node.id]
-        {
-            return SelectionContext(
-                selectedWindowIndex: selectedWindowIndex,
-                selectedColumnIndex: selectedColumnIndex,
-                selectedRowIndex: selectedRowIndex
-            )
-        }
-
-        guard let selectedColumnIndex = indexLookup.columnIndexByNodeId[node.id],
-              let selectedWindowIndex = indexLookup.firstWindowIndexByColumnId[node.id]
-        else {
-            return nil
-        }
-
-        return SelectionContext(
-            selectedWindowIndex: selectedWindowIndex,
-            selectedColumnIndex: selectedColumnIndex,
-            selectedRowIndex: 0
-        )
-    }
-
-    static func mutationNodeTarget(
-        for nodeId: NodeId?,
-        snapshot: Snapshot
-    ) -> MutationNodeTarget {
-        guard let nodeId else {
-            return MutationNodeTarget(kind: .none, index: -1)
-        }
-
-        if let windowIndex = snapshot.windowIndexByNodeId[nodeId],
-           snapshot.windowEntries.indices.contains(windowIndex)
-        {
-            return MutationNodeTarget(kind: .window, index: windowIndex)
-        }
-
-        if let columnIndex = snapshot.columnIndexByNodeId[nodeId],
-           snapshot.columnEntries.indices.contains(columnIndex)
-        {
-            return MutationNodeTarget(kind: .column, index: columnIndex)
-        }
-
-        return MutationNodeTarget(kind: .none, index: -1)
-    }
-
-    static func mutationNodeTarget(
-        for nodeId: NodeId?,
-        indexLookup: IndexLookup
-    ) -> MutationNodeTarget {
-        guard let nodeId else {
-            return MutationNodeTarget(kind: .none, index: -1)
-        }
-
-        if let windowIndex = indexLookup.windowIndexByNodeId[nodeId] {
-            return MutationNodeTarget(kind: .window, index: windowIndex)
-        }
-
-        if let columnIndex = indexLookup.columnIndexByNodeId[nodeId] {
-            return MutationNodeTarget(kind: .column, index: columnIndex)
-        }
-
-        return MutationNodeTarget(kind: .none, index: -1)
-    }
-
-    static func nodeId(
-        from target: MutationNodeTarget?,
-        snapshot: Snapshot
-    ) -> NodeId? {
-        guard let target else { return nil }
-        switch target.kind {
-        case .window:
-            guard snapshot.windowEntries.indices.contains(target.index) else { return nil }
-            return snapshot.windowEntries[target.index].window.id
-        case .column:
-            guard snapshot.columnEntries.indices.contains(target.index) else { return nil }
-            return snapshot.columnEntries[target.index].column.id
-        case .none:
-            return nil
-        }
-    }
-
     private static func direction(from rawCode: UInt8) -> Direction? {
         switch rawCode {
         case 0:
@@ -1048,13 +867,18 @@ enum NiriStateZigKernel {
             direction: 0,
             orientation: 0,
             infinite_loop: 0,
-            selected_window_index: -1,
-            selected_column_index: -1,
-            selected_row_index: -1,
+            has_source_window_id: 0,
+            source_window_id: zeroUUID(),
+            has_source_column_id: 0,
+            source_column_id: zeroUUID(),
+            has_target_window_id: 0,
+            target_window_id: zeroUUID(),
+            has_target_column_id: 0,
+            target_column_id: zeroUUID(),
             step: 0,
             target_row_index: -1,
-            target_column_index: -1,
-            target_window_index: -1
+            focus_column_index: -1,
+            focus_window_index: -1
         )
     }
 
@@ -1064,16 +888,21 @@ enum NiriStateZigKernel {
             direction: 0,
             infinite_loop: 0,
             insert_position: 0,
-            source_window_index: -1,
-            target_window_index: -1,
+            has_source_window_id: 0,
+            source_window_id: zeroUUID(),
+            has_target_window_id: 0,
+            target_window_id: zeroUUID(),
             max_windows_per_column: 0,
-            source_column_index: -1,
-            target_column_index: -1,
+            has_source_column_id: 0,
+            source_column_id: zeroUUID(),
+            has_target_column_id: 0,
+            target_column_id: zeroUUID(),
             insert_column_index: -1,
             max_visible_columns: -1,
-            selected_node_kind: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_NONE.rawValue),
-            selected_node_index: -1,
-            focused_window_index: -1,
+            has_selected_node_id: 0,
+            selected_node_id: zeroUUID(),
+            has_focused_window_id: 0,
+            focused_window_id: zeroUUID(),
             has_incoming_window_id: 0,
             incoming_window_id: zeroUUID(),
             has_created_column_id: 0,
@@ -1086,8 +915,10 @@ enum NiriStateZigKernel {
     private static func emptyWorkspaceTxnPayload() -> OmniNiriTxnWorkspacePayload {
         OmniNiriTxnWorkspacePayload(
             op: 0,
-            source_window_index: -1,
-            source_column_index: -1,
+            has_source_window_id: 0,
+            source_window_id: zeroUUID(),
+            has_source_column_id: 0,
+            source_column_id: zeroUUID(),
             max_visible_columns: -1,
             has_target_created_column_id: 0,
             target_created_column_id: zeroUUID(),
@@ -1257,13 +1088,18 @@ enum NiriStateZigKernel {
                 direction: navigationDirectionCode(navRequest.request.direction),
                 orientation: orientationCode(navRequest.request.orientation),
                 infinite_loop: navRequest.request.infiniteLoop ? 1 : 0,
-                selected_window_index: Int64(navRequest.request.selectedWindowIndex),
-                selected_column_index: Int64(navRequest.request.selectedColumnIndex),
-                selected_row_index: Int64(navRequest.request.selectedRowIndex),
+                has_source_window_id: navRequest.request.sourceWindowId == nil ? 0 : 1,
+                source_window_id: navRequest.request.sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_source_column_id: navRequest.request.sourceColumnId == nil ? 0 : 1,
+                source_column_id: navRequest.request.sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_window_id: navRequest.request.targetWindowId == nil ? 0 : 1,
+                target_window_id: navRequest.request.targetWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_column_id: navRequest.request.targetColumnId == nil ? 0 : 1,
+                target_column_id: navRequest.request.targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
                 step: Int64(navRequest.request.step),
                 target_row_index: Int64(navRequest.request.targetRowIndex),
-                target_column_index: Int64(navRequest.request.targetColumnIndex),
-                target_window_index: Int64(navRequest.request.targetWindowIndex)
+                focus_column_index: Int64(navRequest.request.focusColumnIndex),
+                focus_window_index: Int64(navRequest.request.focusWindowIndex)
             )
         case let .mutation(context, mutationRequest):
             sourceContext = context
@@ -1275,16 +1111,21 @@ enum NiriStateZigKernel {
                 direction: mutationDirectionCode(mutationRequest.request.direction),
                 infinite_loop: mutationRequest.request.infiniteLoop ? 1 : 0,
                 insert_position: insertPositionCode(mutationRequest.request.insertPosition),
-                source_window_index: Int64(mutationRequest.request.sourceWindowIndex),
-                target_window_index: Int64(mutationRequest.request.targetWindowIndex),
+                has_source_window_id: mutationRequest.request.sourceWindowId == nil ? 0 : 1,
+                source_window_id: mutationRequest.request.sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_window_id: mutationRequest.request.targetWindowId == nil ? 0 : 1,
+                target_window_id: mutationRequest.request.targetWindowId.map(omniUUID(from:)) ?? zeroUUID(),
                 max_windows_per_column: Int64(mutationRequest.request.maxWindowsPerColumn),
-                source_column_index: Int64(mutationRequest.request.sourceColumnIndex),
-                target_column_index: Int64(mutationRequest.request.targetColumnIndex),
+                has_source_column_id: mutationRequest.request.sourceColumnId == nil ? 0 : 1,
+                source_column_id: mutationRequest.request.sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_column_id: mutationRequest.request.targetColumnId == nil ? 0 : 1,
+                target_column_id: mutationRequest.request.targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
                 insert_column_index: Int64(mutationRequest.request.insertColumnIndex),
                 max_visible_columns: Int64(mutationRequest.request.maxVisibleColumns),
-                selected_node_kind: mutationNodeKindCode(mutationRequest.request.selectedNodeKind),
-                selected_node_index: Int64(mutationRequest.request.selectedNodeIndex),
-                focused_window_index: Int64(mutationRequest.request.focusedWindowIndex),
+                has_selected_node_id: mutationRequest.request.selectedNodeId == nil ? 0 : 1,
+                selected_node_id: mutationRequest.request.selectedNodeId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_focused_window_id: mutationRequest.request.focusedWindowId == nil ? 0 : 1,
+                focused_window_id: mutationRequest.request.focusedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_incoming_window_id: mutationRequest.incomingWindowId == nil ? 0 : 1,
                 incoming_window_id: mutationRequest.incomingWindowId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_created_column_id: mutationRequest.createdColumnId == nil ? 0 : 1,
@@ -1298,8 +1139,10 @@ enum NiriStateZigKernel {
             kind = .workspace
             rawWorkspace = OmniNiriTxnWorkspacePayload(
                 op: workspaceOpCode(workspaceRequest.request.op),
-                source_window_index: Int64(workspaceRequest.request.sourceWindowIndex),
-                source_column_index: Int64(workspaceRequest.request.sourceColumnIndex),
+                has_source_window_id: workspaceRequest.request.sourceWindowId == nil ? 0 : 1,
+                source_window_id: workspaceRequest.request.sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_source_column_id: workspaceRequest.request.sourceColumnId == nil ? 0 : 1,
+                source_column_id: workspaceRequest.request.sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
                 max_visible_columns: Int64(workspaceRequest.request.maxVisibleColumns),
                 has_target_created_column_id: workspaceRequest.targetCreatedColumnId == nil ? 0 : 1,
                 target_created_column_id: workspaceRequest.targetCreatedColumnId.map(omniUUID(from:)) ?? zeroUUID(),

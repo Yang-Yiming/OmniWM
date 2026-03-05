@@ -284,94 +284,82 @@ enum NiriLayoutZigKernel {
             count: windowInputs.count
         )
 
-        let rc: Int32 = columnInputs.withUnsafeBufferPointer { colBuf in
-            windowInputs.withUnsafeBufferPointer { winBuf in
-                rawOutputs.withUnsafeMutableBufferPointer { winOutBuf in
-                    rawColumnOutputs.withUnsafeMutableBufferPointer { colOutBuf in
-                        var renderRequest = OmniNiriRuntimeRenderRequest(
-                            columns: colBuf.baseAddress,
-                            column_count: colBuf.count,
-                            windows: winBuf.baseAddress,
-                            window_count: winBuf.count,
-                            working_x: Double(workingFrame.origin.x),
-                            working_y: Double(workingFrame.origin.y),
-                            working_width: Double(workingFrame.width),
-                            working_height: Double(workingFrame.height),
-                            view_x: Double(viewFrame.origin.x),
-                            view_y: Double(viewFrame.origin.y),
-                            view_width: Double(viewFrame.width),
-                            view_height: Double(viewFrame.height),
-                            fullscreen_x: Double(fullscreenFrame.origin.x),
-                            fullscreen_y: Double(fullscreenFrame.origin.y),
-                            fullscreen_width: Double(fullscreenFrame.width),
-                            fullscreen_height: Double(fullscreenFrame.height),
-                            primary_gap: Double(primaryGap),
-                            secondary_gap: Double(secondaryGap),
-                            view_start: Double(viewStart),
-                            viewport_span: Double(viewportSpan),
-                            workspace_offset: Double(workspaceOffset),
-                            scale: Double(scale),
-                            orientation: orientationCode(orientation)
-                        )
-                        var renderOutput = OmniNiriRuntimeRenderOutput(
-                            windows: winOutBuf.baseAddress,
-                            window_count: winOutBuf.count,
-                            columns: colOutBuf.baseAddress,
-                            column_count: colOutBuf.count
-                        )
-                        let runtimeRC = withUnsafePointer(to: &renderRequest) { requestPtr in
-                            withUnsafeMutablePointer(to: &renderOutput) { outputPtr in
-                                omni_niri_runtime_render(
-                                    context.raw,
-                                    context.raw,
-                                    requestPtr,
-                                    outputPtr
-                                )
+        let renderOnce: () -> Int32 = {
+            columnInputs.withUnsafeBufferPointer { colBuf in
+                windowInputs.withUnsafeBufferPointer { winBuf in
+                    rawOutputs.withUnsafeMutableBufferPointer { winOutBuf in
+                        rawColumnOutputs.withUnsafeMutableBufferPointer { colOutBuf in
+                            var renderRequest = OmniNiriRuntimeRenderRequest(
+                                columns: colBuf.baseAddress,
+                                column_count: colBuf.count,
+                                windows: winBuf.baseAddress,
+                                window_count: winBuf.count,
+                                working_x: Double(workingFrame.origin.x),
+                                working_y: Double(workingFrame.origin.y),
+                                working_width: Double(workingFrame.width),
+                                working_height: Double(workingFrame.height),
+                                view_x: Double(viewFrame.origin.x),
+                                view_y: Double(viewFrame.origin.y),
+                                view_width: Double(viewFrame.width),
+                                view_height: Double(viewFrame.height),
+                                fullscreen_x: Double(fullscreenFrame.origin.x),
+                                fullscreen_y: Double(fullscreenFrame.origin.y),
+                                fullscreen_width: Double(fullscreenFrame.width),
+                                fullscreen_height: Double(fullscreenFrame.height),
+                                primary_gap: Double(primaryGap),
+                                secondary_gap: Double(secondaryGap),
+                                view_start: Double(viewStart),
+                                viewport_span: Double(viewportSpan),
+                                workspace_offset: Double(workspaceOffset),
+                                scale: Double(scale),
+                                orientation: orientationCode(orientation)
+                            )
+                            var renderOutput = OmniNiriRuntimeRenderOutput(
+                                windows: winOutBuf.baseAddress,
+                                window_count: winOutBuf.count,
+                                columns: colOutBuf.baseAddress,
+                                column_count: colOutBuf.count
+                            )
+                            return withUnsafePointer(to: &renderRequest) { requestPtr in
+                                withUnsafeMutablePointer(to: &renderOutput) { outputPtr in
+                                    omni_niri_runtime_render(
+                                        context.raw,
+                                        context.raw,
+                                        requestPtr,
+                                        outputPtr
+                                    )
+                                }
                             }
                         }
-                        if runtimeRC == OMNI_OK {
-                            return runtimeRC
-                        }
-
-                        // Fallback while runtime/render parity is being rolled out.
-                        return omni_niri_layout_pass_v3(
-                            context.raw,
-                            colBuf.baseAddress,
-                            colBuf.count,
-                            winBuf.baseAddress,
-                            winBuf.count,
-                            Double(workingFrame.origin.x),
-                            Double(workingFrame.origin.y),
-                            Double(workingFrame.width),
-                            Double(workingFrame.height),
-                            Double(viewFrame.origin.x),
-                            Double(viewFrame.origin.y),
-                            Double(viewFrame.width),
-                            Double(viewFrame.height),
-                            Double(fullscreenFrame.origin.x),
-                            Double(fullscreenFrame.origin.y),
-                            Double(fullscreenFrame.width),
-                            Double(fullscreenFrame.height),
-                            Double(primaryGap),
-                            Double(secondaryGap),
-                            Double(viewStart),
-                            Double(viewportSpan),
-                            Double(workspaceOffset),
-                            Double(scale),
-                            orientationCode(orientation),
-                            winOutBuf.baseAddress,
-                            winOutBuf.count,
-                            colOutBuf.baseAddress,
-                            colOutBuf.count
-                        )
                     }
                 }
             }
         }
 
+        let initialRC = renderOnce()
+        var reseedRC: Int32?
+        var retryRC: Int32?
+        let rc: Int32
+        if initialRC == OMNI_ERR_OUT_OF_RANGE {
+            let reseedResult = NiriStateZigKernel.seedRuntimeState(
+                context: context,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: columns)
+            )
+            reseedRC = reseedResult
+            if reseedResult == OMNI_OK {
+                let secondRC = renderOnce()
+                retryRC = secondRC
+                rc = secondRC
+            } else {
+                rc = reseedResult
+            }
+        } else {
+            rc = initialRC
+        }
+
         precondition(
             rc == OMNI_OK,
-            "omni_niri_layout_pass_v3 failed rc=\(rc) columns=\(columnInputs.count) windows=\(windowInputs.count)"
+            "omni_niri_runtime_render failed initial_rc=\(initialRC) reseed_rc=\(reseedRC.map(String.init) ?? "n/a") retry_rc=\(retryRC.map(String.init) ?? "n/a") columns=\(columnInputs.count) windows=\(windowInputs.count)"
         )
 
         let windows = zip(flatWindows, rawOutputs).map { window, output in

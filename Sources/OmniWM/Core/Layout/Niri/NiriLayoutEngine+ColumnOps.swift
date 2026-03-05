@@ -4,7 +4,6 @@ import Foundation
 extension NiriLayoutEngine {
     private struct ColumnMutationPreparedRequest {
         let workspaceColumns: [NiriContainer]
-        let indexLookup: NiriStateZigKernel.IndexLookup
         let request: NiriStateZigKernel.MutationRequest
     }
 
@@ -37,53 +36,41 @@ extension NiriLayoutEngine {
         maxVisibleColumns: Int = -1
     ) -> ColumnMutationPreparedRequest? {
         let workspaceColumns = columns(in: workspaceId)
-        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
-
-        let sourceWindowIndex: Int
         if let sourceWindow {
-            guard let resolvedSourceWindow = indexLookup.windowIndexByNodeId[sourceWindow.id] else {
+            let sourceWindowExists = workspaceColumns.contains { column in
+                column.windowNodes.contains(where: { $0.id == sourceWindow.id })
+            }
+            guard sourceWindowExists else {
                 return nil
             }
-            sourceWindowIndex = resolvedSourceWindow
-        } else {
-            sourceWindowIndex = -1
         }
 
-        let sourceColumnIndex: Int
         if let sourceColumn {
-            guard let resolvedSourceColumn = indexLookup.columnIndexByNodeId[sourceColumn.id] else {
+            guard workspaceColumns.contains(where: { $0.id == sourceColumn.id }) else {
                 return nil
             }
-            sourceColumnIndex = resolvedSourceColumn
-        } else {
-            sourceColumnIndex = -1
         }
 
-        let targetColumnIndex: Int
         if let targetColumn {
-            guard let resolvedTargetColumn = indexLookup.columnIndexByNodeId[targetColumn.id] else {
+            guard workspaceColumns.contains(where: { $0.id == targetColumn.id }) else {
                 return nil
             }
-            targetColumnIndex = resolvedTargetColumn
-        } else {
-            targetColumnIndex = -1
         }
 
         let request = NiriStateZigKernel.MutationRequest(
             op: op,
-            sourceWindowIndex: sourceWindowIndex,
+            sourceWindowId: sourceWindow?.id,
             direction: direction,
             infiniteLoop: infiniteLoop,
             maxWindowsPerColumn: maxWindowsPerColumn,
-            sourceColumnIndex: sourceColumnIndex,
-            targetColumnIndex: targetColumnIndex,
+            sourceColumnId: sourceColumn?.id,
+            targetColumnId: targetColumn?.id,
             insertColumnIndex: insertColumnIndex,
             maxVisibleColumns: maxVisibleColumns
         )
 
         return ColumnMutationPreparedRequest(
             workspaceColumns: workspaceColumns,
-            indexLookup: indexLookup,
             request: request
         )
     }
