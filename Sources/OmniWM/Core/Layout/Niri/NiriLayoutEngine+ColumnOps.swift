@@ -3,7 +3,8 @@ import Foundation
 
 extension NiriLayoutEngine {
     private struct ColumnMutationPreparedRequest {
-        let snapshot: NiriStateZigKernel.Snapshot
+        let workspaceColumns: [NiriContainer]
+        let indexLookup: NiriStateZigKernel.IndexLookup
         let request: NiriStateZigKernel.MutationRequest
     }
 
@@ -35,11 +36,12 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         maxVisibleColumns: Int = -1
     ) -> ColumnMutationPreparedRequest? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
+        let workspaceColumns = columns(in: workspaceId)
+        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
 
         let sourceWindowIndex: Int
         if let sourceWindow {
-            guard let resolvedSourceWindow = snapshot.windowIndexByNodeId[sourceWindow.id] else {
+            guard let resolvedSourceWindow = indexLookup.windowIndexByNodeId[sourceWindow.id] else {
                 return nil
             }
             sourceWindowIndex = resolvedSourceWindow
@@ -49,7 +51,7 @@ extension NiriLayoutEngine {
 
         let sourceColumnIndex: Int
         if let sourceColumn {
-            guard let resolvedSourceColumn = snapshot.columnIndexByNodeId[sourceColumn.id] else {
+            guard let resolvedSourceColumn = indexLookup.columnIndexByNodeId[sourceColumn.id] else {
                 return nil
             }
             sourceColumnIndex = resolvedSourceColumn
@@ -59,7 +61,7 @@ extension NiriLayoutEngine {
 
         let targetColumnIndex: Int
         if let targetColumn {
-            guard let resolvedTargetColumn = snapshot.columnIndexByNodeId[targetColumn.id] else {
+            guard let resolvedTargetColumn = indexLookup.columnIndexByNodeId[targetColumn.id] else {
                 return nil
             }
             targetColumnIndex = resolvedTargetColumn
@@ -79,7 +81,11 @@ extension NiriLayoutEngine {
             maxVisibleColumns: maxVisibleColumns
         )
 
-        return ColumnMutationPreparedRequest(snapshot: snapshot, request: request)
+        return ColumnMutationPreparedRequest(
+            workspaceColumns: workspaceColumns,
+            indexLookup: indexLookup,
+            request: request
+        )
     }
 
     private func applyRuntimeColumnMutation(
@@ -90,7 +96,7 @@ extension NiriLayoutEngine {
     ) -> ColumnMutationApplyOutcome? {
         guard let context = prepareSeededRuntimeContext(
             for: workspaceId,
-            snapshot: prepared.snapshot
+            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
         ) else {
             return nil
         }
@@ -99,7 +105,6 @@ extension NiriLayoutEngine {
             context: context,
             request: .init(
                 request: prepared.request,
-                snapshot: prepared.snapshot,
                 createdColumnId: createdColumnId,
                 placeholderColumnId: placeholderColumnId
             )
@@ -523,15 +528,16 @@ extension NiriLayoutEngine {
             return false
         }
 
+        let animationSnapshot = NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
         let directionStep = direction == .right ? 1 : -1
-        guard let neighborIdx = wrapIndex(currentIdx + directionStep, total: prepared.snapshot.columns.count),
+        guard let neighborIdx = wrapIndex(currentIdx + directionStep, total: animationSnapshot.columns.count),
               neighborIdx != currentIdx,
-              prepared.snapshot.columnEntries.indices.contains(neighborIdx)
+              animationSnapshot.columnEntries.indices.contains(neighborIdx)
         else {
             return false
         }
 
-        let neighborEntry = prepared.snapshot.columnEntries[neighborIdx]
+        let neighborEntry = animationSnapshot.columnEntries[neighborIdx]
         guard neighborEntry.windowCount > 0 else {
             return false
         }
@@ -539,11 +545,11 @@ extension NiriLayoutEngine {
         let movingWindowIndex = direction == .right
             ? neighborEntry.windowStart
             : neighborEntry.windowStart + neighborEntry.windowCount - 1
-        guard prepared.snapshot.windowEntries.indices.contains(movingWindowIndex) else {
+        guard animationSnapshot.windowEntries.indices.contains(movingWindowIndex) else {
             return false
         }
 
-        let movingEntry = prepared.snapshot.windowEntries[movingWindowIndex]
+        let movingEntry = animationSnapshot.windowEntries[movingWindowIndex]
         let movingWindow = movingEntry.window
 
         let now = animationClock?.now() ?? CACurrentMediaTime()

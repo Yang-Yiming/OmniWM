@@ -54,8 +54,7 @@ extension NiriLayoutEngine {
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
             request: .init(
-                request: request,
-                snapshot: snapshot
+                request: request
             )
         )
         guard outcome.rc == OMNI_OK else {
@@ -120,8 +119,7 @@ extension NiriLayoutEngine {
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
             request: .init(
-                request: request,
-                snapshot: snapshot
+                request: request
             )
         )
         guard outcome.rc == OMNI_OK else {

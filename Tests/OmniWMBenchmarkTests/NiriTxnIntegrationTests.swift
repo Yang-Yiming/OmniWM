@@ -46,7 +46,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
-            request: .init(request: request, snapshot: snapshot)
+            request: .init(request: request)
         )
 
         XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
@@ -86,7 +86,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
-            request: .init(request: request, snapshot: snapshot)
+            request: .init(request: request)
         )
 
         XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
@@ -127,7 +127,6 @@ final class NiriTxnIntegrationTests: XCTestCase {
             context: context,
             request: .init(
                 request: request,
-                snapshot: snapshot,
                 createdColumnId: UUID()
             )
         )
@@ -176,7 +175,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
-            request: .init(request: request, snapshot: snapshot)
+            request: .init(request: request)
         )
 
         XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
@@ -229,7 +228,6 @@ final class NiriTxnIntegrationTests: XCTestCase {
             targetContext: targetContext,
             request: .init(
                 request: request,
-                sourceSnapshot: sourceSnapshot,
                 targetCreatedColumnId: UUID(),
                 sourcePlaceholderColumnId: UUID()
             )
@@ -271,7 +269,6 @@ final class NiriTxnIntegrationTests: XCTestCase {
             context: context,
             request: .init(
                 request: request,
-                snapshot: snapshot,
                 placeholderColumnId: UUID()
             )
         )
@@ -284,5 +281,153 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(exported.rc, Int32(OMNI_OK))
         XCTAssertEqual(exported.export.columns.count, 0)
         XCTAssertEqual(exported.export.windows.count, 0)
+    }
+
+    func testNavigationTxnRejectsOutOfRangeSelectedWindowIndex() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-nav-out-of-range")
+        let engine = NiriLayoutEngine()
+        let root = engine.ensureRoot(for: workspace.id)
+        let column = try XCTUnwrap(root.columns.first)
+        column.appendChild(makeWindow())
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        let request = NiriStateZigKernel.NavigationRequest(
+            op: .focusWindowBottom,
+            selection: .init(
+                selectedWindowIndex: 99,
+                selectedColumnIndex: 0,
+                selectedRowIndex: 0
+            )
+        )
+        let outcome = NiriStateZigKernel.applyNavigation(
+            context: context,
+            request: .init(request: request)
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_OUT_OF_RANGE))
+        XCTAssertFalse(outcome.applied)
+    }
+
+    func testMutationTxnValidateSelectionUsesSelectedAndFocusedWindowIndices() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-selected-focused-coherence")
+        let engine = NiriLayoutEngine()
+        let root = engine.ensureRoot(for: workspace.id)
+        let column = try XCTUnwrap(root.columns.first)
+        let selectedWindow = makeWindow()
+        column.appendChild(selectedWindow)
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        let selectedWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[selectedWindow.id])
+        let request = NiriStateZigKernel.MutationRequest(
+            op: .validateSelection,
+            selectedNodeKind: .window,
+            selectedNodeIndex: selectedWindowIndex,
+            focusedWindowIndex: selectedWindowIndex
+        )
+        let outcome = NiriStateZigKernel.applyMutation(
+            context: context,
+            request: .init(request: request)
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
+        XCTAssertEqual(outcome.targetNode?.kind, .window)
+        XCTAssertEqual(outcome.targetNode?.nodeId, selectedWindow.id)
+    }
+
+    func testMutationTxnMoveWindowToColumnHonorsSourceAndTargetIndices() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-source-target-coherence")
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let root = engine.ensureRoot(for: workspace.id)
+        let sourceColumn = try XCTUnwrap(root.columns.first)
+        let movingWindow = makeWindow()
+        sourceColumn.appendChild(movingWindow)
+
+        let targetColumn = NiriContainer()
+        root.appendChild(targetColumn)
+        let targetResidentWindow = makeWindow()
+        targetColumn.appendChild(targetResidentWindow)
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: context, snapshot: snapshot),
+            Int32(OMNI_OK)
+        )
+
+        let sourceWindowIndex = try XCTUnwrap(snapshot.windowIndexByNodeId[movingWindow.id])
+        let targetColumnIndex = try XCTUnwrap(snapshot.columnIndexByNodeId[targetColumn.id])
+        let request = NiriStateZigKernel.MutationRequest(
+            op: .moveWindowToColumn,
+            sourceWindowIndex: sourceWindowIndex,
+            maxWindowsPerColumn: engine.maxWindowsPerColumn,
+            targetColumnIndex: targetColumnIndex
+        )
+        let outcome = NiriStateZigKernel.applyMutation(
+            context: context,
+            request: .init(request: request, placeholderColumnId: UUID())
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
+        XCTAssertTrue(outcome.applied)
+        let movedRecord = try XCTUnwrap(outcome.delta?.windows.first { $0.window.windowId == movingWindow.id })
+        let targetResidentRecord = try XCTUnwrap(
+            outcome.delta?.windows.first { $0.window.windowId == targetResidentWindow.id }
+        )
+        XCTAssertEqual(movedRecord.window.columnId, targetResidentRecord.window.columnId)
+    }
+
+    func testWorkspaceTxnRejectsOutOfRangeSourceWindowIndex() throws {
+        let sourceWorkspace = WorkspaceDescriptor(name: "txn-source-out-of-range")
+        let targetWorkspace = WorkspaceDescriptor(name: "txn-target-out-of-range")
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
+
+        let sourceRoot = engine.ensureRoot(for: sourceWorkspace.id)
+        let sourceColumn = try XCTUnwrap(sourceRoot.columns.first)
+        sourceColumn.appendChild(makeWindow())
+
+        let targetRoot = engine.ensureRoot(for: targetWorkspace.id)
+        let sourceSnapshot = NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
+        let targetSnapshot = NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
+        let sourceContext = try XCTUnwrap(engine.ensureLayoutContext(for: sourceWorkspace.id))
+        let targetContext = try XCTUnwrap(engine.ensureLayoutContext(for: targetWorkspace.id))
+
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: sourceContext, snapshot: sourceSnapshot),
+            Int32(OMNI_OK)
+        )
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(context: targetContext, snapshot: targetSnapshot),
+            Int32(OMNI_OK)
+        )
+
+        let request = NiriStateZigKernel.WorkspaceRequest(
+            op: .moveWindowToWorkspace,
+            sourceWindowIndex: 77,
+            maxVisibleColumns: engine.maxVisibleColumns
+        )
+        let outcome = NiriStateZigKernel.applyWorkspace(
+            sourceContext: sourceContext,
+            targetContext: targetContext,
+            request: .init(
+                request: request,
+                targetCreatedColumnId: UUID(),
+                sourcePlaceholderColumnId: UUID()
+            )
+        )
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_ERR_OUT_OF_RANGE))
+        XCTAssertFalse(outcome.applied)
     }
 }

@@ -3,7 +3,8 @@ import Foundation
 
 extension NiriLayoutEngine {
     private struct WindowMutationPreparedRequest {
-        let snapshot: NiriStateZigKernel.Snapshot
+        let workspaceColumns: [NiriContainer]
+        let indexLookup: NiriStateZigKernel.IndexLookup
         let request: NiriStateZigKernel.MutationRequest
     }
 
@@ -28,14 +29,15 @@ extension NiriLayoutEngine {
         insertPosition: InsertPosition? = nil,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> WindowMutationPreparedRequest? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard let sourceWindowIndex = snapshot.windowIndexByNodeId[sourceWindow.id] else {
+        let workspaceColumns = columns(in: workspaceId)
+        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
+        guard let sourceWindowIndex = indexLookup.windowIndexByNodeId[sourceWindow.id] else {
             return nil
         }
 
         let targetWindowIndex: Int
         if let targetWindow {
-            guard let resolvedTargetWindowIndex = snapshot.windowIndexByNodeId[targetWindow.id] else {
+            guard let resolvedTargetWindowIndex = indexLookup.windowIndexByNodeId[targetWindow.id] else {
                 return nil
             }
             targetWindowIndex = resolvedTargetWindowIndex
@@ -53,7 +55,11 @@ extension NiriLayoutEngine {
             maxWindowsPerColumn: maxWindowsPerColumn
         )
 
-        return WindowMutationPreparedRequest(snapshot: snapshot, request: request)
+        return WindowMutationPreparedRequest(
+            workspaceColumns: workspaceColumns,
+            indexLookup: indexLookup,
+            request: request
+        )
     }
 
     private func applyRuntimeWindowMutation(
@@ -106,7 +112,7 @@ extension NiriLayoutEngine {
     ) -> NiriStateZigKernel.MutationApplyOutcome? {
         guard let context = prepareSeededRuntimeContext(
             for: workspaceId,
-            snapshot: prepared.snapshot
+            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
         ) else {
             return nil
         }
@@ -114,8 +120,7 @@ extension NiriLayoutEngine {
         let applyOutcome = NiriStateZigKernel.applyMutation(
             context: context,
             request: .init(
-                request: prepared.request,
-                snapshot: prepared.snapshot
+                request: prepared.request
             )
         )
         guard applyOutcome.rc == 0 else {
@@ -417,8 +422,9 @@ extension NiriLayoutEngine {
         }
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
+        let animationSnapshot = NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
         let animationCapture = captureHorizontalSwapAnimation(
-            snapshot: prepared.snapshot,
+            snapshot: animationSnapshot,
             sourceWindow: node,
             direction: direction,
             in: workspaceId,

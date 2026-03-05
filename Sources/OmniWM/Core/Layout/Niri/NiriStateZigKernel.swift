@@ -2,6 +2,13 @@ import CZigLayout
 import Foundation
 
 enum NiriStateZigKernel {
+    struct IndexLookup {
+        var windowIndexByNodeId: [NodeId: Int]
+        var columnIndexByNodeId: [NodeId: Int]
+        var rowIndexByWindowId: [NodeId: Int]
+        var firstWindowIndexByColumnId: [NodeId: Int]
+    }
+
     struct Snapshot {
         struct ColumnEntry {
             let column: NiriContainer
@@ -321,20 +328,17 @@ enum NiriStateZigKernel {
 
     struct MutationApplyRequest {
         let request: MutationRequest
-        let snapshot: Snapshot?
         let incomingWindowId: UUID?
         let createdColumnId: UUID?
         let placeholderColumnId: UUID?
 
         init(
             request: MutationRequest,
-            snapshot: Snapshot? = nil,
             incomingWindowId: UUID? = nil,
             createdColumnId: UUID? = nil,
             placeholderColumnId: UUID? = nil
         ) {
             self.request = request
-            self.snapshot = snapshot
             self.incomingWindowId = incomingWindowId
             self.createdColumnId = createdColumnId
             self.placeholderColumnId = placeholderColumnId
@@ -351,18 +355,15 @@ enum NiriStateZigKernel {
 
     struct WorkspaceApplyRequest {
         let request: WorkspaceRequest
-        let sourceSnapshot: Snapshot?
         let targetCreatedColumnId: UUID?
         let sourcePlaceholderColumnId: UUID?
 
         init(
             request: WorkspaceRequest,
-            sourceSnapshot: Snapshot? = nil,
             targetCreatedColumnId: UUID? = nil,
             sourcePlaceholderColumnId: UUID? = nil
         ) {
             self.request = request
-            self.sourceSnapshot = sourceSnapshot
             self.targetCreatedColumnId = targetCreatedColumnId
             self.sourcePlaceholderColumnId = sourcePlaceholderColumnId
         }
@@ -385,11 +386,9 @@ enum NiriStateZigKernel {
 
     struct NavigationApplyRequest {
         let request: NavigationRequest
-        let snapshot: Snapshot?
 
-        init(request: NavigationRequest, snapshot: Snapshot? = nil) {
+        init(request: NavigationRequest) {
             self.request = request
-            self.snapshot = snapshot
         }
     }
 
@@ -719,6 +718,47 @@ enum NiriStateZigKernel {
         )
     }
 
+    static func makeIndexLookup(columns: [NiriContainer]) -> IndexLookup {
+        let estimatedWindowCount = columns.reduce(0) { partial, column in
+            partial + column.windowNodes.count
+        }
+
+        var windowIndexByNodeId: [NodeId: Int] = [:]
+        windowIndexByNodeId.reserveCapacity(estimatedWindowCount)
+
+        var columnIndexByNodeId: [NodeId: Int] = [:]
+        columnIndexByNodeId.reserveCapacity(columns.count + estimatedWindowCount)
+
+        var rowIndexByWindowId: [NodeId: Int] = [:]
+        rowIndexByWindowId.reserveCapacity(estimatedWindowCount)
+
+        var firstWindowIndexByColumnId: [NodeId: Int] = [:]
+        firstWindowIndexByColumnId.reserveCapacity(columns.count)
+
+        var windowIndex = 0
+        for (columnIndex, column) in columns.enumerated() {
+            columnIndexByNodeId[column.id] = columnIndex
+            let windows = column.windowNodes
+            if !windows.isEmpty {
+                firstWindowIndexByColumnId[column.id] = windowIndex
+            }
+
+            for (rowIndex, window) in windows.enumerated() {
+                windowIndexByNodeId[window.id] = windowIndex
+                columnIndexByNodeId[window.id] = columnIndex
+                rowIndexByWindowId[window.id] = rowIndex
+                windowIndex += 1
+            }
+        }
+
+        return IndexLookup(
+            windowIndexByNodeId: windowIndexByNodeId,
+            columnIndexByNodeId: columnIndexByNodeId,
+            rowIndexByWindowId: rowIndexByWindowId,
+            firstWindowIndexByColumnId: firstWindowIndexByColumnId
+        )
+    }
+
     static func makeSelectionContext(node: NiriNode, snapshot: Snapshot) -> SelectionContext? {
         if let windowIndex = snapshot.windowIndexByNodeId[node.id],
            snapshot.windowEntries.indices.contains(windowIndex)
@@ -748,6 +788,31 @@ enum NiriStateZigKernel {
         )
     }
 
+    static func makeSelectionContext(node: NiriNode, indexLookup: IndexLookup) -> SelectionContext? {
+        if let selectedWindowIndex = indexLookup.windowIndexByNodeId[node.id],
+           let selectedColumnIndex = indexLookup.columnIndexByNodeId[node.id],
+           let selectedRowIndex = indexLookup.rowIndexByWindowId[node.id]
+        {
+            return SelectionContext(
+                selectedWindowIndex: selectedWindowIndex,
+                selectedColumnIndex: selectedColumnIndex,
+                selectedRowIndex: selectedRowIndex
+            )
+        }
+
+        guard let selectedColumnIndex = indexLookup.columnIndexByNodeId[node.id],
+              let selectedWindowIndex = indexLookup.firstWindowIndexByColumnId[node.id]
+        else {
+            return nil
+        }
+
+        return SelectionContext(
+            selectedWindowIndex: selectedWindowIndex,
+            selectedColumnIndex: selectedColumnIndex,
+            selectedRowIndex: 0
+        )
+    }
+
     static func mutationNodeTarget(
         for nodeId: NodeId?,
         snapshot: Snapshot
@@ -765,6 +830,25 @@ enum NiriStateZigKernel {
         if let columnIndex = snapshot.columnIndexByNodeId[nodeId],
            snapshot.columnEntries.indices.contains(columnIndex)
         {
+            return MutationNodeTarget(kind: .column, index: columnIndex)
+        }
+
+        return MutationNodeTarget(kind: .none, index: -1)
+    }
+
+    static func mutationNodeTarget(
+        for nodeId: NodeId?,
+        indexLookup: IndexLookup
+    ) -> MutationNodeTarget {
+        guard let nodeId else {
+            return MutationNodeTarget(kind: .none, index: -1)
+        }
+
+        if let windowIndex = indexLookup.windowIndexByNodeId[nodeId] {
+            return MutationNodeTarget(kind: .window, index: windowIndex)
+        }
+
+        if let columnIndex = indexLookup.columnIndexByNodeId[nodeId] {
             return MutationNodeTarget(kind: .column, index: columnIndex)
         }
 
@@ -901,17 +985,13 @@ enum NiriStateZigKernel {
             direction: 0,
             orientation: 0,
             infinite_loop: 0,
-            has_selected_window_id: 0,
-            selected_window_id: zeroUUID(),
-            has_selected_column_id: 0,
-            selected_column_id: zeroUUID(),
+            selected_window_index: -1,
+            selected_column_index: -1,
             selected_row_index: -1,
             step: 0,
             target_row_index: -1,
-            has_target_column_id: 0,
-            target_column_id: zeroUUID(),
-            has_target_window_id: 0,
-            target_window_id: zeroUUID()
+            target_column_index: -1,
+            target_window_index: -1
         )
     }
 
@@ -921,22 +1001,16 @@ enum NiriStateZigKernel {
             direction: 0,
             infinite_loop: 0,
             insert_position: 0,
-            has_source_window_id: 0,
-            source_window_id: zeroUUID(),
-            has_target_window_id: 0,
-            target_window_id: zeroUUID(),
+            source_window_index: -1,
+            target_window_index: -1,
             max_windows_per_column: 0,
-            has_source_column_id: 0,
-            source_column_id: zeroUUID(),
-            has_target_column_id: 0,
-            target_column_id: zeroUUID(),
+            source_column_index: -1,
+            target_column_index: -1,
             insert_column_index: -1,
             max_visible_columns: -1,
             selected_node_kind: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_NONE.rawValue),
-            has_selected_node_id: 0,
-            selected_node_id: zeroUUID(),
-            has_focused_window_id: 0,
-            focused_window_id: zeroUUID(),
+            selected_node_index: -1,
+            focused_window_index: -1,
             has_incoming_window_id: 0,
             incoming_window_id: zeroUUID(),
             has_created_column_id: 0,
@@ -949,26 +1023,14 @@ enum NiriStateZigKernel {
     private static func emptyWorkspaceTxnPayload() -> OmniNiriTxnWorkspacePayload {
         OmniNiriTxnWorkspacePayload(
             op: 0,
-            has_source_window_id: 0,
-            source_window_id: zeroUUID(),
-            has_source_column_id: 0,
-            source_column_id: zeroUUID(),
+            source_window_index: -1,
+            source_column_index: -1,
             max_visible_columns: -1,
             has_target_created_column_id: 0,
             target_created_column_id: zeroUUID(),
             has_source_placeholder_column_id: 0,
             source_placeholder_column_id: zeroUUID()
         )
-    }
-
-    private static func nodeId(atWindowIndex index: Int, snapshot: Snapshot?) -> NodeId? {
-        guard let snapshot, index >= 0, index < snapshot.windowEntries.count else { return nil }
-        return snapshot.windowEntries[index].window.id
-    }
-
-    private static func nodeId(atColumnIndex index: Int, snapshot: Snapshot?) -> NodeId? {
-        guard let snapshot, index >= 0, index < snapshot.columnEntries.count else { return nil }
-        return snapshot.columnEntries[index].column.id
     }
 
     static func exportDelta(
@@ -1126,108 +1188,40 @@ enum NiriStateZigKernel {
             sourceContext = context
             targetContext = nil
             kind = .navigation
-            let selectedWindowId: NodeId?
-            let selectedColumnId: NodeId?
-            let targetWindowId: NodeId?
-            let targetColumnId: NodeId?
-            guard let snapshot = navRequest.snapshot else {
-                return TxnOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    kind: .navigation,
-                    applied: false,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    changedSourceContext: false,
-                    changedTargetContext: false,
-                    deltaColumnCount: 0,
-                    deltaWindowCount: 0,
-                    removedColumnCount: 0,
-                    removedWindowCount: 0
-                )
-            }
-            selectedWindowId = nodeId(atWindowIndex: navRequest.request.selectedWindowIndex, snapshot: snapshot)
-            selectedColumnId = nodeId(atColumnIndex: navRequest.request.selectedColumnIndex, snapshot: snapshot)
-            targetWindowId = nodeId(atWindowIndex: navRequest.request.targetWindowIndex, snapshot: snapshot)
-            targetColumnId = nodeId(atColumnIndex: navRequest.request.targetColumnIndex, snapshot: snapshot)
 
             rawNavigation = OmniNiriTxnNavigationPayload(
                 op: navigationOpCode(navRequest.request.op),
                 direction: navigationDirectionCode(navRequest.request.direction),
                 orientation: orientationCode(navRequest.request.orientation),
                 infinite_loop: navRequest.request.infiniteLoop ? 1 : 0,
-                has_selected_window_id: selectedWindowId == nil ? 0 : 1,
-                selected_window_id: selectedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_selected_column_id: selectedColumnId == nil ? 0 : 1,
-                selected_column_id: selectedColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                selected_window_index: Int64(navRequest.request.selectedWindowIndex),
+                selected_column_index: Int64(navRequest.request.selectedColumnIndex),
                 selected_row_index: Int64(navRequest.request.selectedRowIndex),
                 step: Int64(navRequest.request.step),
                 target_row_index: Int64(navRequest.request.targetRowIndex),
-                has_target_column_id: targetColumnId == nil ? 0 : 1,
-                target_column_id: targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_target_window_id: targetWindowId == nil ? 0 : 1,
-                target_window_id: targetWindowId.map(omniUUID(from:)) ?? zeroUUID()
+                target_column_index: Int64(navRequest.request.targetColumnIndex),
+                target_window_index: Int64(navRequest.request.targetWindowIndex)
             )
         case let .mutation(context, mutationRequest):
             sourceContext = context
             targetContext = nil
             kind = .mutation
-            let sourceWindowId: NodeId?
-            let targetWindowId: NodeId?
-            let sourceColumnId: NodeId?
-            let targetColumnId: NodeId?
-            let focusedWindowId: NodeId?
-            let selectedNodeId: NodeId?
-
-            guard let snapshot = mutationRequest.snapshot else {
-                return TxnOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    kind: .mutation,
-                    applied: false,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    changedSourceContext: false,
-                    changedTargetContext: false,
-                    deltaColumnCount: 0,
-                    deltaWindowCount: 0,
-                    removedColumnCount: 0,
-                    removedWindowCount: 0
-                )
-            }
-            sourceWindowId = nodeId(atWindowIndex: mutationRequest.request.sourceWindowIndex, snapshot: snapshot)
-            targetWindowId = nodeId(atWindowIndex: mutationRequest.request.targetWindowIndex, snapshot: snapshot)
-            sourceColumnId = nodeId(atColumnIndex: mutationRequest.request.sourceColumnIndex, snapshot: snapshot)
-            targetColumnId = nodeId(atColumnIndex: mutationRequest.request.targetColumnIndex, snapshot: snapshot)
-            focusedWindowId = nodeId(atWindowIndex: mutationRequest.request.focusedWindowIndex, snapshot: snapshot)
-            selectedNodeId = switch mutationRequest.request.selectedNodeKind {
-            case .window:
-                nodeId(atWindowIndex: mutationRequest.request.selectedNodeIndex, snapshot: snapshot)
-            case .column:
-                nodeId(atColumnIndex: mutationRequest.request.selectedNodeIndex, snapshot: snapshot)
-            case .none:
-                nil
-            }
 
             rawMutation = OmniNiriTxnMutationPayload(
                 op: mutationOpCode(mutationRequest.request.op),
                 direction: mutationDirectionCode(mutationRequest.request.direction),
                 infinite_loop: mutationRequest.request.infiniteLoop ? 1 : 0,
                 insert_position: insertPositionCode(mutationRequest.request.insertPosition),
-                has_source_window_id: sourceWindowId == nil ? 0 : 1,
-                source_window_id: sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_target_window_id: targetWindowId == nil ? 0 : 1,
-                target_window_id: targetWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                source_window_index: Int64(mutationRequest.request.sourceWindowIndex),
+                target_window_index: Int64(mutationRequest.request.targetWindowIndex),
                 max_windows_per_column: Int64(mutationRequest.request.maxWindowsPerColumn),
-                has_source_column_id: sourceColumnId == nil ? 0 : 1,
-                source_column_id: sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_target_column_id: targetColumnId == nil ? 0 : 1,
-                target_column_id: targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                source_column_index: Int64(mutationRequest.request.sourceColumnIndex),
+                target_column_index: Int64(mutationRequest.request.targetColumnIndex),
                 insert_column_index: Int64(mutationRequest.request.insertColumnIndex),
                 max_visible_columns: Int64(mutationRequest.request.maxVisibleColumns),
                 selected_node_kind: mutationNodeKindCode(mutationRequest.request.selectedNodeKind),
-                has_selected_node_id: selectedNodeId == nil ? 0 : 1,
-                selected_node_id: selectedNodeId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_focused_window_id: focusedWindowId == nil ? 0 : 1,
-                focused_window_id: focusedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                selected_node_index: Int64(mutationRequest.request.selectedNodeIndex),
+                focused_window_index: Int64(mutationRequest.request.focusedWindowIndex),
                 has_incoming_window_id: mutationRequest.incomingWindowId == nil ? 0 : 1,
                 incoming_window_id: mutationRequest.incomingWindowId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_created_column_id: mutationRequest.createdColumnId == nil ? 0 : 1,
@@ -1239,31 +1233,10 @@ enum NiriStateZigKernel {
             sourceContext = source
             targetContext = target
             kind = .workspace
-            let sourceWindowId: NodeId?
-            let sourceColumnId: NodeId?
-            guard let snapshot = workspaceRequest.sourceSnapshot else {
-                return TxnOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    kind: .workspace,
-                    applied: false,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    changedSourceContext: false,
-                    changedTargetContext: false,
-                    deltaColumnCount: 0,
-                    deltaWindowCount: 0,
-                    removedColumnCount: 0,
-                    removedWindowCount: 0
-                )
-            }
-            sourceWindowId = nodeId(atWindowIndex: workspaceRequest.request.sourceWindowIndex, snapshot: snapshot)
-            sourceColumnId = nodeId(atColumnIndex: workspaceRequest.request.sourceColumnIndex, snapshot: snapshot)
             rawWorkspace = OmniNiriTxnWorkspacePayload(
                 op: workspaceOpCode(workspaceRequest.request.op),
-                has_source_window_id: sourceWindowId == nil ? 0 : 1,
-                source_window_id: sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
-                has_source_column_id: sourceColumnId == nil ? 0 : 1,
-                source_column_id: sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                source_window_index: Int64(workspaceRequest.request.sourceWindowIndex),
+                source_column_index: Int64(workspaceRequest.request.sourceColumnIndex),
                 max_visible_columns: Int64(workspaceRequest.request.maxVisibleColumns),
                 has_target_created_column_id: workspaceRequest.targetCreatedColumnId == nil ? 0 : 1,
                 target_created_column_id: workspaceRequest.targetCreatedColumnId.map(omniUUID(from:)) ?? zeroUUID(),

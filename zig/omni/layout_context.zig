@@ -1569,33 +1569,23 @@ fn appendRefreshColumnMeta(meta: *TxnDeltaMeta, column_id: abi.OmniUuid128) void
     meta.refresh_count += 1;
 }
 
-fn resolveWindowIndexFromTxn(
+fn validateOptionalWindowIndex(
     state: *const RuntimeState,
-    has_window_id: u8,
-    window_id: abi.OmniUuid128,
-    out_index: *i64,
+    raw_index: i64,
 ) i32 {
-    if (has_window_id == 0) {
-        out_index.* = -1;
-        return abi.OMNI_OK;
-    }
-    const idx = findWindowIndexByIdCoherent(state, window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-    out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    if (raw_index < 0) return abi.OMNI_OK;
+    const idx = std.math.cast(usize, raw_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    if (idx >= state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     return abi.OMNI_OK;
 }
 
-fn resolveColumnIndexFromTxn(
+fn validateOptionalColumnIndex(
     state: *const RuntimeState,
-    has_column_id: u8,
-    column_id: abi.OmniUuid128,
-    out_index: *i64,
+    raw_index: i64,
 ) i32 {
-    if (has_column_id == 0) {
-        out_index.* = -1;
-        return abi.OMNI_OK;
-    }
-    const idx = findColumnIndexByIdCoherent(state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-    out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    if (raw_index < 0) return abi.OMNI_OK;
+    const idx = std.math.cast(usize, raw_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    if (idx >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     return abi.OMNI_OK;
 }
 
@@ -1606,41 +1596,21 @@ fn applyNavigationTxn(
     out_result: [*c]abi.OmniNiriTxnResult,
     source_delta_meta: *TxnDeltaMeta,
 ) i32 {
-    var selected_window_index: i64 = -1;
-    var selected_column_index: i64 = -1;
-    var target_window_index: i64 = -1;
-    var target_column_index: i64 = -1;
+    const selected_window_index: i64 = payload.selected_window_index;
+    var selected_column_index: i64 = payload.selected_column_index;
+    const target_window_index: i64 = payload.target_window_index;
+    const target_column_index: i64 = payload.target_column_index;
 
-    var rc = resolveWindowIndexFromTxn(
-        source_state,
-        payload.has_selected_window_id,
-        payload.selected_window_id,
-        &selected_window_index,
-    );
+    var rc = validateOptionalWindowIndex(source_state, selected_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveColumnIndexFromTxn(
-        source_state,
-        payload.has_selected_column_id,
-        payload.selected_column_id,
-        &selected_column_index,
-    );
+    rc = validateOptionalColumnIndex(source_state, selected_column_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveWindowIndexFromTxn(
-        source_state,
-        payload.has_target_window_id,
-        payload.target_window_id,
-        &target_window_index,
-    );
+    rc = validateOptionalWindowIndex(source_state, target_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveColumnIndexFromTxn(
-        source_state,
-        payload.has_target_column_id,
-        payload.target_column_id,
-        &target_column_index,
-    );
+    rc = validateOptionalColumnIndex(source_state, target_column_index);
     if (rc != abi.OMNI_OK) return rc;
 
     var selected_row_index = payload.selected_row_index;
@@ -1775,68 +1745,41 @@ fn applyMutationTxn(
     out_result: [*c]abi.OmniNiriTxnResult,
     source_delta_meta: *TxnDeltaMeta,
 ) i32 {
-    var source_window_index: i64 = -1;
-    var target_window_index: i64 = -1;
-    var source_column_index: i64 = -1;
-    var target_column_index: i64 = -1;
-    var focused_window_index: i64 = -1;
+    const source_window_index: i64 = payload.source_window_index;
+    const target_window_index: i64 = payload.target_window_index;
+    const source_column_index: i64 = payload.source_column_index;
+    const target_column_index: i64 = payload.target_column_index;
+    const focused_window_index: i64 = payload.focused_window_index;
 
-    var rc = resolveWindowIndexFromTxn(
-        runtime_state,
-        payload.has_source_window_id,
-        payload.source_window_id,
-        &source_window_index,
-    );
+    var rc = validateOptionalWindowIndex(runtime_state, source_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveWindowIndexFromTxn(
-        runtime_state,
-        payload.has_target_window_id,
-        payload.target_window_id,
-        &target_window_index,
-    );
+    rc = validateOptionalWindowIndex(runtime_state, target_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveColumnIndexFromTxn(
-        runtime_state,
-        payload.has_source_column_id,
-        payload.source_column_id,
-        &source_column_index,
-    );
+    rc = validateOptionalColumnIndex(runtime_state, source_column_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveColumnIndexFromTxn(
-        runtime_state,
-        payload.has_target_column_id,
-        payload.target_column_id,
-        &target_column_index,
-    );
+    rc = validateOptionalColumnIndex(runtime_state, target_column_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveWindowIndexFromTxn(
-        runtime_state,
-        payload.has_focused_window_id,
-        payload.focused_window_id,
-        &focused_window_index,
-    );
+    rc = validateOptionalWindowIndex(runtime_state, focused_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    var selected_node_index: i64 = -1;
-    if (payload.has_selected_node_id != 0) {
-        switch (payload.selected_node_kind) {
-            abi.OMNI_NIRI_MUTATION_NODE_WINDOW => {
-                rc = resolveWindowIndexFromTxn(runtime_state, 1, payload.selected_node_id, &selected_node_index);
-                if (rc != abi.OMNI_OK) return rc;
-            },
-            abi.OMNI_NIRI_MUTATION_NODE_COLUMN => {
-                rc = resolveColumnIndexFromTxn(runtime_state, 1, payload.selected_node_id, &selected_node_index);
-                if (rc != abi.OMNI_OK) return rc;
-            },
-            abi.OMNI_NIRI_MUTATION_NODE_NONE => {
-                selected_node_index = -1;
-            },
-            else => return abi.OMNI_ERR_INVALID_ARGS,
-        }
+    var selected_node_index: i64 = payload.selected_node_index;
+    switch (payload.selected_node_kind) {
+        abi.OMNI_NIRI_MUTATION_NODE_WINDOW => {
+            rc = validateOptionalWindowIndex(runtime_state, selected_node_index);
+            if (rc != abi.OMNI_OK) return rc;
+        },
+        abi.OMNI_NIRI_MUTATION_NODE_COLUMN => {
+            rc = validateOptionalColumnIndex(runtime_state, selected_node_index);
+            if (rc != abi.OMNI_OK) return rc;
+        },
+        abi.OMNI_NIRI_MUTATION_NODE_NONE => {
+            selected_node_index = -1;
+        },
+        else => return abi.OMNI_ERR_INVALID_ARGS,
     }
 
     const request: abi.OmniNiriMutationRequest = .{
@@ -1974,23 +1917,13 @@ fn applyWorkspaceTxn(
 ) i32 {
     const target_had_no_windows_before_move = target_state.window_count == 0;
 
-    var source_window_index: i64 = -1;
-    var source_column_index: i64 = -1;
+    const source_window_index: i64 = payload.source_window_index;
+    const source_column_index: i64 = payload.source_column_index;
 
-    var rc = resolveWindowIndexFromTxn(
-        source_state,
-        payload.has_source_window_id,
-        payload.source_window_id,
-        &source_window_index,
-    );
+    var rc = validateOptionalWindowIndex(source_state, source_window_index);
     if (rc != abi.OMNI_OK) return rc;
 
-    rc = resolveColumnIndexFromTxn(
-        source_state,
-        payload.has_source_column_id,
-        payload.source_column_id,
-        &source_column_index,
-    );
+    rc = validateOptionalColumnIndex(source_state, source_column_index);
     if (rc != abi.OMNI_OK) return rc;
 
     const request: abi.OmniNiriWorkspaceRequest = .{

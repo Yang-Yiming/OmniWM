@@ -4,7 +4,7 @@ import Foundation
 extension NiriLayoutEngine {
     private struct LifecycleRuntimePreparation {
         let context: NiriLayoutZigKernel.LayoutContext
-        let snapshot: NiriStateZigKernel.Snapshot
+        let indexLookup: NiriStateZigKernel.IndexLookup
     }
 
     private func lifecycleContractFailure(
@@ -40,15 +40,16 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
+        let workspaceColumns = columns(in: workspaceId)
+        let indexLookup = NiriStateZigKernel.makeIndexLookup(columns: workspaceColumns)
         guard let context = prepareSeededRuntimeContext(
             for: workspaceId,
-            snapshot: snapshot
+            snapshot: NiriStateZigKernel.makeSnapshot(columns: workspaceColumns)
         ) else {
             return nil
         }
 
-        return LifecycleRuntimePreparation(context: context, snapshot: snapshot)
+        return LifecycleRuntimePreparation(context: context, indexLookup: indexLookup)
     }
 
     func addWindow(
@@ -71,13 +72,13 @@ extension NiriLayoutEngine {
 
         let selectedTarget = NiriStateZigKernel.mutationNodeTarget(
             for: selectedNodeId,
-            snapshot: prepared.snapshot
+            indexLookup: prepared.indexLookup
         )
 
         let focusedWindowIndex: Int
         if let focusedHandle,
            let focusedNode = handleToNode[focusedHandle],
-           let resolvedFocusedIndex = prepared.snapshot.windowIndexByNodeId[focusedNode.id]
+           let resolvedFocusedIndex = prepared.indexLookup.windowIndexByNodeId[focusedNode.id]
         {
             focusedWindowIndex = resolvedFocusedIndex
         } else {
@@ -93,7 +94,6 @@ extension NiriLayoutEngine {
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
-            snapshot: prepared.snapshot,
             incomingWindowId: handle.id,
             createdColumnId: UUID(),
             placeholderColumnId: UUID()
@@ -175,7 +175,7 @@ extension NiriLayoutEngine {
                 reason: "runtime preparation failed"
             )
         }
-        guard let sourceWindowIndex = prepared.snapshot.windowIndexByNodeId[node.id] else {
+        guard let sourceWindowIndex = prepared.indexLookup.windowIndexByNodeId[node.id] else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
@@ -190,7 +190,6 @@ extension NiriLayoutEngine {
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
-            snapshot: prepared.snapshot,
             placeholderColumnId: UUID()
         )
         let applyOutcome = NiriStateZigKernel.applyMutation(
@@ -297,7 +296,7 @@ extension NiriLayoutEngine {
 
         let selectedTarget = NiriStateZigKernel.mutationNodeTarget(
             for: selectedNodeId,
-            snapshot: prepared.snapshot
+            indexLookup: prepared.indexLookup
         )
         let request = NiriStateZigKernel.MutationRequest(
             op: .validateSelection,
@@ -307,8 +306,7 @@ extension NiriLayoutEngine {
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,
             request: .init(
-                request: request,
-                snapshot: prepared.snapshot
+                request: request
             )
         )
         guard outcome.rc == 0 else {
@@ -328,7 +326,7 @@ extension NiriLayoutEngine {
         ) else {
             return nil
         }
-        guard let sourceWindowIndex = prepared.snapshot.windowIndexByNodeId[removingNodeId] else {
+        guard let sourceWindowIndex = prepared.indexLookup.windowIndexByNodeId[removingNodeId] else {
             return nil
         }
 
@@ -339,8 +337,7 @@ extension NiriLayoutEngine {
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,
             request: .init(
-                request: request,
-                snapshot: prepared.snapshot
+                request: request
             )
         )
         guard outcome.rc == 0 else { return nil }

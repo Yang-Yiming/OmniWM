@@ -15,7 +15,7 @@ extension NiriLayoutEngine {
 
     func prepareSeededRuntimeContext(
         for workspaceId: WorkspaceDescriptor.ID,
-        snapshot: NiriStateZigKernel.Snapshot
+        snapshot: @autoclosure () -> NiriStateZigKernel.Snapshot
     ) -> NiriLayoutZigKernel.LayoutContext? {
         guard let context = ensureLayoutContext(for: workspaceId) else {
             return nil
@@ -24,9 +24,10 @@ extension NiriLayoutEngine {
             return context
         }
 
+        let resolvedSnapshot = snapshot()
         let seedRC = NiriStateZigKernel.seedRuntimeState(
             context: context,
-            snapshot: snapshot
+            snapshot: resolvedSnapshot
         )
         guard seedRC == 0 else {
             return nil
@@ -34,8 +35,8 @@ extension NiriLayoutEngine {
 
         setRuntimeMirrorState(
             for: workspaceId,
-            columnCount: snapshot.columns.count,
-            windowCount: snapshot.windows.count
+            columnCount: resolvedSnapshot.columns.count,
+            windowCount: resolvedSnapshot.windows.count
         )
         return context
     }

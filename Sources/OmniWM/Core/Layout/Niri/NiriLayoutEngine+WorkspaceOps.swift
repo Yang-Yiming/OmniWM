@@ -5,8 +5,8 @@ extension NiriLayoutEngine {
     private struct WorkspacePreparedRequest {
         let sourceWorkspaceId: WorkspaceDescriptor.ID
         let targetWorkspaceId: WorkspaceDescriptor.ID
-        let sourceSnapshot: NiriStateZigKernel.Snapshot
-        let targetSnapshot: NiriStateZigKernel.Snapshot
+        let sourceColumns: [NiriContainer]
+        let targetColumns: [NiriContainer]
         let request: NiriStateZigKernel.WorkspaceRequest
     }
 
@@ -32,11 +32,11 @@ extension NiriLayoutEngine {
     ) -> WorkspaceApplyOutcome? {
         guard let sourceContext = prepareSeededRuntimeContext(
             for: prepared.sourceWorkspaceId,
-            snapshot: prepared.sourceSnapshot
+            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.sourceColumns)
         ),
             let targetContext = prepareSeededRuntimeContext(
                 for: prepared.targetWorkspaceId,
-                snapshot: prepared.targetSnapshot
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.targetColumns)
             )
         else {
             return nil
@@ -47,7 +47,6 @@ extension NiriLayoutEngine {
             targetContext: targetContext,
             request: .init(
                 request: prepared.request,
-                sourceSnapshot: prepared.sourceSnapshot,
                 targetCreatedColumnId: targetCreatedColumnId,
                 sourcePlaceholderColumnId: sourcePlaceholderColumnId
             )
@@ -139,9 +138,10 @@ extension NiriLayoutEngine {
         }
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
-        let sourceSnapshot = NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
-        let targetSnapshot = NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
-        guard let sourceWindowIndex = sourceSnapshot.windowIndexByNodeId[window.id] else {
+        let sourceColumns = sourceRoot.columns
+        let targetColumns = targetRoot.columns
+        let sourceIndexLookup = NiriStateZigKernel.makeIndexLookup(columns: sourceColumns)
+        guard let sourceWindowIndex = sourceIndexLookup.windowIndexByNodeId[window.id] else {
             return nil
         }
 
@@ -154,8 +154,8 @@ extension NiriLayoutEngine {
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            sourceSnapshot: sourceSnapshot,
-            targetSnapshot: targetSnapshot,
+            sourceColumns: sourceColumns,
+            targetColumns: targetColumns,
             request: request
         )
     }
@@ -174,9 +174,10 @@ extension NiriLayoutEngine {
         }
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
-        let sourceSnapshot = NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
-        let targetSnapshot = NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
-        guard let sourceColumnIndex = sourceSnapshot.columnIndexByNodeId[column.id] else {
+        let sourceColumns = sourceRoot.columns
+        let targetColumns = targetRoot.columns
+        let sourceIndexLookup = NiriStateZigKernel.makeIndexLookup(columns: sourceColumns)
+        guard let sourceColumnIndex = sourceIndexLookup.columnIndexByNodeId[column.id] else {
             return nil
         }
 
@@ -188,8 +189,8 @@ extension NiriLayoutEngine {
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            sourceSnapshot: sourceSnapshot,
-            targetSnapshot: targetSnapshot,
+            sourceColumns: sourceColumns,
+            targetColumns: targetColumns,
             request: request
         )
     }
