@@ -1,3 +1,4 @@
+import CZigLayout
 import Foundation
 
 struct NiriRuntimeWorkspaceView {
@@ -98,6 +99,16 @@ enum NiriRuntimeMutationCommand {
     case normalizeColumnSizes
     case normalizeWindowSizes(sourceColumnId: NodeId)
     case balanceSizes
+    case setColumnDisplay(sourceColumnId: NodeId, mode: ColumnDisplay)
+    case setColumnActiveTile(sourceColumnId: NodeId, tileIndex: Int)
+    case setColumnWidth(
+        sourceColumnId: NodeId,
+        width: ProportionalSize,
+        isFullWidth: Bool,
+        savedWidth: ProportionalSize?
+    )
+    case setWindowHeight(sourceWindowId: NodeId, height: WeightedSize)
+    case setWindowSizingMode(sourceWindowId: NodeId, mode: SizingMode)
 }
 
 enum NiriRuntimeLifecycleCommand {
@@ -298,6 +309,261 @@ final class NiriRuntimeWorkspaceStore {
             return .failure(.missingRuntimeContext(workspaceId: workspaceId))
         }
 
+        switch command {
+        case let .setColumnDisplay(sourceColumnId, mode):
+            return executeRuntimeSnapshotMutation(context: context) { export in
+                guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == sourceColumnId }) else {
+                    return nil
+                }
+                let column = export.columns[columnIndex]
+                let isTabbed = mode == .tabbed
+                if column.isTabbed == isTabbed {
+                    return (
+                        applied: false,
+                        targetWindowId: nil,
+                        targetNode: nil
+                    )
+                }
+                let nextActiveTile: Int
+                if column.windowCount == 0 {
+                    nextActiveTile = 0
+                } else {
+                    nextActiveTile = min(column.activeTileIdx, column.windowCount - 1)
+                }
+                let updatedColumn = NiriStateZigKernel.RuntimeColumnState(
+                    columnId: column.columnId,
+                    windowStart: column.windowStart,
+                    windowCount: column.windowCount,
+                    activeTileIdx: nextActiveTile,
+                    isTabbed: isTabbed,
+                    sizeValue: column.sizeValue,
+                    widthKind: column.widthKind,
+                    isFullWidth: column.isFullWidth,
+                    hasSavedWidth: column.hasSavedWidth,
+                    savedWidthKind: column.savedWidthKind,
+                    savedWidthValue: column.savedWidthValue
+                )
+                export.columns[columnIndex] = updatedColumn
+                return (
+                    applied: true,
+                    targetWindowId: runtimeColumnTargetWindowId(updatedColumn, export: export),
+                    targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                )
+            }
+        case let .setColumnActiveTile(sourceColumnId, tileIndex):
+            return executeRuntimeSnapshotMutation(context: context) { export in
+                guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == sourceColumnId }) else {
+                    return nil
+                }
+                let column = export.columns[columnIndex]
+                guard column.windowCount > 0 else {
+                    return (
+                        applied: false,
+                        targetWindowId: nil,
+                        targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                    )
+                }
+                let clampedTileIndex = max(0, min(tileIndex, column.windowCount - 1))
+                if column.activeTileIdx == clampedTileIndex {
+                    return (
+                        applied: false,
+                        targetWindowId: runtimeColumnTargetWindowId(column, export: export),
+                        targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                    )
+                }
+                let updatedColumn = NiriStateZigKernel.RuntimeColumnState(
+                    columnId: column.columnId,
+                    windowStart: column.windowStart,
+                    windowCount: column.windowCount,
+                    activeTileIdx: clampedTileIndex,
+                    isTabbed: column.isTabbed,
+                    sizeValue: column.sizeValue,
+                    widthKind: column.widthKind,
+                    isFullWidth: column.isFullWidth,
+                    hasSavedWidth: column.hasSavedWidth,
+                    savedWidthKind: column.savedWidthKind,
+                    savedWidthValue: column.savedWidthValue
+                )
+                export.columns[columnIndex] = updatedColumn
+                return (
+                    applied: true,
+                    targetWindowId: runtimeColumnTargetWindowId(updatedColumn, export: export),
+                    targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                )
+            }
+        case let .setColumnWidth(sourceColumnId, width, isFullWidth, savedWidth):
+            return executeRuntimeSnapshotMutation(context: context) { export in
+                guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == sourceColumnId }) else {
+                    return nil
+                }
+                let column = export.columns[columnIndex]
+                let encodedWidth = NiriStateZigKernel.encodeWidth(width)
+                let encodedSavedWidth = savedWidth.map(NiriStateZigKernel.encodeWidth)
+
+                let hasSavedWidth = encodedSavedWidth != nil
+                if column.sizeValue == encodedWidth.value,
+                   column.widthKind == encodedWidth.kind,
+                   column.isFullWidth == isFullWidth,
+                   column.hasSavedWidth == hasSavedWidth,
+                   column.savedWidthKind == (encodedSavedWidth?.kind ?? NiriStateZigKernel.sizeKindProportion),
+                   column.savedWidthValue == (encodedSavedWidth?.value ?? 1.0)
+                {
+                    return (
+                        applied: false,
+                        targetWindowId: runtimeColumnTargetWindowId(column, export: export),
+                        targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                    )
+                }
+
+                let updatedColumn = NiriStateZigKernel.RuntimeColumnState(
+                    columnId: column.columnId,
+                    windowStart: column.windowStart,
+                    windowCount: column.windowCount,
+                    activeTileIdx: column.activeTileIdx,
+                    isTabbed: column.isTabbed,
+                    sizeValue: encodedWidth.value,
+                    widthKind: encodedWidth.kind,
+                    isFullWidth: isFullWidth,
+                    hasSavedWidth: hasSavedWidth,
+                    savedWidthKind: encodedSavedWidth?.kind ?? NiriStateZigKernel.sizeKindProportion,
+                    savedWidthValue: encodedSavedWidth?.value ?? 1.0
+                )
+                export.columns[columnIndex] = updatedColumn
+
+                return (
+                    applied: true,
+                    targetWindowId: runtimeColumnTargetWindowId(updatedColumn, export: export),
+                    targetNode: .init(kind: .column, nodeId: sourceColumnId)
+                )
+            }
+        case let .setWindowHeight(sourceWindowId, height):
+            return executeRuntimeSnapshotMutation(context: context) { export in
+                guard let windowIndex = export.windows.firstIndex(where: { $0.windowId == sourceWindowId }) else {
+                    return nil
+                }
+
+                let window = export.windows[windowIndex]
+                let encodedHeight = NiriStateZigKernel.encodeHeight(height)
+                let sizeValue: Double
+                switch height {
+                case let .auto(weight):
+                    sizeValue = Double(weight)
+                case .fixed:
+                    sizeValue = 1.0
+                }
+
+                if window.heightKind == encodedHeight.kind,
+                   window.heightValue == encodedHeight.value,
+                   window.sizeValue == sizeValue
+                {
+                    return (
+                        applied: false,
+                        targetWindowId: sourceWindowId,
+                        targetNode: .init(kind: .window, nodeId: sourceWindowId)
+                    )
+                }
+
+                let updatedWindow = NiriStateZigKernel.RuntimeWindowState(
+                    windowId: window.windowId,
+                    columnId: window.columnId,
+                    columnIndex: window.columnIndex,
+                    sizeValue: sizeValue,
+                    heightKind: encodedHeight.kind,
+                    heightValue: encodedHeight.value
+                )
+                export.windows[windowIndex] = updatedWindow
+                return (
+                    applied: true,
+                    targetWindowId: sourceWindowId,
+                    targetNode: .init(kind: .window, nodeId: sourceWindowId)
+                )
+            }
+        case let .setWindowSizingMode(sourceWindowId, mode):
+            guard let window = engine.root(for: workspaceId)?
+                .findNode(by: sourceWindowId) as? NiriWindow
+            else {
+                return .success(
+                    .init(
+                        rc: Int32(OMNI_ERR_OUT_OF_RANGE),
+                        applied: false,
+                        targetWindowId: nil,
+                        targetNode: nil,
+                        delta: nil
+                    )
+                )
+            }
+
+            let previousMode = window.sizingMode
+            guard previousMode != mode else {
+                return .success(
+                    .init(
+                        rc: Int32(OMNI_OK),
+                        applied: false,
+                        targetWindowId: sourceWindowId,
+                        targetNode: .init(kind: .window, nodeId: sourceWindowId),
+                        delta: nil
+                    )
+                )
+            }
+
+            var heightRestoreResult: Result<NiriRuntimeMutationOutcome, NiriRuntimeBoundaryError>?
+            if previousMode == .fullscreen, mode == .normal, let savedHeight = window.savedHeight {
+                heightRestoreResult = executeRuntimeSnapshotMutation(context: context) { export in
+                    guard let windowIndex = export.windows.firstIndex(where: { $0.windowId == sourceWindowId }) else {
+                        return nil
+                    }
+                    let runtimeWindow = export.windows[windowIndex]
+                    let encodedHeight = NiriStateZigKernel.encodeHeight(savedHeight)
+                    let sizeValue: Double
+                    switch savedHeight {
+                    case let .auto(weight):
+                        sizeValue = Double(weight)
+                    case .fixed:
+                        sizeValue = 1.0
+                    }
+                    export.windows[windowIndex] = NiriStateZigKernel.RuntimeWindowState(
+                        windowId: runtimeWindow.windowId,
+                        columnId: runtimeWindow.columnId,
+                        columnIndex: runtimeWindow.columnIndex,
+                        sizeValue: sizeValue,
+                        heightKind: encodedHeight.kind,
+                        heightValue: encodedHeight.value
+                    )
+                    return (
+                        applied: true,
+                        targetWindowId: sourceWindowId,
+                        targetNode: .init(kind: .window, nodeId: sourceWindowId)
+                    )
+                }
+            }
+
+            if case let .failure(error) = heightRestoreResult {
+                return .failure(error)
+            }
+            if case let .success(heightOutcome)? = heightRestoreResult, heightOutcome.rc != OMNI_OK {
+                return .success(heightOutcome)
+            }
+
+            if previousMode == .normal, mode == .fullscreen {
+                window.savedHeight = window.height
+            } else if previousMode == .fullscreen, mode == .normal {
+                window.savedHeight = nil
+            }
+            window.sizingMode = mode
+
+            return .success(
+                .init(
+                    rc: Int32(OMNI_OK),
+                    applied: true,
+                    targetWindowId: sourceWindowId,
+                    targetNode: .init(kind: .window, nodeId: sourceWindowId),
+                    delta: nil
+                )
+            )
+        default:
+            break
+        }
+
         let request = mutationRequest(for: command)
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
@@ -411,8 +677,7 @@ final class NiriRuntimeWorkspaceStore {
                 refreshMirrorStateFromExport: false
             ) {
             case .success:
-                engine.markRuntimeSeeded(for: workspaceId)
-                engine.markRuntimeSeeded(for: targetStore.workspaceId)
+                break
             case let .failure(error):
                 return .failure(.projection(error))
             }
@@ -576,6 +841,103 @@ final class NiriRuntimeWorkspaceStore {
             return nil
         }
         return root.columns
+    }
+
+    private typealias RuntimeSnapshotMutationResult = (
+        applied: Bool,
+        targetWindowId: NodeId?,
+        targetNode: NiriStateZigKernel.RuntimeNodeTarget?
+    )
+
+    private func executeRuntimeSnapshotMutation(
+        context: NiriLayoutZigKernel.LayoutContext,
+        mutate: (inout NiriStateZigKernel.RuntimeStateExport) -> RuntimeSnapshotMutationResult?
+    ) -> Result<NiriRuntimeMutationOutcome, NiriRuntimeBoundaryError> {
+        var export: NiriStateZigKernel.RuntimeStateExport
+        switch NiriStateZigKernel.snapshotRuntimeStateResult(context: context) {
+        case let .success(snapshot):
+            export = snapshot
+        case let .failure(error):
+            return .failure(.runtimeSnapshot(workspaceId: workspaceId, error: error))
+        }
+
+        guard let mutation = mutate(&export) else {
+            return .success(
+                .init(
+                    rc: Int32(OMNI_ERR_OUT_OF_RANGE),
+                    applied: false,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    delta: nil
+                )
+            )
+        }
+
+        guard mutation.applied else {
+            return .success(
+                .init(
+                    rc: Int32(OMNI_OK),
+                    applied: false,
+                    targetWindowId: mutation.targetWindowId,
+                    targetNode: mutation.targetNode,
+                    delta: nil
+                )
+            )
+        }
+
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: export
+        )
+        guard seedRC == OMNI_OK else {
+            return .success(
+                .init(
+                    rc: seedRC,
+                    applied: false,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    delta: nil
+                )
+            )
+        }
+
+        switch engine.applyProjectedRuntimeExport(
+            context: context,
+            workspaceId: workspaceId,
+            refreshMirrorStateFromExport: false
+        ) {
+        case .success:
+            return .success(
+                .init(
+                    rc: Int32(OMNI_OK),
+                    applied: true,
+                    targetWindowId: mutation.targetWindowId,
+                    targetNode: mutation.targetNode,
+                    delta: nil
+                )
+            )
+        case let .failure(error):
+            return .failure(.projection(error))
+        }
+    }
+
+    private func runtimeColumnTargetWindowId(
+        _ column: NiriStateZigKernel.RuntimeColumnState,
+        export: NiriStateZigKernel.RuntimeStateExport
+    ) -> NodeId? {
+        guard column.windowCount > 0,
+              column.windowStart >= 0,
+              column.windowStart <= export.windows.count,
+              column.windowCount <= export.windows.count - column.windowStart
+        else {
+            return nil
+        }
+        let rowIndex = min(column.activeTileIdx, column.windowCount - 1)
+        let windowIndex = column.windowStart + rowIndex
+        guard export.windows.indices.contains(windowIndex) else {
+            return nil
+        }
+        return export.windows[windowIndex].windowId
     }
 
     private func prepareContext() -> NiriLayoutZigKernel.LayoutContext? {
@@ -836,6 +1198,12 @@ final class NiriRuntimeWorkspaceStore {
                     maxVisibleColumns: engine.maxVisibleColumns
                 )
             )
+        case .setColumnDisplay,
+             .setColumnActiveTile,
+             .setColumnWidth,
+             .setWindowHeight,
+             .setWindowSizingMode:
+            preconditionFailure("custom runtime snapshot mutation commands do not map to mutation request payloads")
         }
     }
 

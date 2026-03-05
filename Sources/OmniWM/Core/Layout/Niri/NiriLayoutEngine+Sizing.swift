@@ -24,31 +24,37 @@ extension NiriLayoutEngine {
         mode: SizingMode,
         state: inout ViewportState
     ) {
+        guard let workspaceId = window.findRoot()?.workspaceId else { return }
         let previousMode = window.sizingMode
 
         if previousMode == mode {
             return
         }
 
-        if previousMode == .fullscreen, mode == .normal {
-            if let savedHeight = window.savedHeight {
-                window.height = savedHeight
-                window.savedHeight = nil
-            }
+        let savedOffsetToRestore = state.viewOffsetToRestore
 
-            if let savedOffset = state.viewOffsetToRestore {
-                state.animateViewOffsetRestore(savedOffset)
-            }
+        let runtimeStore = runtimeStore(for: workspaceId)
+        let outcome: NiriRuntimeMutationOutcome
+        switch runtimeStore.executeMutation(
+            .setWindowSizingMode(
+                sourceWindowId: window.id,
+                mode: mode
+            )
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
+            return
         }
+        guard outcome.rc == 0 else { return }
+        guard outcome.applied else { return }
 
-        if previousMode == .normal, mode == .fullscreen {
-            window.savedHeight = window.height
+        if previousMode == .fullscreen, mode == .normal,
+           let savedOffset = savedOffsetToRestore
+        {
+            state.animateViewOffsetRestore(savedOffset)
+        } else if previousMode == .normal, mode == .fullscreen {
             state.saveViewOffsetForFullscreen()
-        }
-
-        window.sizingMode = mode
-        if let workspaceId = window.findRoot()?.workspaceId {
-            _ = syncRuntimeStateNow(workspaceId: workspaceId)
         }
     }
 
@@ -70,12 +76,11 @@ extension NiriLayoutEngine {
     ) {
         guard !presetColumnWidths.isEmpty else { return }
 
-        if column.isFullWidth {
-            column.isFullWidth = false
-            if let saved = column.savedWidth {
-                column.width = saved
-                column.savedWidth = nil
-            }
+        let baselineWidth: ProportionalSize
+        if column.isFullWidth, let savedWidth = column.savedWidth {
+            baselineWidth = savedWidth
+        } else {
+            baselineWidth = column.width
         }
 
         let presetCount = presetColumnWidths.count
@@ -88,7 +93,7 @@ extension NiriLayoutEngine {
                 nextIdx = (currentIdx - 1 + presetCount) % presetCount
             }
         } else {
-            let currentValue = column.width.value
+            let currentValue = baselineWidth.value
             var nearestIdx = 0
             var nearestDist = CGFloat.infinity
             for (i, preset) in presetColumnWidths.enumerated() {
@@ -107,26 +112,46 @@ extension NiriLayoutEngine {
         }
 
         let newWidth = presetColumnWidths[nextIdx].asProportionalSize
-        column.width = newWidth
-        column.presetWidthIdx = nextIdx
+
+        let runtimeStore = runtimeStore(for: workspaceId)
+        let outcome: NiriRuntimeMutationOutcome
+        switch runtimeStore.executeMutation(
+            .setColumnWidth(
+                sourceColumnId: column.id,
+                width: newWidth,
+                isFullWidth: false,
+                savedWidth: nil
+            )
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
+            return
+        }
+        guard outcome.rc == 0 else { return }
+
+        guard let resolvedColumn = root(for: workspaceId)?.findNode(by: column.id) as? NiriContainer else {
+            return
+        }
+        resolvedColumn.presetWidthIdx = nextIdx
 
         let workingAreaWidth = workingFrame.width
         let targetPixels: CGFloat
-        switch newWidth {
+        switch resolvedColumn.width {
         case .proportion(let p):
             targetPixels = (workingAreaWidth - gaps) * p
         case .fixed(let f):
             targetPixels = f
         }
 
-        column.animateWidthTo(
+        resolvedColumn.animateWidthTo(
             newWidth: targetPixels,
             clock: animationClock,
             config: windowMovementAnimationConfig,
             displayRefreshRate: displayRefreshRate
         )
 
-        if let window = column.windowNodes.first {
+        if let window = resolvedColumn.windowNodes.first {
             ensureSelectionVisible(
                 node: window,
                 in: workspaceId,
@@ -136,8 +161,6 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
         }
-
-        _ = syncRuntimeStateNow(workspaceId: workspaceId)
     }
 
     func toggleFullWidth(
@@ -147,35 +170,62 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) {
+        let toggledIsFullWidth = !column.isFullWidth
+        let resolvedWidth: ProportionalSize
+        let savedWidth: ProportionalSize?
+        if toggledIsFullWidth {
+            resolvedWidth = column.width
+            savedWidth = column.width
+        } else {
+            resolvedWidth = column.savedWidth ?? column.width
+            savedWidth = nil
+        }
+
+        let runtimeStore = runtimeStore(for: workspaceId)
+        let outcome: NiriRuntimeMutationOutcome
+        switch runtimeStore.executeMutation(
+            .setColumnWidth(
+                sourceColumnId: column.id,
+                width: resolvedWidth,
+                isFullWidth: toggledIsFullWidth,
+                savedWidth: savedWidth
+            )
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
+            return
+        }
+        guard outcome.rc == 0 else { return }
+
+        guard let resolvedColumn = root(for: workspaceId)?.findNode(by: column.id) as? NiriContainer else {
+            return
+        }
+        if resolvedColumn.isFullWidth {
+            resolvedColumn.presetWidthIdx = nil
+        }
+
         let workingAreaWidth = workingFrame.width
         let targetPixels: CGFloat
-        if column.isFullWidth {
-            column.isFullWidth = false
-            if let saved = column.savedWidth {
-                column.width = saved
-                column.savedWidth = nil
-            }
-            switch column.width {
+        if resolvedColumn.isFullWidth {
+            targetPixels = workingAreaWidth
+        } else {
+            switch resolvedColumn.width {
             case .proportion(let p):
                 targetPixels = (workingAreaWidth - gaps) * p
             case .fixed(let f):
                 targetPixels = f
             }
-        } else {
-            column.savedWidth = column.width
-            column.isFullWidth = true
-            column.presetWidthIdx = nil
-            targetPixels = workingAreaWidth
         }
 
-        column.animateWidthTo(
+        resolvedColumn.animateWidthTo(
             newWidth: targetPixels,
             clock: animationClock,
             config: windowMovementAnimationConfig,
             displayRefreshRate: displayRefreshRate
         )
 
-        if let window = column.windowNodes.first {
+        if let window = resolvedColumn.windowNodes.first {
             ensureSelectionVisible(
                 node: window,
                 in: workspaceId,
@@ -185,14 +235,22 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
         }
-
-        _ = syncRuntimeStateNow(workspaceId: workspaceId)
     }
 
     func setWindowHeight(_ window: NiriWindow, height: WeightedSize) {
-        window.height = height
-        if let workspaceId = window.findRoot()?.workspaceId {
-            _ = syncRuntimeStateNow(workspaceId: workspaceId)
+        guard let workspaceId = window.findRoot()?.workspaceId else { return }
+
+        let runtimeStore = runtimeStore(for: workspaceId)
+        switch runtimeStore.executeMutation(
+            .setWindowHeight(
+                sourceWindowId: window.id,
+                height: height
+            )
+        ) {
+        case let .success(outcome):
+            guard outcome.rc == 0 else { return }
+        case .failure:
+            return
         }
     }
 }

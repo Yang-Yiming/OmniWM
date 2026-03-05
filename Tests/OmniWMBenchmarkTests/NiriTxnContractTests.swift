@@ -173,4 +173,46 @@ final class NiriTxnContractTests: XCTestCase {
             )
         }
     }
+
+    func testPhase2OperationalMutationPathsDoNotUseSyncRuntimeReseed() throws {
+        let operationFiles = [
+            "NiriLayoutEngine+Sizing.swift",
+            "NiriLayoutEngine+TabbedMode.swift",
+            "NiriLayoutEngine+InteractiveResize.swift",
+            "NiriLayoutEngine+ColumnOps.swift",
+            "NiriLayoutEngine+WindowOps.swift",
+            "NiriLayoutEngine+WorkspaceOps.swift",
+            "NiriLayoutEngine+Windows.swift",
+        ]
+
+        for fileName in operationFiles {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(
+                content.contains("syncRuntimeStateNow("),
+                "Phase 2 operation paths must not call syncRuntimeStateNow in \(fileName)"
+            )
+        }
+    }
+
+    func testPhase2SizingAndTabbedMutationPathsUseRuntimeCommands() throws {
+        let sizingURL = niriSourceDirURL().appendingPathComponent("NiriLayoutEngine+Sizing.swift")
+        let sizingContent = try String(contentsOf: sizingURL, encoding: .utf8)
+        XCTAssertTrue(sizingContent.contains(".setWindowSizingMode("))
+        XCTAssertTrue(sizingContent.contains(".setColumnWidth("))
+        XCTAssertTrue(sizingContent.contains(".setWindowHeight("))
+        XCTAssertFalse(sizingContent.contains("window.height ="))
+        XCTAssertFalse(sizingContent.contains("window.sizingMode = mode"))
+        XCTAssertFalse(sizingContent.contains("column.width ="))
+        XCTAssertFalse(sizingContent.contains("column.isFullWidth ="))
+        XCTAssertFalse(sizingContent.contains("column.savedWidth ="))
+
+        let tabbedURL = niriSourceDirURL().appendingPathComponent("NiriLayoutEngine+TabbedMode.swift")
+        let tabbedContent = try String(contentsOf: tabbedURL, encoding: .utf8)
+        XCTAssertTrue(tabbedContent.contains(".setColumnDisplay("))
+        XCTAssertTrue(tabbedContent.contains(".setColumnActiveTile("))
+        XCTAssertFalse(tabbedContent.contains("column.displayMode = mode"))
+        XCTAssertFalse(tabbedContent.contains("column.displayMode = ."))
+        XCTAssertFalse(tabbedContent.contains("column.setActiveTileIdx("))
+    }
 }

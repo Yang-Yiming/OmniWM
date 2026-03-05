@@ -247,8 +247,8 @@ enum NiriStateZigKernel {
     }
 
     struct RuntimeStateExport: Equatable {
-        let columns: [RuntimeColumnState]
-        let windows: [RuntimeWindowState]
+        var columns: [RuntimeColumnState]
+        var windows: [RuntimeWindowState]
     }
 
     enum RuntimeExportDecodeError: Error, Equatable, CustomStringConvertible {

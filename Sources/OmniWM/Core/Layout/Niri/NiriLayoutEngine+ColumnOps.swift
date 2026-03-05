@@ -468,8 +468,6 @@ extension NiriLayoutEngine {
         guard !cols.isEmpty else { return }
 
         for column in cols {
-            column.isFullWidth = false
-            column.savedWidth = nil
             column.presetWidthIdx = nil
         }
 

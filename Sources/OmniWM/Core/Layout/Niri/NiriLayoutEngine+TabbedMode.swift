@@ -16,8 +16,9 @@ extension NiriLayoutEngine {
     }
 
     @discardableResult
-    func setColumnDisplay(_ mode: ColumnDisplay, for column: NiriContainer, gaps: CGFloat = 0) -> Bool {
+    func setColumnDisplay(_ mode: ColumnDisplay, for column: NiriContainer, gaps _: CGFloat = 0) -> Bool {
         guard column.displayMode != mode else { return false }
+        guard let workspaceId = column.findRoot()?.workspaceId else { return false }
 
         if let resize = interactiveResize,
            let resizeWindow = findNode(by: resize.windowId) as? NiriWindow,
@@ -27,50 +28,19 @@ extension NiriLayoutEngine {
             clearInteractiveResize()
         }
 
-        let windows = column.windowNodes
-        guard !windows.isEmpty else {
-            column.displayMode = mode
-            if let workspaceId = column.findRoot()?.workspaceId {
-                _ = syncRuntimeStateNow(workspaceId: workspaceId)
-            }
-            return true
+        let runtimeStore = runtimeStore(for: workspaceId)
+        switch runtimeStore.executeMutation(
+            .setColumnDisplay(
+                sourceColumnId: column.id,
+                mode: mode
+            )
+        ) {
+        case let .success(outcome):
+            guard outcome.rc == 0 else { return false }
+            return outcome.applied
+        case .failure:
+            return false
         }
-
-        let prevOrigin = tilesOrigin(column: column)
-
-        column.displayMode = mode
-        let newOrigin = tilesOrigin(column: column)
-        let originDelta = CGPoint(x: prevOrigin.x - newOrigin.x, y: prevOrigin.y - newOrigin.y)
-
-        column.displayMode = .normal
-        let tileOffsets = computeTileOffsets(column: column, gaps: gaps)
-
-        for (idx, window) in windows.enumerated() {
-            var yDelta = idx < tileOffsets.count ? tileOffsets[idx] : 0
-            yDelta -= prevOrigin.y
-
-            if mode == .normal {
-                yDelta *= -1
-            }
-
-            let delta = CGPoint(x: originDelta.x, y: originDelta.y + yDelta)
-            if delta.x != 0 || delta.y != 0 {
-                window.animateMoveFrom(
-                    displacement: delta,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
-                )
-            }
-        }
-
-        column.displayMode = mode
-        updateTabbedColumnVisibility(column: column)
-        if let workspaceId = column.findRoot()?.workspaceId {
-            _ = syncRuntimeStateNow(workspaceId: workspaceId)
-        }
-
-        return true
     }
 
     func updateTabbedColumnVisibility(column: NiriContainer) {
@@ -94,18 +64,21 @@ extension NiriLayoutEngine {
     @discardableResult
     func activateTab(at index: Int, in column: NiriContainer) -> Bool {
         guard column.displayMode == .tabbed else { return false }
+        guard let workspaceId = column.findRoot()?.workspaceId else { return false }
 
-        let prevIdx = column.activeTileIdx
-        column.setActiveTileIdx(index)
-
-        if prevIdx != column.activeTileIdx {
-            updateTabbedColumnVisibility(column: column)
-            if let workspaceId = column.findRoot()?.workspaceId {
-                _ = syncRuntimeStateNow(workspaceId: workspaceId)
-            }
-            return true
+        let runtimeStore = runtimeStore(for: workspaceId)
+        switch runtimeStore.executeMutation(
+            .setColumnActiveTile(
+                sourceColumnId: column.id,
+                tileIndex: index
+            )
+        ) {
+        case let .success(outcome):
+            guard outcome.rc == 0 else { return false }
+            return outcome.applied
+        case .failure:
+            return false
         }
-        return false
     }
 
     func activeColumn(in _: WorkspaceDescriptor.ID, state: ViewportState) -> NiriContainer? {

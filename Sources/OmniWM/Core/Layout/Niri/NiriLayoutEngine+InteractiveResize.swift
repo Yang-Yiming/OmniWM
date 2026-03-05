@@ -163,7 +163,7 @@ extension NiriLayoutEngine {
             changed = true
         }
 
-        // Keep drag updates lightweight; runtime sync happens once in `interactiveResizeEnd`.
+        // Keep drag updates lightweight; runtime commit happens once in `interactiveResizeEnd`.
         return changed
     }
 
@@ -184,6 +184,28 @@ extension NiriLayoutEngine {
         }
 
         if let windowNode = findNode(by: resize.windowId) as? NiriWindow {
+            let runtimeStore = runtimeStore(for: resize.workspaceId)
+            if resize.edges.hasHorizontal,
+               let column = findColumn(containing: windowNode, in: resize.workspaceId)
+            {
+                _ = runtimeStore.executeMutation(
+                    .setColumnWidth(
+                        sourceColumnId: column.id,
+                        width: column.width,
+                        isFullWidth: column.isFullWidth,
+                        savedWidth: column.savedWidth
+                    )
+                )
+            }
+            if resize.edges.hasVertical {
+                _ = runtimeStore.executeMutation(
+                    .setWindowHeight(
+                        sourceWindowId: windowNode.id,
+                        height: windowNode.height
+                    )
+                )
+            }
+
             ensureSelectionVisible(
                 node: windowNode,
                 in: resize.workspaceId,
@@ -193,9 +215,6 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
         }
-
-        // Commit the deferred runtime sync at gesture end.
-        _ = syncRuntimeStateNow(workspaceId: resize.workspaceId)
 
         interactiveResize = nil
     }
