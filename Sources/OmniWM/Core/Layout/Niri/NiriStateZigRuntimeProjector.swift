@@ -131,12 +131,37 @@ enum NiriStateZigRuntimeProjector {
         for (targetColumnIndex, resolvedColumn) in resolvedColumns.enumerated() {
             let column = resolvedColumn.column
             root.insertChild(column, at: targetColumnIndex)
-            column.size = CGFloat(resolvedColumn.runtime.sizeValue)
+            guard let runtimeWidth = NiriStateZigKernel.decodeWidth(
+                kind: resolvedColumn.runtime.widthKind,
+                value: resolvedColumn.runtime.sizeValue
+            ) else {
+                return fail("invalid runtime width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
+            }
+            column.width = runtimeWidth
+            column.isFullWidth = resolvedColumn.runtime.isFullWidth
+            if resolvedColumn.runtime.hasSavedWidth {
+                guard let runtimeSavedWidth = NiriStateZigKernel.decodeWidth(
+                    kind: resolvedColumn.runtime.savedWidthKind,
+                    value: resolvedColumn.runtime.savedWidthValue
+                ) else {
+                    return fail("invalid runtime saved width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
+                }
+                column.savedWidth = runtimeSavedWidth
+            } else {
+                column.savedWidth = nil
+            }
             column.displayMode = resolvedColumn.runtime.isTabbed ? .tabbed : .normal
 
             for (targetWindowIndex, window) in resolvedColumn.windows.enumerated() {
                 column.insertChild(window, at: targetWindowIndex)
-                window.size = CGFloat(export.windows[resolvedColumn.runtime.windowStart + targetWindowIndex].sizeValue)
+                let runtimeWindow = export.windows[resolvedColumn.runtime.windowStart + targetWindowIndex]
+                guard let runtimeHeight = NiriStateZigKernel.decodeHeight(
+                    kind: runtimeWindow.heightKind,
+                    value: runtimeWindow.heightValue
+                ) else {
+                    return fail("invalid runtime height kind for window id \(runtimeWindow.windowId.uuid)")
+                }
+                window.height = runtimeHeight
             }
 
             if resolvedColumn.windows.isEmpty {

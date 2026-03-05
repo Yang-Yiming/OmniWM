@@ -19,47 +19,6 @@ extension NiriLayoutEngine {
         let movedHandle: WindowHandle?
     }
 
-    private func applyRuntimeWorkspaceCompatibilitySideEffects(
-        prepared: WorkspacePreparedRequest,
-        movedHandle: WindowHandle?,
-        sourcePlaceholderColumnId: UUID?
-    ) {
-        guard let sourceRoot = root(for: prepared.sourceWorkspaceId),
-              let targetRoot = root(for: prepared.targetWorkspaceId)
-        else {
-            return
-        }
-
-        // Legacy path always leaves at least one source placeholder column.
-        if sourceRoot.columns.isEmpty {
-            if let sourcePlaceholderColumnId {
-                sourceRoot.appendChild(
-                    NiriContainer(id: NodeId(uuid: sourcePlaceholderColumnId))
-                )
-            } else {
-                sourceRoot.appendChild(NiriContainer())
-            }
-        }
-
-        // Legacy path collapses target empty placeholders when target workspace was empty pre-move.
-        if prepared.targetSnapshot.windows.isEmpty {
-            for emptyColumn in targetRoot.columns where emptyColumn.windowNodes.isEmpty {
-                emptyColumn.remove()
-            }
-        }
-
-        // Legacy path resets reused target empty-column width for move-window operations.
-        if prepared.request.op == .moveWindowToWorkspace,
-           prepared.targetSnapshot.windows.isEmpty,
-           let movedHandle,
-           let movedWindow = handleToNode[movedHandle],
-           let movedColumn = column(of: movedWindow)
-        {
-            let visibleColumns = max(1, prepared.request.maxVisibleColumns)
-            movedColumn.width = .proportion(1.0 / CGFloat(visibleColumns))
-        }
-    }
-
     struct WorkspaceMoveResult {
         let newFocusNodeId: NodeId?
 
@@ -195,12 +154,6 @@ extension NiriLayoutEngine {
         } else {
             movedHandle = nil
         }
-
-        applyRuntimeWorkspaceCompatibilitySideEffects(
-            prepared: prepared,
-            movedHandle: movedHandle,
-            sourcePlaceholderColumnId: sourcePlaceholderColumnId
-        )
 
         let sourceProjectedSnapshot = NiriStateZigKernel.makeSnapshot(
             columns: columns(in: prepared.sourceWorkspaceId)

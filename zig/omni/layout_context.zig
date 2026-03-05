@@ -597,9 +597,20 @@ fn applyMutationEdit(
             const lhs_idx = findColumnIndexById(state, lhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findColumnIndexById(state, rhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
 
-            const temp = state.columns[lhs_idx].size_value;
+            const temp = state.columns[lhs_idx];
             state.columns[lhs_idx].size_value = state.columns[rhs_idx].size_value;
-            state.columns[rhs_idx].size_value = temp;
+            state.columns[lhs_idx].width_kind = state.columns[rhs_idx].width_kind;
+            state.columns[lhs_idx].is_full_width = state.columns[rhs_idx].is_full_width;
+            state.columns[lhs_idx].has_saved_width = state.columns[rhs_idx].has_saved_width;
+            state.columns[lhs_idx].saved_width_kind = state.columns[rhs_idx].saved_width_kind;
+            state.columns[lhs_idx].saved_width_value = state.columns[rhs_idx].saved_width_value;
+
+            state.columns[rhs_idx].size_value = temp.size_value;
+            state.columns[rhs_idx].width_kind = temp.width_kind;
+            state.columns[rhs_idx].is_full_width = temp.is_full_width;
+            state.columns[rhs_idx].has_saved_width = temp.has_saved_width;
+            state.columns[rhs_idx].saved_width_kind = temp.saved_width_kind;
+            state.columns[rhs_idx].saved_width_value = temp.saved_width_value;
             mutated = true;
         },
         abi.OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOW_SIZE_HEIGHT => {
@@ -609,15 +620,22 @@ fn applyMutationEdit(
             const lhs_idx = findWindowIndexById(state, lhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findWindowIndexById(state, rhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
 
-            const temp = state.windows[lhs_idx].size_value;
+            const temp = state.windows[lhs_idx];
             state.windows[lhs_idx].size_value = state.windows[rhs_idx].size_value;
-            state.windows[rhs_idx].size_value = temp;
+            state.windows[lhs_idx].height_kind = state.windows[rhs_idx].height_kind;
+            state.windows[lhs_idx].height_value = state.windows[rhs_idx].height_value;
+
+            state.windows[rhs_idx].size_value = temp.size_value;
+            state.windows[rhs_idx].height_kind = temp.height_kind;
+            state.windows[rhs_idx].height_value = temp.height_value;
             mutated = true;
         },
         abi.OMNI_NIRI_MUTATION_EDIT_RESET_WINDOW_SIZE_HEIGHT => {
             const window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const window_idx = findWindowIndexById(state, window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             state.windows[window_idx].size_value = 1.0;
+            state.windows[window_idx].height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO;
+            state.windows[window_idx].height_value = 1.0;
             mutated = true;
         },
         abi.OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY => {
@@ -642,6 +660,11 @@ fn applyMutationEdit(
                             .active_tile_idx = 0,
                             .is_tabbed = 0,
                             .size_value = 1.0,
+                            .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                            .is_full_width = 0,
+                            .has_saved_width = 0,
+                            .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                            .saved_width_value = 1.0,
                         });
                         if (add_rc != abi.OMNI_OK) return add_rc;
                     }
@@ -693,6 +716,11 @@ fn applyMutationEdit(
                 .active_tile_idx = 0,
                 .is_tabbed = 0,
                 .size_value = 1.0 / @as(f64, @floatFromInt(visible_count)),
+                .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .is_full_width = 0,
+                .has_saved_width = 0,
+                .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .saved_width_value = 1.0,
             });
             if (add_rc != abi.OMNI_OK) return add_rc;
             const cache_rc = refreshRuntimeState(state);
@@ -738,6 +766,11 @@ fn applyMutationEdit(
                 .active_tile_idx = 0,
                 .is_tabbed = 0,
                 .size_value = 1.0 / @as(f64, @floatFromInt(visible_count)),
+                .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .is_full_width = 0,
+                .has_saved_width = 0,
+                .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .saved_width_value = 1.0,
             });
             if (add_rc != abi.OMNI_OK) return add_rc;
             const cache_rc = refreshRuntimeState(state);
@@ -802,6 +835,7 @@ fn applyMutationEdit(
             if (edit.scalar_a <= 0) return abi.OMNI_ERR_INVALID_ARGS;
             for (0..state.column_count) |idx| {
                 state.columns[idx].size_value = clampSizeValue(state.columns[idx].size_value * edit.scalar_a);
+                state.columns[idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
             }
             mutated = true;
         },
@@ -814,6 +848,8 @@ fn applyMutationEdit(
             for (0..column.window_count) |row_idx| {
                 const window_idx = column.window_start + row_idx;
                 state.windows[window_idx].size_value = clampSizeValue(state.windows[window_idx].size_value * edit.scalar_a);
+                state.windows[window_idx].height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO;
+                state.windows[window_idx].height_value = state.windows[window_idx].size_value;
             }
             mutated = true;
         },
@@ -822,10 +858,17 @@ fn applyMutationEdit(
 
             for (0..state.column_count) |col_idx| {
                 state.columns[col_idx].size_value = edit.scalar_a;
+                state.columns[col_idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
+                state.columns[col_idx].is_full_width = 0;
+                state.columns[col_idx].has_saved_width = 0;
+                state.columns[col_idx].saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
+                state.columns[col_idx].saved_width_value = 1.0;
                 const column = state.columns[col_idx];
                 for (0..column.window_count) |row_idx| {
                     const window_idx = column.window_start + row_idx;
                     state.windows[window_idx].size_value = 1.0;
+                    state.windows[window_idx].height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO;
+                    state.windows[window_idx].height_value = 1.0;
                 }
             }
 
@@ -839,6 +882,11 @@ fn applyMutationEdit(
             const target_column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column_idx = findColumnIndexById(state, target_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column = state.columns[target_column_idx];
+            const visible_i32 = proportionalSizeForVisibleCount(edit.value_a);
+            if (visible_i32 < 0) return visible_i32;
+            const visible_count: usize = @intCast(visible_i32);
+            state.columns[target_column_idx].size_value = 1.0 / @as(f64, @floatFromInt(visible_count));
+            state.columns[target_column_idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
 
             const insert_abs = target_column.window_start + target_column.window_count;
             const insert_rc = insertWindowAt(state, insert_abs, .{
@@ -846,6 +894,8 @@ fn applyMutationEdit(
                 .column_id = target_column.column_id,
                 .column_index = target_column_idx,
                 .size_value = 1.0,
+                .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
+                .height_value = 1.0,
             });
             if (insert_rc != abi.OMNI_OK) return insert_rc;
 
@@ -879,6 +929,11 @@ fn applyMutationEdit(
                 .active_tile_idx = 0,
                 .is_tabbed = 0,
                 .size_value = 1.0 / @as(f64, @floatFromInt(visible_count)),
+                .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .is_full_width = 0,
+                .has_saved_width = 0,
+                .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .saved_width_value = 1.0,
             });
             if (add_rc != abi.OMNI_OK) return add_rc;
             const cache_rc = refreshRuntimeState(state);
@@ -893,6 +948,8 @@ fn applyMutationEdit(
                 .column_id = target_column.column_id,
                 .column_index = target_idx,
                 .size_value = 1.0,
+                .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
+                .height_value = 1.0,
             });
             if (insert_window_rc != abi.OMNI_OK) return insert_window_rc;
 
@@ -1351,6 +1408,7 @@ pub fn omni_niri_ctx_apply_workspace_impl(
 
     var source_state = runtimeStateFromContext(source_ctx);
     var target_state = runtimeStateFromContext(target_ctx);
+    const target_had_no_windows_before_move = target_state.window_count == 0;
 
     var plan_result: abi.OmniNiriWorkspaceResult = undefined;
     const planner_rc = workspace.omni_niri_workspace_plan_impl(
@@ -1392,7 +1450,6 @@ pub fn omni_niri_ctx_apply_workspace_impl(
     var reuse_target_column_id = zeroUuid();
     var create_target_visible_count: i64 = request[0].request.max_visible_columns;
     var prune_target_empty_columns_if_no_windows = false;
-    var ensure_source_placeholder_if_no_columns = false;
 
     const max_edits = @min(plan_result.edit_count, abi.OMNI_NIRI_WORKSPACE_MAX_EDITS);
     for (0..max_edits) |idx| {
@@ -1435,9 +1492,7 @@ pub fn omni_niri_ctx_apply_workspace_impl(
                 ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 remove_source_column_count += 1;
             },
-            abi.OMNI_NIRI_WORKSPACE_EDIT_ENSURE_SOURCE_PLACEHOLDER_IF_NO_COLUMNS => {
-                ensure_source_placeholder_if_no_columns = true;
-            },
+            abi.OMNI_NIRI_WORKSPACE_EDIT_ENSURE_SOURCE_PLACEHOLDER_IF_NO_COLUMNS => {},
             abi.OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_WINDOW => {
                 target_selection_moved_window_id = preWindowId(
                     &pre_source_window_ids,
@@ -1491,11 +1546,17 @@ pub fn omni_niri_ctx_apply_workspace_impl(
             if (has_reuse_target_column) {
                 const target_column_idx = findColumnIndexById(&target_state, reuse_target_column_id) orelse return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "reuse_target_column_idx");
                 if (target_state.columns[target_column_idx].window_count != 0) return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "reuse_target_not_empty");
+
+                const visible_count_i32 = visibleCountFromRaw(create_target_visible_count);
+                if (visible_count_i32 < 0) return workspaceFail(visible_count_i32, "visible_count_i32_reuse");
+                const visible_count: usize = @intCast(visible_count_i32);
+                target_state.columns[target_column_idx].size_value = 1.0 / @as(f64, @floatFromInt(visible_count));
+                target_state.columns[target_column_idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
                 target_column_id = reuse_target_column_id;
             } else {
-                if (request[0].has_target_created_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
+                if (request[0].has_target_created_column_id == 0) return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "missing_target_created_column_id");
                 const unique_target_rc = ensureUniqueColumnId(&target_state, request[0].target_created_column_id);
-                if (unique_target_rc != abi.OMNI_OK) return unique_target_rc;
+                if (unique_target_rc != abi.OMNI_OK) return workspaceFail(unique_target_rc, "target_created_column_id_not_unique");
 
                 const visible_count_i32 = visibleCountFromRaw(create_target_visible_count);
                 if (visible_count_i32 < 0) return workspaceFail(visible_count_i32, "visible_count_i32");
@@ -1508,6 +1569,11 @@ pub fn omni_niri_ctx_apply_workspace_impl(
                     .active_tile_idx = 0,
                     .is_tabbed = 0,
                     .size_value = 1.0 / @as(f64, @floatFromInt(visible_count)),
+                    .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                    .is_full_width = 0,
+                    .has_saved_width = 0,
+                    .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                    .saved_width_value = 1.0,
                 });
                 if (add_column_rc != abi.OMNI_OK) return workspaceFail(add_column_rc, "add_target_column");
                 const cache_rc = refreshRuntimeState(&target_state);
@@ -1544,6 +1610,8 @@ pub fn omni_niri_ctx_apply_workspace_impl(
                 .column_id = zeroUuid(),
                 .column_index = 0,
                 .size_value = 0,
+                .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
+                .height_value = 1.0,
             }} ** abi.MAX_WINDOWS;
             const remove_window_rc = removeWindowRange(
                 &source_state,
@@ -1565,7 +1633,7 @@ pub fn omni_niri_ctx_apply_workspace_impl(
                 moved_window_id_opt = moved_windows[0].window_id;
             }
         },
-        else => return abi.OMNI_ERR_INVALID_ARGS,
+        else => return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "unknown_workspace_op"),
     }
 
     const source_post_move_rc = refreshRuntimeState(&source_state);
@@ -1584,8 +1652,19 @@ pub fn omni_niri_ctx_apply_workspace_impl(
         }
     }
 
-    if (ensure_source_placeholder_if_no_columns and source_state.column_count == 0) {
-        if (request[0].has_source_placeholder_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
+    if (request[0].request.op == abi.OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE and target_had_no_windows_before_move) {
+        var idx: usize = 0;
+        while (idx < target_state.column_count) {
+            if (target_state.columns[idx].window_count == 0) {
+                _ = removeColumnAt(&target_state, idx);
+            } else {
+                idx += 1;
+            }
+        }
+    }
+
+    const should_insert_source_placeholder = source_state.column_count == 0 and request[0].has_source_placeholder_column_id != 0;
+    if (should_insert_source_placeholder) {
         const unique_placeholder_rc = ensureUniqueColumnId(&source_state, request[0].source_placeholder_column_id);
         if (unique_placeholder_rc != abi.OMNI_OK) return unique_placeholder_rc;
 
@@ -1596,6 +1675,11 @@ pub fn omni_niri_ctx_apply_workspace_impl(
             .active_tile_idx = 0,
             .is_tabbed = 0,
             .size_value = 1.0,
+            .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+            .is_full_width = 0,
+            .has_saved_width = 0,
+            .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+            .saved_width_value = 1.0,
         });
         if (add_placeholder_rc != abi.OMNI_OK) return add_placeholder_rc;
     }

@@ -18,6 +18,14 @@ fn uuidEqual(a: abi.OmniUuid128, b: abi.OmniUuid128) bool {
     return std.mem.eql(u8, a.bytes[0..], b.bytes[0..]);
 }
 
+fn isValidSizeKind(kind: u8) bool {
+    return kind == abi.OMNI_NIRI_SIZE_KIND_PROPORTION or kind == abi.OMNI_NIRI_SIZE_KIND_FIXED;
+}
+
+fn isValidHeightKind(kind: u8) bool {
+    return kind == abi.OMNI_NIRI_HEIGHT_KIND_AUTO or kind == abi.OMNI_NIRI_HEIGHT_KIND_FIXED;
+}
+
 fn initValidationResult(
     out_result: [*c]abi.OmniNiriStateValidationResult,
     column_count: usize,
@@ -57,12 +65,27 @@ pub fn omni_niri_validate_state_snapshot_basic_impl(
         if (col.window_count > 0 and col.active_tile_idx >= col.window_count) {
             return setColumnFailure(out_result, idx, abi.OMNI_ERR_OUT_OF_RANGE);
         }
+        if (!isValidSizeKind(col.width_kind)) {
+            return setColumnFailure(out_result, idx, abi.OMNI_ERR_INVALID_ARGS);
+        }
+        if (col.is_full_width > 1) {
+            return setColumnFailure(out_result, idx, abi.OMNI_ERR_INVALID_ARGS);
+        }
+        if (col.has_saved_width > 1) {
+            return setColumnFailure(out_result, idx, abi.OMNI_ERR_INVALID_ARGS);
+        }
+        if (col.has_saved_width != 0 and !isValidSizeKind(col.saved_width_kind)) {
+            return setColumnFailure(out_result, idx, abi.OMNI_ERR_INVALID_ARGS);
+        }
     }
 
     for (0..window_count) |idx| {
         const win = windows[idx];
         if (win.column_index >= column_count) {
             return setWindowFailure(out_result, idx, abi.OMNI_ERR_OUT_OF_RANGE);
+        }
+        if (!isValidHeightKind(win.height_kind)) {
+            return setWindowFailure(out_result, idx, abi.OMNI_ERR_INVALID_ARGS);
         }
     }
 

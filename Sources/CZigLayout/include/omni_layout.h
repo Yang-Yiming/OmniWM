@@ -576,6 +576,11 @@ typedef struct {
     size_t active_tile_idx;
     uint8_t is_tabbed;
     double size_value;
+    uint8_t width_kind;
+    uint8_t is_full_width;
+    uint8_t has_saved_width;
+    uint8_t saved_width_kind;
+    double saved_width_value;
 } OmniNiriStateColumnInput;
 
 typedef struct {
@@ -583,6 +588,8 @@ typedef struct {
     OmniUuid128 column_id;
     size_t column_index;
     double size_value;
+    uint8_t height_kind;
+    double height_value;
 } OmniNiriStateWindowInput;
 
 typedef struct {
@@ -592,6 +599,11 @@ typedef struct {
     size_t active_tile_idx;
     uint8_t is_tabbed;
     double size_value;
+    uint8_t width_kind;
+    uint8_t is_full_width;
+    uint8_t has_saved_width;
+    uint8_t saved_width_kind;
+    double saved_width_value;
 } OmniNiriRuntimeColumnState;
 
 typedef struct {
@@ -599,6 +611,8 @@ typedef struct {
     OmniUuid128 column_id;
     size_t column_index;
     double size_value;
+    uint8_t height_kind;
+    double height_value;
 } OmniNiriRuntimeWindowState;
 
 typedef struct {
@@ -724,6 +738,16 @@ int32_t omni_niri_ctx_apply_navigation(
     const OmniNiriLayoutContext *context,
     const OmniNiriNavigationApplyRequest *request,
     OmniNiriNavigationApplyResult *out_result);
+
+typedef enum {
+    OMNI_NIRI_SIZE_KIND_PROPORTION = 0,
+    OMNI_NIRI_SIZE_KIND_FIXED = 1
+} OmniNiriSizeKind;
+
+typedef enum {
+    OMNI_NIRI_HEIGHT_KIND_AUTO = 0,
+    OMNI_NIRI_HEIGHT_KIND_FIXED = 1
+} OmniNiriHeightKind;
 
 typedef enum {
     OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL = 0,

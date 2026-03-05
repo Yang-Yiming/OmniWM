@@ -35,6 +35,12 @@ private func assertRuntimeMatchesSnapshot(
         #expect(runtimeColumn.windowCount == snapshotColumn.window_count)
         #expect(runtimeColumn.activeTileIdx == snapshotColumn.active_tile_idx)
         #expect(runtimeColumn.isTabbed == (snapshotColumn.is_tabbed != 0))
+        #expect(runtimeColumn.sizeValue == snapshotColumn.size_value)
+        #expect(runtimeColumn.widthKind == snapshotColumn.width_kind)
+        #expect(runtimeColumn.isFullWidth == (snapshotColumn.is_full_width != 0))
+        #expect(runtimeColumn.hasSavedWidth == (snapshotColumn.has_saved_width != 0))
+        #expect(runtimeColumn.savedWidthKind == snapshotColumn.saved_width_kind)
+        #expect(runtimeColumn.savedWidthValue == snapshotColumn.saved_width_value)
     }
 
     for (idx, runtimeWindow) in exported.export.windows.enumerated() {
@@ -42,6 +48,9 @@ private func assertRuntimeMatchesSnapshot(
         #expect(runtimeWindow.windowId.uuid == NiriStateZigKernel.uuid(from: snapshotWindow.window_id))
         #expect(runtimeWindow.columnId.uuid == NiriStateZigKernel.uuid(from: snapshotWindow.column_id))
         #expect(runtimeWindow.columnIndex == snapshotWindow.column_index)
+        #expect(runtimeWindow.sizeValue == snapshotWindow.size_value)
+        #expect(runtimeWindow.heightKind == snapshotWindow.height_kind)
+        #expect(runtimeWindow.heightValue == snapshotWindow.height_value)
     }
 }
 
@@ -286,6 +295,58 @@ private func assertRuntimeMatchesSnapshot(
         #expect(column.cachedWidth == 0)
         #expect(w1.isHiddenInTabbedMode)
         #expect(!w2.isHiddenInTabbedMode)
+    }
+
+    @Test func projectorAppliesWidthAndHeightModesFromRuntimeExport() {
+        let workspaceId = WorkspaceDescriptor.ID()
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 4, maxVisibleColumns: 3)
+        let root = engine.ensureRoot(for: workspaceId)
+        let column = root.columns[0]
+
+        let handle = makeHandle(id: UUID(), pid: 4401)
+        let window = NiriWindow(handle: handle)
+        column.appendChild(window)
+        engine.handleToNode[handle] = window
+
+        let export = NiriStateZigKernel.RuntimeStateExport(
+            columns: [
+                .init(
+                    columnId: column.id,
+                    windowStart: 0,
+                    windowCount: 1,
+                    activeTileIdx: 0,
+                    isTabbed: false,
+                    sizeValue: 720.0,
+                    widthKind: NiriStateZigKernel.sizeKindFixed,
+                    isFullWidth: true,
+                    hasSavedWidth: true,
+                    savedWidthKind: NiriStateZigKernel.sizeKindProportion,
+                    savedWidthValue: 0.42
+                )
+            ],
+            windows: [
+                .init(
+                    windowId: window.id,
+                    columnId: column.id,
+                    columnIndex: 0,
+                    sizeValue: 1.0,
+                    heightKind: NiriStateZigKernel.heightKindFixed,
+                    heightValue: 320.0
+                )
+            ]
+        )
+
+        let result = NiriStateZigRuntimeProjector.project(
+            export: export,
+            workspaceId: workspaceId,
+            engine: engine
+        )
+        #expect(result.applied)
+
+        #expect(column.width == .fixed(720.0))
+        #expect(column.isFullWidth)
+        #expect(column.savedWidth == .proportion(0.42))
+        #expect(window.height == .fixed(320.0))
     }
 
     @Test func projectorFailsWhenRuntimeWindowHandleCannotBeResolved() {

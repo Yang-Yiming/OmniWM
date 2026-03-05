@@ -159,11 +159,6 @@ extension NiriLayoutEngine {
             )
         }
 
-        applyRuntimeMutationCompatibilitySideEffects(
-            prepared: prepared,
-            outcome: runtimeOutcome
-        )
-
         runtimeMirrorStates[workspaceId] = RuntimeMirrorState(
             isSeeded: true,
             columnCount: exported.export.columns.count,
@@ -171,95 +166,6 @@ extension NiriLayoutEngine {
         )
 
         return runtimeOutcome
-    }
-
-    private func applyRuntimeMutationCompatibilitySideEffects(
-        prepared: WindowMutationPreparedRequest,
-        outcome: WindowMutationApplyOutcome
-    ) {
-        switch prepared.request.op {
-        case .swapWindowHorizontal:
-            // Runtime projection only carries scalar size; preserve legacy width-state behavior in Swift.
-            guard outcome.delegatedMoveColumn == nil,
-                  let direction = prepared.request.direction,
-                  prepared.snapshot.windowEntries.indices.contains(prepared.request.sourceWindowIndex)
-            else {
-                return
-            }
-
-            let sourceEntry = prepared.snapshot.windowEntries[prepared.request.sourceWindowIndex]
-            let step = direction == .right ? 1 : direction == .left ? -1 : 0
-            guard step != 0,
-                  let targetColumnIndex = wrapIndex(sourceEntry.columnIndex + step, total: prepared.snapshot.columns.count),
-                  targetColumnIndex != sourceEntry.columnIndex,
-                  prepared.snapshot.columnEntries.indices.contains(sourceEntry.columnIndex),
-                  prepared.snapshot.columnEntries.indices.contains(targetColumnIndex)
-            else {
-                return
-            }
-
-            let sourceColumn = prepared.snapshot.columnEntries[sourceEntry.columnIndex].column
-            let targetColumn = prepared.snapshot.columnEntries[targetColumnIndex].column
-            let sourceWidth = sourceColumn.width
-            let sourceIsFullWidth = sourceColumn.isFullWidth
-            let sourceSavedWidth = sourceColumn.savedWidth
-
-            sourceColumn.width = targetColumn.width
-            sourceColumn.isFullWidth = targetColumn.isFullWidth
-            sourceColumn.savedWidth = targetColumn.savedWidth
-
-            targetColumn.width = sourceWidth
-            targetColumn.isFullWidth = sourceIsFullWidth
-            targetColumn.savedWidth = sourceSavedWidth
-
-        case .swapWindowsByMove:
-            guard prepared.snapshot.windowEntries.indices.contains(prepared.request.sourceWindowIndex),
-                  prepared.snapshot.windowEntries.indices.contains(prepared.request.targetWindowIndex)
-            else {
-                return
-            }
-            let sourceEntry = prepared.snapshot.windowEntries[prepared.request.sourceWindowIndex]
-            let targetEntry = prepared.snapshot.windowEntries[prepared.request.targetWindowIndex]
-            guard sourceEntry.column !== targetEntry.column else {
-                return
-            }
-
-            let sourceWindow = sourceEntry.window
-            let targetWindow = targetEntry.window
-            let sourceSize = sourceWindow.size
-            let sourceHeight = sourceWindow.height
-            sourceWindow.size = targetWindow.size
-            sourceWindow.height = targetWindow.height
-            targetWindow.size = sourceSize
-            targetWindow.height = sourceHeight
-
-        case .insertWindowByMove:
-            guard prepared.snapshot.windowEntries.indices.contains(prepared.request.sourceWindowIndex) else {
-                return
-            }
-            let sourceWindow = prepared.snapshot.windowEntries[prepared.request.sourceWindowIndex].window
-            sourceWindow.size = 1.0
-            sourceWindow.height = .default
-
-        case .moveWindowVertical,
-             .swapWindowVertical,
-             .moveWindowHorizontal,
-             .moveWindowToColumn,
-             .createColumnAndMove,
-             .insertWindowInNewColumn,
-             .moveColumn,
-             .consumeWindow,
-             .expelWindow,
-             .cleanupEmptyColumn,
-             .normalizeColumnSizes,
-             .normalizeWindowSizes,
-             .balanceSizes,
-             .addWindow,
-             .removeWindow,
-             .validateSelection,
-             .fallbackSelectionOnRemoval:
-            return
-        }
     }
 
     private func executePreparedWindowMutation(

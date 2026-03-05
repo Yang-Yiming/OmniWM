@@ -322,6 +322,37 @@ enum NiriStateZigKernel {
         let activeTileIdx: Int
         let isTabbed: Bool
         let sizeValue: Double
+        let widthKind: UInt8
+        let isFullWidth: Bool
+        let hasSavedWidth: Bool
+        let savedWidthKind: UInt8
+        let savedWidthValue: Double
+
+        init(
+            columnId: NodeId,
+            windowStart: Int,
+            windowCount: Int,
+            activeTileIdx: Int,
+            isTabbed: Bool,
+            sizeValue: Double,
+            widthKind: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue),
+            isFullWidth: Bool = false,
+            hasSavedWidth: Bool = false,
+            savedWidthKind: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue),
+            savedWidthValue: Double = 1.0
+        ) {
+            self.columnId = columnId
+            self.windowStart = windowStart
+            self.windowCount = windowCount
+            self.activeTileIdx = activeTileIdx
+            self.isTabbed = isTabbed
+            self.sizeValue = sizeValue
+            self.widthKind = widthKind
+            self.isFullWidth = isFullWidth
+            self.hasSavedWidth = hasSavedWidth
+            self.savedWidthKind = savedWidthKind
+            self.savedWidthValue = savedWidthValue
+        }
     }
 
     struct RuntimeWindowState: Equatable {
@@ -329,6 +360,24 @@ enum NiriStateZigKernel {
         let columnId: NodeId
         let columnIndex: Int
         let sizeValue: Double
+        let heightKind: UInt8
+        let heightValue: Double
+
+        init(
+            windowId: NodeId,
+            columnId: NodeId,
+            columnIndex: Int,
+            sizeValue: Double,
+            heightKind: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_AUTO.rawValue),
+            heightValue: Double = 1.0
+        ) {
+            self.windowId = windowId
+            self.columnId = columnId
+            self.columnIndex = columnIndex
+            self.sizeValue = sizeValue
+            self.heightKind = heightKind
+            self.heightValue = heightValue
+        }
     }
 
     struct RuntimeStateExport: Equatable {
@@ -552,6 +601,49 @@ enum NiriStateZigKernel {
         }
     }
 
+    static let sizeKindProportion: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue)
+    static let sizeKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_FIXED.rawValue)
+    static let heightKindAuto: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_AUTO.rawValue)
+    static let heightKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_FIXED.rawValue)
+
+    static func encodeWidth(_ width: ProportionalSize) -> (kind: UInt8, value: Double) {
+        switch width {
+        case let .proportion(value):
+            return (kind: sizeKindProportion, value: Double(value))
+        case let .fixed(value):
+            return (kind: sizeKindFixed, value: Double(value))
+        }
+    }
+
+    static func decodeWidth(kind: UInt8, value: Double) -> ProportionalSize? {
+        if kind == sizeKindProportion {
+            return .proportion(CGFloat(value))
+        }
+        if kind == sizeKindFixed {
+            return .fixed(CGFloat(value))
+        }
+        return nil
+    }
+
+    static func encodeHeight(_ height: WeightedSize) -> (kind: UInt8, value: Double) {
+        switch height {
+        case let .auto(weight):
+            return (kind: heightKindAuto, value: Double(weight))
+        case let .fixed(value):
+            return (kind: heightKindFixed, value: Double(value))
+        }
+    }
+
+    static func decodeHeight(kind: UInt8, value: Double) -> WeightedSize? {
+        if kind == heightKindAuto {
+            return .auto(weight: CGFloat(value))
+        }
+        if kind == heightKindFixed {
+            return .fixed(CGFloat(value))
+        }
+        return nil
+    }
+
     static func makeSnapshot(columns: [NiriContainer]) -> Snapshot {
         let estimatedWindowCount = columns.reduce(0) { partial, column in
             partial + column.windowNodes.count
@@ -579,6 +671,8 @@ enum NiriStateZigKernel {
             let start = windowInputs.count
             let windows = column.windowNodes
             let columnId = omniUUID(from: column.id)
+            let encodedWidth = encodeWidth(column.width)
+            let encodedSavedWidth = column.savedWidth.map(encodeWidth)
 
             columnEntries.append(
                 Snapshot.ColumnEntry(
@@ -603,12 +697,15 @@ enum NiriStateZigKernel {
                 windowIndexByNodeId[window.id] = windowIndex
                 columnIndexByNodeId[window.id] = columnIndex
 
+                let encodedHeight = encodeHeight(window.height)
                 windowInputs.append(
                     OmniNiriStateWindowInput(
                         window_id: omniUUID(from: window.id),
                         column_id: columnId,
                         column_index: columnIndex,
-                        size_value: Double(window.size)
+                        size_value: Double(window.size),
+                        height_kind: encodedHeight.kind,
+                        height_value: encodedHeight.value
                     )
                 )
             }
@@ -620,7 +717,12 @@ enum NiriStateZigKernel {
                     window_count: windows.count,
                     active_tile_idx: max(0, column.activeTileIdx),
                     is_tabbed: column.isTabbed ? 1 : 0,
-                    size_value: Double(column.size)
+                    size_value: encodedWidth.value,
+                    width_kind: encodedWidth.kind,
+                    is_full_width: column.isFullWidth ? 1 : 0,
+                    has_saved_width: encodedSavedWidth == nil ? 0 : 1,
+                    saved_width_kind: encodedSavedWidth?.kind ?? sizeKindProportion,
+                    saved_width_value: encodedSavedWidth?.value ?? 1.0
                 )
             )
         }
@@ -1105,7 +1207,12 @@ enum NiriStateZigKernel {
                 windowCount: column.window_count,
                 activeTileIdx: column.active_tile_idx,
                 isTabbed: column.is_tabbed != 0,
-                sizeValue: column.size_value
+                sizeValue: column.size_value,
+                widthKind: column.width_kind,
+                isFullWidth: column.is_full_width != 0,
+                hasSavedWidth: column.has_saved_width != 0,
+                savedWidthKind: column.saved_width_kind,
+                savedWidthValue: column.saved_width_value
             )
         }
         let windows = snapshot.windows.map { window in
@@ -1113,7 +1220,9 @@ enum NiriStateZigKernel {
                 windowId: nodeId(from: window.window_id),
                 columnId: nodeId(from: window.column_id),
                 columnIndex: window.column_index,
-                sizeValue: window.size_value
+                sizeValue: window.size_value,
+                heightKind: window.height_kind,
+                heightValue: window.height_value
             )
         }
         return RuntimeStateExport(columns: columns, windows: windows)
@@ -1140,7 +1249,12 @@ enum NiriStateZigKernel {
                 window_count: column.windowCount,
                 active_tile_idx: column.activeTileIdx,
                 is_tabbed: column.isTabbed ? 1 : 0,
-                size_value: column.sizeValue
+                size_value: column.sizeValue,
+                width_kind: column.widthKind,
+                is_full_width: column.isFullWidth ? 1 : 0,
+                has_saved_width: column.hasSavedWidth ? 1 : 0,
+                saved_width_kind: column.savedWidthKind,
+                saved_width_value: column.savedWidthValue
             )
         }
         let rawWindows = export.windows.map { window in
@@ -1148,7 +1262,9 @@ enum NiriStateZigKernel {
                 window_id: omniUUID(from: window.windowId),
                 column_id: omniUUID(from: window.columnId),
                 column_index: window.columnIndex,
-                size_value: window.sizeValue
+                size_value: window.sizeValue,
+                height_kind: window.heightKind,
+                height_value: window.heightValue
             )
         }
 
@@ -1197,7 +1313,12 @@ enum NiriStateZigKernel {
                     windowCount: column.window_count,
                     activeTileIdx: column.active_tile_idx,
                     isTabbed: column.is_tabbed != 0,
-                    sizeValue: column.size_value
+                    sizeValue: column.size_value,
+                    widthKind: column.width_kind,
+                    isFullWidth: column.is_full_width != 0,
+                    hasSavedWidth: column.has_saved_width != 0,
+                    savedWidthKind: column.saved_width_kind,
+                    savedWidthValue: column.saved_width_value
                 )
             }
         } else {
@@ -1212,7 +1333,9 @@ enum NiriStateZigKernel {
                     windowId: nodeId(from: window.window_id),
                     columnId: nodeId(from: window.column_id),
                     columnIndex: window.column_index,
-                    sizeValue: window.size_value
+                    sizeValue: window.size_value,
+                    heightKind: window.height_kind,
+                    heightValue: window.height_value
                 )
             }
         } else {

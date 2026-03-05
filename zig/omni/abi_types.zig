@@ -198,6 +198,11 @@ pub const OmniNiriStateColumnInput = extern struct {
     active_tile_idx: usize,
     is_tabbed: u8,
     size_value: f64,
+    width_kind: u8,
+    is_full_width: u8,
+    has_saved_width: u8,
+    saved_width_kind: u8,
+    saved_width_value: f64,
 };
 
 pub const OmniNiriStateWindowInput = extern struct {
@@ -205,6 +210,8 @@ pub const OmniNiriStateWindowInput = extern struct {
     column_id: OmniUuid128,
     column_index: usize,
     size_value: f64,
+    height_kind: u8,
+    height_value: f64,
 };
 
 pub const OmniNiriRuntimeColumnState = extern struct {
@@ -214,6 +221,11 @@ pub const OmniNiriRuntimeColumnState = extern struct {
     active_tile_idx: usize,
     is_tabbed: u8,
     size_value: f64,
+    width_kind: u8,
+    is_full_width: u8,
+    has_saved_width: u8,
+    saved_width_kind: u8,
+    saved_width_value: f64,
 };
 
 pub const OmniNiriRuntimeWindowState = extern struct {
@@ -221,6 +233,8 @@ pub const OmniNiriRuntimeWindowState = extern struct {
     column_id: OmniUuid128,
     column_index: usize,
     size_value: f64,
+    height_kind: u8,
+    height_value: f64,
 };
 
 pub const OmniNiriRuntimeStateExport = extern struct {
@@ -602,6 +616,12 @@ pub const OMNI_NIRI_NAV_OP_FOCUS_COLUMN_INDEX: u8 = 7;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_INDEX: u8 = 8;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_TOP: u8 = 9;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_BOTTOM: u8 = 10;
+
+pub const OMNI_NIRI_SIZE_KIND_PROPORTION: u8 = 0;
+pub const OMNI_NIRI_SIZE_KIND_FIXED: u8 = 1;
+
+pub const OMNI_NIRI_HEIGHT_KIND_AUTO: u8 = 0;
+pub const OMNI_NIRI_HEIGHT_KIND_FIXED: u8 = 1;
 
 pub const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL: u8 = 0;
 pub const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL: u8 = 1;

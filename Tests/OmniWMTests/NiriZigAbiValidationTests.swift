@@ -7,6 +7,10 @@ import Testing
 private let abiOK: Int32 = 0
 private let abiErrInvalidArgs: Int32 = -1
 private let abiErrOutOfRange: Int32 = -2
+private let sizeKindProportion: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue)
+private let sizeKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_FIXED.rawValue)
+private let heightKindAuto: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_AUTO.rawValue)
+private let heightKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_FIXED.rawValue)
 
 private func makeUUID(_ marker: UInt8) -> OmniUuid128 {
     var value = OmniUuid128()
@@ -217,13 +221,64 @@ private func makeWorkspaceRequest(
     )
 }
 
+private func stateColumn(
+    id: OmniUuid128,
+    windowStart: Int,
+    windowCount: Int,
+    activeTileIdx: Int = 0,
+    isTabbed: Bool = false,
+    sizeValue: Double = 1.0,
+    widthKind: UInt8 = sizeKindProportion,
+    isFullWidth: Bool = false,
+    hasSavedWidth: Bool = false,
+    savedWidthKind: UInt8 = sizeKindProportion,
+    savedWidthValue: Double = 1.0
+) -> OmniNiriStateColumnInput {
+    OmniNiriStateColumnInput(
+        column_id: id,
+        window_start: windowStart,
+        window_count: windowCount,
+        active_tile_idx: activeTileIdx,
+        is_tabbed: isTabbed ? 1 : 0,
+        size_value: sizeValue,
+        width_kind: widthKind,
+        is_full_width: isFullWidth ? 1 : 0,
+        has_saved_width: hasSavedWidth ? 1 : 0,
+        saved_width_kind: savedWidthKind,
+        saved_width_value: savedWidthValue
+    )
+}
+
+private func stateWindow(
+    id: OmniUuid128,
+    columnId: OmniUuid128,
+    columnIndex: Int,
+    sizeValue: Double = 1.0,
+    heightKind: UInt8 = heightKindAuto,
+    heightValue: Double = 1.0
+) -> OmniNiriStateWindowInput {
+    OmniNiriStateWindowInput(
+        window_id: id,
+        column_id: columnId,
+        column_index: columnIndex,
+        size_value: sizeValue,
+        height_kind: heightKind,
+        height_value: heightValue
+    )
+}
+
 private func runtimeColumn(
     id: OmniUuid128,
     windowStart: Int,
     windowCount: Int,
     activeTileIdx: Int = 0,
     isTabbed: Bool = false,
-    sizeValue: Double = 1.0
+    sizeValue: Double = 1.0,
+    widthKind: UInt8 = sizeKindProportion,
+    isFullWidth: Bool = false,
+    hasSavedWidth: Bool = false,
+    savedWidthKind: UInt8 = sizeKindProportion,
+    savedWidthValue: Double = 1.0
 ) -> OmniNiriRuntimeColumnState {
     OmniNiriRuntimeColumnState(
         column_id: id,
@@ -231,7 +286,12 @@ private func runtimeColumn(
         window_count: windowCount,
         active_tile_idx: activeTileIdx,
         is_tabbed: isTabbed ? 1 : 0,
-        size_value: sizeValue
+        size_value: sizeValue,
+        width_kind: widthKind,
+        is_full_width: isFullWidth ? 1 : 0,
+        has_saved_width: hasSavedWidth ? 1 : 0,
+        saved_width_kind: savedWidthKind,
+        saved_width_value: savedWidthValue
     )
 }
 
@@ -239,13 +299,17 @@ private func runtimeWindow(
     id: OmniUuid128,
     columnId: OmniUuid128,
     columnIndex: Int,
-    sizeValue: Double = 1.0
+    sizeValue: Double = 1.0,
+    heightKind: UInt8 = heightKindAuto,
+    heightValue: Double = 1.0
 ) -> OmniNiriRuntimeWindowState {
     OmniNiriRuntimeWindowState(
         window_id: id,
         column_id: columnId,
         column_index: columnIndex,
-        size_value: sizeValue
+        size_value: sizeValue,
+        height_kind: heightKind,
+        height_value: heightValue
     )
 }
 
@@ -410,6 +474,10 @@ private func runNavigationApply(
         #expect(Int32(NiriStateZigKernel.MutationNodeKind.none.rawValue) == OMNI_NIRI_MUTATION_NODE_NONE.rawValue)
         #expect(Int32(NiriStateZigKernel.MutationNodeKind.window.rawValue) == OMNI_NIRI_MUTATION_NODE_WINDOW.rawValue)
         #expect(Int32(NiriStateZigKernel.MutationNodeKind.column.rawValue) == OMNI_NIRI_MUTATION_NODE_COLUMN.rawValue)
+        #expect(OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue == 0)
+        #expect(OMNI_NIRI_SIZE_KIND_FIXED.rawValue == 1)
+        #expect(OMNI_NIRI_HEIGHT_KIND_AUTO.rawValue == 0)
+        #expect(OMNI_NIRI_HEIGHT_KIND_FIXED.rawValue == 1)
 
         #expect(
             Int32(NiriStateZigKernel.MutationEditKind.insertIncomingWindowIntoColumn.rawValue) ==
@@ -478,32 +546,13 @@ private func runNavigationApply(
     @Test func workspacePlannerRejectsInvalidOpCode() {
         let sourceColumnId = makeUUID(1)
         let sourceColumns = [
-            OmniNiriStateColumnInput(
-                column_id: sourceColumnId,
-                window_start: 0,
-                window_count: 1,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            )
+            stateColumn(id: sourceColumnId, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let sourceWindows = [
-            OmniNiriStateWindowInput(
-                window_id: makeUUID(10),
-                column_id: sourceColumnId,
-                column_index: 0,
-                size_value: 1
-            )
+            stateWindow(id: makeUUID(10), columnId: sourceColumnId, columnIndex: 0, sizeValue: 1)
         ]
         let targetColumns = [
-            OmniNiriStateColumnInput(
-                column_id: makeUUID(2),
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            )
+            stateColumn(id: makeUUID(2), windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let request = makeWorkspaceRequest(op: 0xFF)
 
@@ -520,32 +569,13 @@ private func runNavigationApply(
     @Test func workspacePlannerTreatsMissingSourceContextAsNoOp() {
         let sourceColumnId = makeUUID(1)
         let sourceColumns = [
-            OmniNiriStateColumnInput(
-                column_id: sourceColumnId,
-                window_start: 0,
-                window_count: 1,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            )
+            stateColumn(id: sourceColumnId, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let sourceWindows = [
-            OmniNiriStateWindowInput(
-                window_id: makeUUID(10),
-                column_id: sourceColumnId,
-                column_index: 0,
-                size_value: 1
-            )
+            stateWindow(id: makeUUID(10), columnId: sourceColumnId, columnIndex: 0, sizeValue: 1)
         ]
         let targetColumns = [
-            OmniNiriStateColumnInput(
-                column_id: makeUUID(2),
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            )
+            stateColumn(id: makeUUID(2), windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let request = makeWorkspaceRequest(
             op: UInt8(truncatingIfNeeded: OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE.rawValue),
@@ -599,13 +629,13 @@ private func runNavigationApply(
         let c0 = makeUUID(1)
         let c1 = makeUUID(2)
         let columns = [
-            OmniNiriStateColumnInput(column_id: c0, window_start: 0, window_count: 2, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: c1, window_start: 1, window_count: 2, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: c0, windowStart: 0, windowCount: 2, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 1, windowCount: 2, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: makeUUID(10), column_id: c0, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(11), column_id: c0, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(12), column_id: c1, column_index: 1, size_value: 1)
+            stateWindow(id: makeUUID(10), columnId: c0, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(11), columnId: c0, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(12), columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -617,13 +647,13 @@ private func runNavigationApply(
         let c0 = makeUUID(1)
         let c1 = makeUUID(2)
         let columns = [
-            OmniNiriStateColumnInput(column_id: c0, window_start: 0, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: c1, window_start: 2, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: c0, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 2, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: makeUUID(10), column_id: c0, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(11), column_id: c0, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(12), column_id: c1, column_index: 1, size_value: 1)
+            stateWindow(id: makeUUID(10), columnId: c0, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(11), columnId: c0, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(12), columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -635,12 +665,12 @@ private func runNavigationApply(
         let c0 = makeUUID(1)
         let c1 = makeUUID(2)
         let columns = [
-            OmniNiriStateColumnInput(column_id: c0, window_start: 0, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: c1, window_start: 1, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: c0, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 1, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: makeUUID(10), column_id: c0, column_index: 1, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(11), column_id: c1, column_index: 1, size_value: 1)
+            stateWindow(id: makeUUID(10), columnId: c0, columnIndex: 1, sizeValue: 1),
+            stateWindow(id: makeUUID(11), columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -652,12 +682,12 @@ private func runNavigationApply(
         let c0 = makeUUID(1)
         let c1 = makeUUID(2)
         let columns = [
-            OmniNiriStateColumnInput(column_id: c0, window_start: 0, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: c1, window_start: 1, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: c0, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 1, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: makeUUID(10), column_id: c1, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(11), column_id: c1, column_index: 1, size_value: 1)
+            stateWindow(id: makeUUID(10), columnId: c1, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(11), columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -668,12 +698,12 @@ private func runNavigationApply(
     @Test func stateValidationRejectsDuplicateColumnIds() {
         let duplicate = makeUUID(7)
         let columns = [
-            OmniNiriStateColumnInput(column_id: duplicate, window_start: 0, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: duplicate, window_start: 1, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: duplicate, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: duplicate, windowStart: 1, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: makeUUID(10), column_id: duplicate, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: makeUUID(11), column_id: duplicate, column_index: 1, size_value: 1)
+            stateWindow(id: makeUUID(10), columnId: duplicate, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: makeUUID(11), columnId: duplicate, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -686,12 +716,12 @@ private func runNavigationApply(
         let c1 = makeUUID(2)
         let duplicateWindow = makeUUID(9)
         let columns = [
-            OmniNiriStateColumnInput(column_id: c0, window_start: 0, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1),
-            OmniNiriStateColumnInput(column_id: c1, window_start: 1, window_count: 1, active_tile_idx: 0, is_tabbed: 0, size_value: 1)
+            stateColumn(id: c0, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 1, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let windows = [
-            OmniNiriStateWindowInput(window_id: duplicateWindow, column_id: c0, column_index: 0, size_value: 1),
-            OmniNiriStateWindowInput(window_id: duplicateWindow, column_id: c1, column_index: 1, size_value: 1)
+            stateWindow(id: duplicateWindow, columnId: c0, columnIndex: 0, sizeValue: 1),
+            stateWindow(id: duplicateWindow, columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
 
         let outcome = validateState(columns: columns, windows: windows)
@@ -699,16 +729,75 @@ private func runNavigationApply(
         #expect(outcome.result.first_error_code == abiErrInvalidArgs)
     }
 
+    @Test func stateValidationRejectsInvalidColumnWidthKind() {
+        let c0 = makeUUID(1)
+        let columns = [
+            stateColumn(
+                id: c0,
+                windowStart: 0,
+                windowCount: 1,
+                sizeValue: 1,
+                widthKind: 0xFF
+            )
+        ]
+        let windows = [
+            stateWindow(id: makeUUID(10), columnId: c0, columnIndex: 0, sizeValue: 1)
+        ]
+
+        let outcome = validateState(columns: columns, windows: windows)
+        #expect(outcome.rc == abiErrInvalidArgs)
+        #expect(outcome.result.first_invalid_column_index == 0)
+        #expect(outcome.result.first_error_code == abiErrInvalidArgs)
+    }
+
+    @Test func stateValidationRejectsInvalidSavedWidthKindWhenPresent() {
+        let c0 = makeUUID(1)
+        let columns = [
+            stateColumn(
+                id: c0,
+                windowStart: 0,
+                windowCount: 1,
+                sizeValue: 1,
+                hasSavedWidth: true,
+                savedWidthKind: 0xFF,
+                savedWidthValue: 0.5
+            )
+        ]
+        let windows = [
+            stateWindow(id: makeUUID(10), columnId: c0, columnIndex: 0, sizeValue: 1)
+        ]
+
+        let outcome = validateState(columns: columns, windows: windows)
+        #expect(outcome.rc == abiErrInvalidArgs)
+        #expect(outcome.result.first_invalid_column_index == 0)
+        #expect(outcome.result.first_error_code == abiErrInvalidArgs)
+    }
+
+    @Test func stateValidationRejectsInvalidWindowHeightKind() {
+        let c0 = makeUUID(1)
+        let columns = [
+            stateColumn(id: c0, windowStart: 0, windowCount: 1, sizeValue: 1)
+        ]
+        let windows = [
+            stateWindow(
+                id: makeUUID(10),
+                columnId: c0,
+                columnIndex: 0,
+                sizeValue: 1,
+                heightKind: 0xFF,
+                heightValue: 1
+            )
+        ]
+
+        let outcome = validateState(columns: columns, windows: windows)
+        #expect(outcome.rc == abiErrInvalidArgs)
+        #expect(outcome.result.first_invalid_window_index == 0)
+        #expect(outcome.result.first_error_code == abiErrInvalidArgs)
+    }
+
     @Test func mutationPlanRejectsInvalidNodeKindEvenWithNegativeIndex() {
         let columns = [
-            OmniNiriStateColumnInput(
-                column_id: makeUUID(1),
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            )
+            stateColumn(id: makeUUID(1), windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
         ]
         let request = makeMutationRequest(
             op: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION.rawValue),
@@ -722,22 +811,8 @@ private func runNavigationApply(
 
     @Test func mutationPlanValidateSelectionReturnsColumnNodeTargetWithoutWindowCompatibilityTarget() {
         let columns = [
-            OmniNiriStateColumnInput(
-                column_id: makeUUID(1),
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            ),
-            OmniNiriStateColumnInput(
-                column_id: makeUUID(2),
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            ),
+            stateColumn(id: makeUUID(1), windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: makeUUID(2), windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
         ]
         let request = makeMutationRequest(
             op: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION.rawValue),
@@ -761,30 +836,11 @@ private func runNavigationApply(
         let c0 = makeUUID(1)
         let c1 = makeUUID(2)
         let columns = [
-            OmniNiriStateColumnInput(
-                column_id: c0,
-                window_start: 0,
-                window_count: 0,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            ),
-            OmniNiriStateColumnInput(
-                column_id: c1,
-                window_start: 0,
-                window_count: 1,
-                active_tile_idx: 0,
-                is_tabbed: 0,
-                size_value: 1
-            ),
+            stateColumn(id: c0, windowStart: 0, windowCount: 0, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
+            stateColumn(id: c1, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1),
         ]
         let windows = [
-            OmniNiriStateWindowInput(
-                window_id: makeUUID(10),
-                column_id: c1,
-                column_index: 1,
-                size_value: 1
-            )
+            stateWindow(id: makeUUID(10), columnId: c1, columnIndex: 1, sizeValue: 1)
         ]
         let request = makeMutationRequest(
             op: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION.rawValue)
@@ -957,40 +1013,16 @@ private func runNavigationApply(
 
                 let plannerCheck = runWorkspacePlan(
                     sourceColumns: [
-                        OmniNiriStateColumnInput(
-                            column_id: sourceCol,
-                            window_start: 0,
-                            window_count: 1,
-                            active_tile_idx: 0,
-                            is_tabbed: 0,
-                            size_value: 1
-                        )
+                        stateColumn(id: sourceCol, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
                     ],
                     sourceWindows: [
-                        OmniNiriStateWindowInput(
-                            window_id: sourceWin,
-                            column_id: sourceCol,
-                            column_index: 0,
-                            size_value: 1
-                        )
+                        stateWindow(id: sourceWin, columnId: sourceCol, columnIndex: 0, sizeValue: 1)
                     ],
                     targetColumns: [
-                        OmniNiriStateColumnInput(
-                            column_id: targetCol,
-                            window_start: 0,
-                            window_count: 1,
-                            active_tile_idx: 0,
-                            is_tabbed: 0,
-                            size_value: 1
-                        )
+                        stateColumn(id: targetCol, windowStart: 0, windowCount: 1, activeTileIdx: 0, isTabbed: false, sizeValue: 1)
                     ],
                     targetWindows: [
-                        OmniNiriStateWindowInput(
-                            window_id: targetWin,
-                            column_id: targetCol,
-                            column_index: 0,
-                            size_value: 1
-                        )
+                        stateWindow(id: targetWin, columnId: targetCol, columnIndex: 0, sizeValue: 1)
                     ],
                     request: request.request
                 )
