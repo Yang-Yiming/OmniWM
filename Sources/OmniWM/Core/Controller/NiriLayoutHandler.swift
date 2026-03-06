@@ -489,15 +489,15 @@ import QuartzCore
         }
 
         if let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
+           let selectedHandle = controller.zigWindowHandle(for: selectedId, workspaceId: pass.wsId)
         {
-            controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: pass.wsId)
+            controller.focusManager.updateWorkspaceFocusMemory(selectedHandle, for: pass.wsId)
             if let currentFocused = controller.focusedHandle {
                 if controller.workspaceManager.workspace(for: currentFocused) == pass.wsId {
-                    controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+                    controller.focusManager.setFocus(selectedHandle, in: pass.wsId)
                 }
             } else {
-                controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+                controller.focusManager.setFocus(selectedHandle, in: pass.wsId)
             }
         }
 
@@ -830,8 +830,8 @@ import QuartzCore
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
             guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
-                  let windowNode = currentNode as? NiriWindow
+                  let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+                  let windowNode = engine.findNode(for: currentHandle)
             else { return }
 
             engine.toggleFullscreen(windowNode, state: &state)
@@ -847,7 +847,8 @@ import QuartzCore
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+                  let windowNode = engine.findNode(for: currentHandle),
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -892,6 +893,10 @@ import QuartzCore
         engine.renderStyle.tabIndicatorWidth = TabbedColumnOverlayManager.tabIndicatorWidth
         engine.animationClock = controller.animationClock
         controller.niriEngine = engine
+        controller.zigNiriEngine = ZigNiriEngine(
+            maxVisibleColumns: engine.maxVisibleColumns,
+            infiniteLoop: engine.infiniteLoop
+        )
 
         syncMonitorsToNiriEngine()
 
@@ -944,6 +949,10 @@ import QuartzCore
             singleWindowAspectRatio: singleWindowAspectRatio,
             presetColumnWidths: columnWidthPresets?.map { .proportion($0) }
         )
+        controller.zigNiriEngine?.updateConfiguration(
+            maxVisibleColumns: maxVisibleColumns,
+            infiniteLoop: infiniteLoop
+        )
         controller.layoutRefreshController.refreshWindowsAndLayout()
     }
 
@@ -976,17 +985,20 @@ import QuartzCore
             )
         }
 
-        if let windowNode = node as? NiriWindow {
+        let focusHandle = controller.zigWindowHandle(for: node.id, workspaceId: workspaceId)
+        if focusHandle != nil {
             if options.updateTimestamp {
-                engine.updateFocusTimestamp(for: windowNode.id)
+                engine.updateFocusTimestamp(for: node.id)
             }
-            controller.focusManager.setFocus(windowNode.handle, in: workspaceId)
+            if let focusHandle {
+                controller.focusManager.setFocus(focusHandle, in: workspaceId)
+            }
         }
 
         if options.layoutRefresh {
-            let focusHandle = options.axFocus ? (node as? NiriWindow)?.handle : nil
+            let focusHandleForAX = options.axFocus ? focusHandle : nil
             controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
-                if let handle = focusHandle {
+                if let handle = focusHandleForAX {
                     controller?.focusWindow(handle)
                 }
             }
@@ -994,13 +1006,28 @@ import QuartzCore
                 controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
             }
         } else {
-            if options.axFocus, let windowNode = node as? NiriWindow {
-                controller.focusWindow(windowNode.handle)
+            if options.axFocus, let focusHandle {
+                controller.focusWindow(focusHandle)
             }
             if options.startAnimation, state.viewOffsetPixels.isAnimating {
                 controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
             }
         }
+    }
+
+    func activateNodeId(
+        _ nodeId: NodeId,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        options: NodeActivationOptions = NodeActivationOptions()
+    ) {
+        guard let controller,
+              let engine = controller.niriEngine,
+              let node = engine.findNode(by: nodeId)
+        else {
+            return
+        }
+        activateNode(node, in: workspaceId, state: &state, options: options)
     }
 
     func withNiriOperationContext(
@@ -1015,8 +1042,8 @@ import QuartzCore
 
             controller.workspaceManager.withNiriViewportState(for: wsId) { state in
                 guard let currentId = state.selectedNodeId,
-                      let currentNode = engine.findNode(by: currentId),
-                      let windowNode = currentNode as? NiriWindow
+                      let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+                      let windowNode = engine.findNode(for: currentHandle)
                 else { return }
 
                 guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }

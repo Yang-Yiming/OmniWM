@@ -366,6 +366,7 @@ import QuartzCore
         if let focusedWorkspaceId = controller.activeWorkspace()?.id {
             controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
+                zigEngine: controller.zigNiriEngine,
                 engine: controller.niriEngine,
                 workspaceManager: controller.workspaceManager,
                 focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
@@ -394,6 +395,12 @@ import QuartzCore
                         if let niriEngine = controller.niriEngine {
                             let selection = controller.workspaceManager.niriViewportState(for: ws.id).selectedNodeId
                             _ = niriEngine.syncWindows(handles, in: ws.id, selectedNodeId: selection, focusedHandle: focused)
+                            _ = controller.zigNiriEngine?.syncWindows(
+                                handles,
+                                in: ws.id,
+                                selectedNodeId: selection,
+                                focusedHandle: focused
+                            )
                         }
                     }
                 }
@@ -549,6 +556,7 @@ import QuartzCore
         if let focusedWorkspaceId {
             controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
+                zigEngine: controller.zigNiriEngine,
                 engine: controller.niriEngine,
                 workspaceManager: controller.workspaceManager,
                 focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }

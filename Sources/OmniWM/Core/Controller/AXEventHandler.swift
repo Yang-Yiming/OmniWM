@@ -175,12 +175,29 @@ final class AXEventHandler: CGSEventDelegate {
            let workspaceName = controller.workspaceManager.descriptor(for: wsId)?.name,
            controller.settings.layoutType(for: workspaceName) != .dwindle
         {
-            let shouldAnimate = if let engine = controller.niriEngine,
-                                    let windowNode = engine.findNode(for: entry.handle)
+            let shouldAnimate: Bool
+            if let nodeId = controller.zigNodeId(for: entry.handle, workspaceId: wsId),
+               let workspaceView = controller.syncZigNiriWorkspace(workspaceId: wsId),
+               let windowView = workspaceView.windowsById[nodeId],
+               let columnId = windowView.columnId,
+               let columnView = workspaceView.columns.first(where: { $0.nodeId == columnId }),
+               columnView.display == .tabbed
             {
-                !windowNode.isHiddenInTabbedMode
+                let activeWindowId: NodeId? = {
+                    guard let activeIndex = columnView.activeWindowIndex,
+                          columnView.windowIds.indices.contains(activeIndex)
+                    else {
+                        return nil
+                    }
+                    return columnView.windowIds[activeIndex]
+                }()
+                shouldAnimate = activeWindowId == nil || activeWindowId == nodeId
+            } else if let engine = controller.niriEngine,
+                      let windowNode = engine.findNode(for: entry.handle)
+            {
+                shouldAnimate = !windowNode.isHiddenInTabbedMode
             } else {
-                true
+                shouldAnimate = true
             }
             if shouldAnimate {
                 controller.layoutRefreshController.startWindowCloseAnimation(
@@ -201,7 +218,7 @@ final class AXEventHandler: CGSEventDelegate {
         if let wsId = affectedWorkspaceId, let engine = controller.niriEngine {
             oldFrames = engine.captureWindowFrames(in: wsId)
             if let handle = removedHandle {
-                removedNodeId = engine.findNode(for: handle)?.id
+                removedNodeId = controller.zigNodeId(for: handle, workspaceId: wsId)
             }
         }
 
@@ -210,6 +227,7 @@ final class AXEventHandler: CGSEventDelegate {
         if needsFocusRecovery, let wsId = affectedWorkspaceId {
             controller.focusManager.ensureFocusedHandleValid(
                 in: wsId,
+                zigEngine: controller.zigNiriEngine,
                 engine: controller.niriEngine,
                 workspaceManager: controller.workspaceManager,
                 focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
@@ -300,17 +318,17 @@ final class AXEventHandler: CGSEventDelegate {
             controller.focusManager.setFocus(entry.handle, in: wsId)
 
             if let engine = controller.niriEngine,
-               let node = engine.findNode(for: entry.handle),
+               let nodeId = controller.zigNodeId(for: entry.handle, workspaceId: wsId),
                let _ = controller.workspaceManager.monitor(for: wsId)
             {
                 controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                    controller.niriLayoutHandler.activateNode(
-                        node, in: wsId, state: &state,
+                    controller.niriLayoutHandler.activateNodeId(
+                        nodeId, in: wsId, state: &state,
                         options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
                     )
                 }
 
-                if let frame = node.frame {
+                if let frame = engine.findNode(by: nodeId)?.frame {
                     controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                 } else if let frame = try? AXWindowService.frame(entry.axRef) {
                     controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)

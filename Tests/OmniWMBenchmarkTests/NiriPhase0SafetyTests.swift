@@ -54,70 +54,62 @@ final class NiriPhase0SafetyTests: XCTestCase {
         }
     }
 
-    func testProjectionRejectsInvalidColumnWidthWithoutMutation() throws {
-        let workspace = WorkspaceDescriptor(name: "phase0-projection-atomic")
+    func testRuntimeMirrorRejectsMissingWindowHandleWithoutMutation() throws {
+        let workspace = WorkspaceDescriptor(name: "phase0-runtime-mirror-atomic")
         let engine = NiriLayoutEngine()
         let root = engine.ensureRoot(for: workspace.id)
         let sourceColumn = try XCTUnwrap(root.columns.first)
 
-        let firstWindow = makeWindow()
-        let secondWindow = makeWindow()
-        sourceColumn.appendChild(firstWindow)
-        sourceColumn.appendChild(secondWindow)
+        let existingWindow = makeWindow()
+        sourceColumn.appendChild(existingWindow)
+        engine.handleToNode[existingWindow.handle] = existingWindow
 
         let before = NiriStateZigKernel.runtimeStateExport(
             snapshot: NiriStateZigKernel.makeSnapshot(columns: root.columns)
         )
 
-        let secondColumnId = NodeId(uuid: UUID())
-        let malformed = NiriStateZigKernel.RuntimeStateExport(
-            columns: [
-                .init(
-                    columnId: sourceColumn.id,
-                    windowStart: 0,
-                    windowCount: 1,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0
-                ),
-                .init(
-                    columnId: secondColumnId,
-                    windowStart: 1,
-                    windowCount: 1,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0,
-                    widthKind: 0xFF
-                ),
-            ],
-            windows: [
-                .init(
-                    windowId: firstWindow.id,
-                    columnId: sourceColumn.id,
-                    columnIndex: 0,
-                    sizeValue: firstWindow.size
-                ),
-                .init(
-                    windowId: secondWindow.id,
-                    columnId: secondColumnId,
-                    columnIndex: 1,
-                    sizeValue: secondWindow.size
-                ),
-            ]
+        let runtimeColumnId = NodeId(uuid: UUID())
+        let runtimeWindowId = NodeId(uuid: UUID())
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: runtimeColumnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: false,
+                        sizeValue: 1.0
+                    ),
+                ],
+                windows: [
+                    .init(
+                        windowId: runtimeWindowId,
+                        columnId: runtimeColumnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0
+                    ),
+                ]
+            )
         )
+        XCTAssertEqual(seedRC, Int32(OMNI_OK))
 
-        let projection = NiriStateZigRuntimeSnapshotApplier.project(
-            export: malformed,
+        let syncResult = engine.syncRuntimeWorkspaceMirror(
             workspaceId: workspace.id,
-            engine: engine
+            ensureWorkspaceRoot: true
         )
-
-        XCTAssertFalse(projection.applied)
-        guard case let .invalidRuntimeColumnWidth(columnId, _, _) = projection.error else {
-            XCTFail("Expected invalidRuntimeColumnWidth error, got \(String(describing: projection.error))")
+        guard case let .failure(error) = syncResult else {
+            XCTFail("Expected runtime mirror sync failure for missing window handle")
             return
         }
-        XCTAssertEqual(columnId, secondColumnId)
+        guard case let .missingWindowHandle(resolvedWorkspaceId, resolvedWindowId) = error else {
+            XCTFail("Expected missingWindowHandle error, got \(error)")
+            return
+        }
+        XCTAssertEqual(resolvedWorkspaceId, workspace.id)
+        XCTAssertEqual(resolvedWindowId, runtimeWindowId)
 
         let after = NiriStateZigKernel.runtimeStateExport(
             snapshot: NiriStateZigKernel.makeSnapshot(columns: root.columns)
@@ -125,98 +117,61 @@ final class NiriPhase0SafetyTests: XCTestCase {
         XCTAssertEqual(after, before)
     }
 
-    func testWorkspaceProjectionSetIsAtomicWhenTargetProjectionFails() throws {
-        let sourceWorkspace = WorkspaceDescriptor(name: "phase0-workspace-atomic-source")
-        let targetWorkspace = WorkspaceDescriptor(name: "phase0-workspace-atomic-target")
+    func testRuntimeMirrorAppliesSeededRuntimeStateToSwiftMirror() throws {
+        let workspace = WorkspaceDescriptor(name: "phase0-runtime-mirror-apply")
         let engine = NiriLayoutEngine()
+        let root = engine.ensureRoot(for: workspace.id)
+        let sourceColumn = try XCTUnwrap(root.columns.first)
 
-        let sourceRoot = engine.ensureRoot(for: sourceWorkspace.id)
-        let targetRoot = engine.ensureRoot(for: targetWorkspace.id)
-        let sourceColumn = try XCTUnwrap(sourceRoot.columns.first)
-        let targetColumn = try XCTUnwrap(targetRoot.columns.first)
+        let existingWindow = makeWindow()
+        sourceColumn.appendChild(existingWindow)
+        engine.handleToNode[existingWindow.handle] = existingWindow
 
-        let sourceWindow = makeWindow()
-        let targetWindow = makeWindow()
-        sourceColumn.appendChild(sourceWindow)
-        targetColumn.appendChild(targetWindow)
-
-        let sourceBefore = NiriStateZigKernel.runtimeStateExport(
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
+        let runtimeColumnId = NodeId(uuid: UUID())
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: runtimeColumnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: true,
+                        sizeValue: 420,
+                        widthKind: NiriStateZigKernel.sizeKindFixed
+                    ),
+                ],
+                windows: [
+                    .init(
+                        windowId: existingWindow.id,
+                        columnId: runtimeColumnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0,
+                        heightKind: NiriStateZigKernel.heightKindAuto,
+                        heightValue: 2.5
+                    ),
+                ]
+            )
         )
-        let targetBefore = NiriStateZigKernel.runtimeStateExport(
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
-        )
+        XCTAssertEqual(seedRC, Int32(OMNI_OK))
 
-        let sourceMutated = NiriStateZigKernel.RuntimeStateExport(
-            columns: [
-                .init(
-                    columnId: sourceColumn.id,
-                    windowStart: 0,
-                    windowCount: 1,
-                    activeTileIdx: 0,
-                    isTabbed: true,
-                    sizeValue: 480,
-                    widthKind: NiriStateZigKernel.sizeKindFixed
-                ),
-            ],
-            windows: [
-                .init(
-                    windowId: sourceWindow.id,
-                    columnId: sourceColumn.id,
-                    columnIndex: 0,
-                    sizeValue: sourceWindow.size
-                ),
-            ]
-        )
-
-        let targetMalformed = NiriStateZigKernel.RuntimeStateExport(
-            columns: [
-                .init(
-                    columnId: targetColumn.id,
-                    windowStart: 0,
-                    windowCount: 1,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0,
-                    widthKind: 0xFF
-                ),
-            ],
-            windows: [
-                .init(
-                    windowId: targetWindow.id,
-                    columnId: targetColumn.id,
-                    columnIndex: 0,
-                    sizeValue: targetWindow.size
-                ),
-            ]
-        )
-
-        let result = NiriStateZigRuntimeSnapshotApplier.projectWorkspaceSet(
-            sourceExport: sourceMutated,
-            sourceWorkspaceId: sourceWorkspace.id,
-            targetExport: targetMalformed,
-            targetWorkspaceId: targetWorkspace.id,
-            engine: engine
-        )
-
-        XCTAssertFalse(result.applied)
-        guard case let .target(error) = result.error else {
-            XCTFail("Expected target projection error, got \(String(describing: result.error))")
-            return
-        }
-        guard case .invalidRuntimeColumnWidth = error else {
-            XCTFail("Expected invalidRuntimeColumnWidth target error, got \(error)")
-            return
+        switch engine.syncRuntimeWorkspaceMirror(workspaceId: workspace.id) {
+        case .failure(let error):
+            XCTFail("Expected runtime mirror sync success, got \(error)")
+        case .success:
+            break
         }
 
-        let sourceAfter = NiriStateZigKernel.runtimeStateExport(
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
-        )
-        let targetAfter = NiriStateZigKernel.runtimeStateExport(
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
-        )
+        let syncedColumn = try XCTUnwrap(engine.root(for: workspace.id)?.columns.first)
+        XCTAssertEqual(syncedColumn.id, runtimeColumnId)
+        XCTAssertTrue(syncedColumn.isTabbed)
+        XCTAssertEqual(syncedColumn.width, .fixed(420))
 
-        XCTAssertEqual(sourceAfter, sourceBefore)
-        XCTAssertEqual(targetAfter, targetBefore)
+        let syncedWindow = try XCTUnwrap(syncedColumn.windowNodes.first)
+        XCTAssertEqual(syncedWindow.id, existingWindow.id)
+        XCTAssertEqual(syncedWindow.height, .auto(weight: 2.5))
+        XCTAssertEqual(engine.handleToNode[existingWindow.handle]?.id, existingWindow.id)
     }
 }

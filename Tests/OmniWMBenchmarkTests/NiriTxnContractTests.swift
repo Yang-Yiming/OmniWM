@@ -8,6 +8,7 @@ final class NiriTxnContractTests: XCTestCase {
         "omni_niri_ctx_apply_mutation",
         "omni_niri_ctx_apply_workspace",
         "omni_niri_ctx_export_runtime_state",
+        "NiriStateZigRuntimeSnapshotApplier",
         "NiriStateZigRuntimeProjector",
         "NiriStateZigDeltaProjector",
     ]
@@ -30,11 +31,40 @@ final class NiriTxnContractTests: XCTestCase {
             .appendingPathComponent("layout_context.zig")
     }
 
+    private func controllerSourceDirURL() -> URL {
+        repoRootURL()
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("OmniWM")
+            .appendingPathComponent("Core")
+            .appendingPathComponent("Controller")
+    }
+
     private func niriSwiftFiles() throws -> [URL] {
         let fileManager = FileManager.default
         let baseURL = niriSourceDirURL()
         guard let enumerator = fileManager.enumerator(
             at: baseURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var files: [URL] = []
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "swift" else { continue }
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == true {
+                files.append(fileURL)
+            }
+        }
+        return files
+    }
+
+    private func swiftFiles(in directoryURL: URL) throws -> [URL] {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: directoryURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
@@ -173,6 +203,38 @@ final class NiriTxnContractTests: XCTestCase {
         XCTAssertTrue(layoutContent.contains("view: runtimeView"))
     }
 
+    func testPhase3ControllerConsumersDoNotUseNiriWindowContainerCasts() throws {
+        for fileURL in try swiftFiles(in: controllerSourceDirURL()) {
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(
+                content.contains("as? NiriWindow"),
+                "Phase 3 controller consumers must not cast to NiriWindow in \(fileURL.lastPathComponent)"
+            )
+            XCTAssertFalse(
+                content.contains("as? NiriContainer"),
+                "Phase 3 controller consumers must not cast to NiriContainer in \(fileURL.lastPathComponent)"
+            )
+        }
+    }
+
+    func testPhase3ControllerConsumersReferenceZigNiriNodeHandlePath() throws {
+        let wmControllerURL = controllerSourceDirURL().appendingPathComponent("WMController.swift")
+        let wmControllerContent = try String(contentsOf: wmControllerURL, encoding: .utf8)
+        XCTAssertTrue(wmControllerContent.contains("var zigNiriEngine: ZigNiriEngine?"))
+        XCTAssertTrue(wmControllerContent.contains("func zigNodeId("))
+        XCTAssertTrue(wmControllerContent.contains("func zigWindowHandle("))
+
+        let workspaceBarURL = repoRootURL()
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("OmniWM")
+            .appendingPathComponent("UI")
+            .appendingPathComponent("WorkspaceBar")
+            .appendingPathComponent("WorkspaceBarDataSource.swift")
+        let workspaceBarContent = try String(contentsOf: workspaceBarURL, encoding: .utf8)
+        XCTAssertTrue(workspaceBarContent.contains("zigNiriEngine"))
+        XCTAssertTrue(workspaceBarContent.contains("zigNiriEngine.syncWindows("))
+    }
+
     func testPhase1RuntimeBoundaryTypesAndStoreDispatchExist() throws {
         let boundaryURL = niriSourceDirURL().appendingPathComponent("NiriRuntimeBoundary.swift")
         XCTAssertTrue(
@@ -261,5 +323,43 @@ final class NiriTxnContractTests: XCTestCase {
         XCTAssertFalse(tabbedContent.contains("column.displayMode = mode"))
         XCTAssertFalse(tabbedContent.contains("column.displayMode = ."))
         XCTAssertFalse(tabbedContent.contains("column.setActiveTileIdx("))
+    }
+
+    func testPhase4HybridBridgeIsDeleted() throws {
+        let removedBridgeFiles = [
+            "NiriStateZigRuntimeSnapshotApplier.swift",
+            "NiriLayoutEngine+RuntimeTxnHelpers.swift",
+        ]
+        for fileName in removedBridgeFiles {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: fileURL.path),
+                "Phase 4 bridge file should be removed: \(fileName)"
+            )
+        }
+
+        let runtimeBoundaryURL = niriSourceDirURL().appendingPathComponent("NiriRuntimeBoundary.swift")
+        let runtimeBoundaryContent = try String(contentsOf: runtimeBoundaryURL, encoding: .utf8)
+        XCTAssertTrue(runtimeBoundaryContent.contains("syncRuntimeWorkspaceMirror("))
+        XCTAssertFalse(runtimeBoundaryContent.contains("applyProjectedRuntimeExport("))
+        XCTAssertFalse(runtimeBoundaryContent.contains("applyProjectedLifecycleRuntimeExport("))
+        XCTAssertFalse(runtimeBoundaryContent.contains("applyProjectedWorkspaceRuntimeExports("))
+        XCTAssertFalse(runtimeBoundaryContent.contains("prepareSeededRuntimeContext("))
+
+        let layoutURL = niriSourceDirURL().appendingPathComponent("NiriLayout.swift")
+        let layoutContent = try String(contentsOf: layoutURL, encoding: .utf8)
+        XCTAssertFalse(layoutContent.contains("prepareSeededRuntimeContext("))
+        XCTAssertFalse(layoutContent.contains("NiriStateZigKernel.makeSnapshot("))
+
+        for fileURL in try niriSwiftFiles() {
+            if fileURL.lastPathComponent == "NiriStateZigKernel.swift" {
+                continue
+            }
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(
+                content.contains("NiriStateZigKernel.makeSnapshot("),
+                "Phase 4 operational Swift Niri paths must not build runtime snapshots in \(fileURL.lastPathComponent)"
+            )
+        }
     }
 }

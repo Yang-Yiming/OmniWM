@@ -34,6 +34,7 @@ final class WMController {
     private var suppressActiveMonitorUpdate: Bool = false
 
     var niriEngine: NiriLayoutEngine?
+    var zigNiriEngine: ZigNiriEngine?
     var dwindleEngine: DwindleLayoutEngine?
 
     let tabbedOverlayManager = TabbedColumnOverlayManager()
@@ -217,6 +218,7 @@ final class WMController {
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
             niriEngine: niriEngine,
+            zigNiriEngine: zigNiriEngine,
             focusedHandle: focusedHandle,
             settings: settings
         )
@@ -451,12 +453,71 @@ final class WMController {
         in workspaceId: WorkspaceDescriptor.ID,
         preferredNodeId: NodeId?
     ) {
+        _ = syncZigNiriWorkspace(workspaceId: workspaceId, selectedNodeId: preferredNodeId)
         focusManager.recoverSourceFocusAfterMove(
             in: workspaceId,
             preferredNodeId: preferredNodeId,
+            zigEngine: zigNiriEngine,
             engine: niriEngine,
             entries: workspaceManager.entries(in: workspaceId)
         )
+    }
+
+    @discardableResult
+    func syncZigNiriWorkspace(
+        workspaceId: WorkspaceDescriptor.ID,
+        selectedNodeId: NodeId? = nil
+    ) -> ZigNiriWorkspaceView? {
+        guard let zigNiriEngine else { return nil }
+        let handles = workspaceManager.entries(in: workspaceId).map(\.handle)
+        _ = zigNiriEngine.syncWindows(
+            handles,
+            in: workspaceId,
+            selectedNodeId: selectedNodeId ?? workspaceManager.niriViewportState(for: workspaceId).selectedNodeId,
+            focusedHandle: focusedHandle
+        )
+        return zigNiriEngine.workspaceView(for: workspaceId)
+    }
+
+    func zigNodeId(
+        for handle: WindowHandle,
+        workspaceId: WorkspaceDescriptor.ID? = nil
+    ) -> NodeId? {
+        if let workspaceId {
+            _ = syncZigNiriWorkspace(workspaceId: workspaceId)
+        }
+        if let nodeId = zigNiriEngine?.nodeId(for: handle) {
+            return nodeId
+        }
+        return niriEngine?.findNode(for: handle)?.id
+    }
+
+    func zigWindowHandle(
+        for nodeId: NodeId,
+        workspaceId: WorkspaceDescriptor.ID? = nil
+    ) -> WindowHandle? {
+        if let workspaceId {
+            _ = syncZigNiriWorkspace(workspaceId: workspaceId)
+        }
+        if let handle = zigNiriEngine?.windowHandle(for: nodeId) {
+            return handle
+        }
+        return niriEngine?.handleToNode.first(where: { $0.value.id == nodeId })?.key
+    }
+
+    func zigContainsNode(
+        _ nodeId: NodeId,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        if let workspaceView = syncZigNiriWorkspace(workspaceId: workspaceId, selectedNodeId: nodeId) {
+            if workspaceView.windowsById[nodeId] != nil {
+                return true
+            }
+            if workspaceView.columns.contains(where: { $0.nodeId == nodeId }) {
+                return true
+            }
+        }
+        return niriEngine?.findNode(by: nodeId) != nil
     }
 
     func moveMouseToWindow(_ handle: WindowHandle) {

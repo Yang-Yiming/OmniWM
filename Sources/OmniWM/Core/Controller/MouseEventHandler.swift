@@ -705,10 +705,10 @@ final class MouseEventHandler {
                 {
                     vstate.selectedNodeId = newNode.id
 
-                    if let windowNode = newNode as? NiriWindow {
-                        controller.focusManager.setFocus(windowNode.handle, in: wsId)
-                        engine.updateFocusTimestamp(for: windowNode.id)
-                        targetWindowHandle = windowNode.handle
+                    if let newHandle = controller.zigWindowHandle(for: newNode.id, workspaceId: wsId) {
+                        controller.focusManager.setFocus(newHandle, in: wsId)
+                        engine.updateFocusTimestamp(for: newNode.id)
+                        targetWindowHandle = newHandle
                     }
                 }
             }

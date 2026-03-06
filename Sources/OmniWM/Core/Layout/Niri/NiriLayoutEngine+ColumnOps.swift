@@ -3,7 +3,6 @@ import Foundation
 
 extension NiriLayoutEngine {
     private struct ColumnMutationPreparedRequest {
-        let workspaceColumns: [NiriContainer]
         let runtimeStore: NiriRuntimeWorkspaceStore
         let op: NiriStateZigKernel.MutationOp
         let sourceWindowId: NodeId?
@@ -45,7 +44,6 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let workspaceColumns = columns(in: workspaceId)
         if let sourceWindow {
             guard runtimeView.window(for: sourceWindow.id) != nil else {
                 return nil
@@ -65,7 +63,6 @@ extension NiriLayoutEngine {
         }
 
         return ColumnMutationPreparedRequest(
-            workspaceColumns: workspaceColumns,
             runtimeStore: runtimeStore(for: workspaceId),
             op: op,
             sourceWindowId: sourceWindow?.id,
@@ -597,12 +594,6 @@ extension NiriLayoutEngine {
     ) -> Bool {
         guard direction == .left || direction == .right else { return false }
 
-        guard let currentColumn = findColumn(containing: window, in: workspaceId),
-              let currentIdx = columnIndex(of: currentColumn, in: workspaceId)
-        else {
-            return false
-        }
-
         guard let prepared = prepareColumnMutationRequest(
             op: .consumeWindow,
             sourceWindow: window,
@@ -611,36 +602,6 @@ extension NiriLayoutEngine {
         ) else {
             return false
         }
-
-        let animationSnapshot = NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
-        let directionStep = direction == .right ? 1 : -1
-        guard let neighborIdx = wrapIndex(currentIdx + directionStep, total: animationSnapshot.columns.count),
-              neighborIdx != currentIdx,
-              animationSnapshot.columnEntries.indices.contains(neighborIdx)
-        else {
-            return false
-        }
-
-        let neighborEntry = animationSnapshot.columnEntries[neighborIdx]
-        guard neighborEntry.windowCount > 0 else {
-            return false
-        }
-
-        let movingWindowIndex = direction == .right
-            ? neighborEntry.windowStart
-            : neighborEntry.windowStart + neighborEntry.windowCount - 1
-        guard animationSnapshot.windowEntries.indices.contains(movingWindowIndex) else {
-            return false
-        }
-
-        let movingEntry = animationSnapshot.windowEntries[movingWindowIndex]
-        let movingWindow = movingEntry.window
-
-        let now = animationClock?.now() ?? CACurrentMediaTime()
-        let cols = columns(in: workspaceId)
-        let sourceColX = state.columnX(at: movingEntry.columnIndex, columns: cols, gap: gaps)
-        let sourceColRenderOffset = movingEntry.column.renderOffset(at: now)
-        let sourceTileOffset = computeTileOffset(column: movingEntry.column, tileIdx: movingEntry.rowIndex, gaps: gaps)
 
         guard let applyOutcome = executePreparedColumnMutation(
             prepared,
@@ -651,29 +612,6 @@ extension NiriLayoutEngine {
         }
         guard applyOutcome.applied else {
             return false
-        }
-
-        if let targetColumn = findColumn(containing: movingWindow, in: workspaceId) {
-            let newCols = columns(in: workspaceId)
-            let targetColIdx = columnIndex(of: targetColumn, in: workspaceId) ?? currentIdx
-            let targetColX = state.columnX(at: targetColIdx, columns: newCols, gap: gaps)
-            let targetColRenderOffset = targetColumn.renderOffset(at: now)
-            let targetTileIdx = targetColumn.windowNodes.firstIndex(where: { $0 === movingWindow }) ?? 0
-            let targetTileOffset = computeTileOffset(column: targetColumn, tileIdx: targetTileIdx, gaps: gaps)
-
-            let displacement = CGPoint(
-                x: sourceColX + sourceColRenderOffset.x - (targetColX + targetColRenderOffset.x),
-                y: sourceTileOffset - targetTileOffset
-            )
-
-            if displacement.x != 0 || displacement.y != 0 {
-                movingWindow.animateMoveFrom(
-                    displacement: displacement,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
-                )
-            }
         }
 
         ensureSelectionVisible(

@@ -65,6 +65,16 @@ final class BorderCoordinator {
 
     private func isManagedWindowFullscreen(_ handle: WindowHandle) -> Bool {
         guard let controller else { return false }
+        if let workspaceId = controller.workspaceManager.workspace(for: handle),
+           let workspaceView = controller.syncZigNiriWorkspace(workspaceId: workspaceId),
+           let nodeId = controller.zigNodeId(for: handle),
+           let windowView = workspaceView.windowsById[nodeId]
+        {
+            if windowView.sizingMode == .fullscreen {
+                return true
+            }
+        }
+
         guard let engine = controller.niriEngine,
               let windowNode = engine.findNode(for: handle)
         else {

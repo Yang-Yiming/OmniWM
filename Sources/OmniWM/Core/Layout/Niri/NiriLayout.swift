@@ -158,17 +158,11 @@ extension NiriLayoutEngine {
 
         let containers = columns(in: workspaceId)
         guard !containers.isEmpty else {
-            interactionIndexes.removeValue(forKey: workspaceId)
-            layoutContexts.removeValue(forKey: workspaceId)
             clearRuntimeMirrorState(for: workspaceId)
             return
         }
 
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: containers)
-        guard let layoutContext = prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: snapshot
-        ) else { return }
+        guard let layoutContext = ensureLayoutContext(for: workspaceId) else { return }
 
         let workingFrame = workingArea?.workingFrame ?? monitorFrame
         let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame
@@ -244,8 +238,10 @@ extension NiriLayoutEngine {
         } catch let error as NiriLayoutZigKernel.KernelCallError {
             interactionIndexes.removeValue(forKey: workspaceId)
             if case .runtimeRenderStateMismatch = error {
-                // Recover on next pass by forcing a fresh runtime seed in prepareSeededRuntimeContext.
-                clearRuntimeMirrorState(for: workspaceId)
+                _ = syncRuntimeWorkspaceMirror(
+                    workspaceId: workspaceId,
+                    ensureWorkspaceRoot: false
+                )
             }
             return
         } catch {

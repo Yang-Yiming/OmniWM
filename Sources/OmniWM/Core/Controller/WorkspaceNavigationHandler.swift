@@ -191,11 +191,11 @@ final class WorkspaceNavigationHandler {
         else { return }
 
         saveNiriViewportState(for: currentWsId)
-        if let engine = controller.niriEngine {
+        if controller.niriEngine != nil {
             if let targetHandle = controller.focusManager.lastFocusedByWorkspace[targetWsId],
-               let targetNode = engine.findNode(for: targetHandle)
+               let targetNodeId = controller.zigNodeId(for: targetHandle, workspaceId: targetWsId)
             {
-                controller.workspaceManager.setSelection(targetNode.id, for: targetWsId)
+                controller.workspaceManager.setSelection(targetNodeId, for: targetWsId)
             }
         }
 
@@ -236,7 +236,8 @@ final class WorkspaceNavigationHandler {
         var sourceState = controller.workspaceManager.niriViewportState(for: wsId)
 
         guard let currentId = sourceState.selectedNodeId,
-              let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+              let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+              let windowNode = engine.findNode(for: currentHandle),
               let column = engine.findColumn(containing: windowNode, in: wsId)
         else {
             return
@@ -386,13 +387,11 @@ final class WorkspaceNavigationHandler {
 
     func saveNiriViewportState(for workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
-        guard let engine = controller.niriEngine else { return }
-
         if let focused = controller.focusedHandle,
            controller.workspaceManager.workspace(for: focused) == workspaceId,
-           let focusedNode = engine.findNode(for: focused)
+           let focusedNodeId = controller.zigNodeId(for: focused, workspaceId: workspaceId)
         {
-            controller.workspaceManager.setSelection(focusedNode.id, for: workspaceId)
+            controller.workspaceManager.setSelection(focusedNodeId, for: workspaceId)
         }
     }
 
@@ -600,10 +599,10 @@ final class WorkspaceNavigationHandler {
                 controller.workspaceManager.updateNiriViewportState(sourceState, for: sourceWsId)
                 controller.workspaceManager.updateNiriViewportState(targetState, for: targetWsId)
                 if let newFocusId = result.newFocusNodeId,
-                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
+                   let newFocusHandle = controller.zigWindowHandle(for: newFocusId, workspaceId: sourceWsId)
                 {
-                    controller.focusManager.updateWorkspaceFocusMemory(newFocusNode.handle, for: sourceWsId)
-                    newSourceFocusHandle = newFocusNode.handle
+                    controller.focusManager.updateWorkspaceFocusMemory(newFocusHandle, for: sourceWsId)
+                    newSourceFocusHandle = newFocusHandle
                 }
                 movedWithNiri = true
             }
@@ -624,21 +623,23 @@ final class WorkspaceNavigationHandler {
                     )
                 }
 
-                if targetIsDwindle, engine.findNode(for: handle) != nil {
+                if targetIsDwindle,
+                   controller.zigNodeId(for: handle, workspaceId: sourceWsId) != nil
+                {
                     engine.removeWindow(handle: handle)
                 }
 
                 if let selectedId = sourceState.selectedNodeId,
-                   engine.findNode(by: selectedId) == nil
+                   !controller.zigContainsNode(selectedId, workspaceId: sourceWsId)
                 {
                     sourceState.selectedNodeId = engine.validateSelection(selectedId, in: sourceWsId)
                 }
 
                 if let selectedId = sourceState.selectedNodeId,
-                   let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
+                   let selectedHandle = controller.zigWindowHandle(for: selectedId, workspaceId: sourceWsId)
                 {
-                    controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: sourceWsId)
-                    newSourceFocusHandle = selectedNode.handle
+                    controller.focusManager.updateWorkspaceFocusMemory(selectedHandle, for: sourceWsId)
+                    newSourceFocusHandle = selectedHandle
                 }
             }
         } else if sourceIsDwindle,
@@ -764,7 +765,8 @@ final class WorkspaceNavigationHandler {
         var targetState = controller.workspaceManager.niriViewportState(for: targetWsId)
 
         guard let currentId = sourceState.selectedNodeId,
-              let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+              let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+              let windowNode = engine.findNode(for: currentHandle),
               let column = engine.findColumn(containing: windowNode, in: wsId)
         else {
             return

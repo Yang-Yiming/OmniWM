@@ -211,15 +211,18 @@ final class WindowActionHandler {
             }
         }
 
-        if let niriWindow = engine.findNode(for: handle) {
+        if let nodeId = controller.zigNodeId(for: handle, workspaceId: workspaceId) {
             controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-                state.selectedNodeId = niriWindow.id
+                state.selectedNodeId = nodeId
 
-                if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
-                   let colIdx = engine.columnIndex(of: column, in: workspaceId),
+                if let workspaceView = controller.syncZigNiriWorkspace(
+                    workspaceId: workspaceId,
+                    selectedNodeId: nodeId
+                ),
+                   let colIdx = workspaceView.columns.firstIndex(where: { $0.windowIds.contains(nodeId) }),
                    let monitor = controller.workspaceManager.monitor(for: workspaceId)
                 {
-                    engine.activateWindow(niriWindow.id)
+                    engine.activateWindow(nodeId)
 
                     let cols = engine.columns(in: workspaceId)
                     let gap = CGFloat(controller.workspaceManager.gaps)

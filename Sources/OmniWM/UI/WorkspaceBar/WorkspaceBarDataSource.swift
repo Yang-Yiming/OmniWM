@@ -16,6 +16,7 @@ enum WorkspaceBarDataSource {
         workspaceManager: WorkspaceManager,
         appInfoCache: AppInfoCache,
         niriEngine: NiriLayoutEngine?,
+        zigNiriEngine: ZigNiriEngine?,
         focusedHandle: WindowHandle?,
         settings: SettingsStore
     ) -> [WorkspaceBarItem] {
@@ -29,7 +30,13 @@ enum WorkspaceBarDataSource {
 
         return workspaces.map { workspace in
             let entries = workspaceManager.entries(in: workspace.id)
-            let orderMap = orderMap(for: workspace.id, engine: niriEngine)
+            let orderMap = orderMap(
+                for: workspace.id,
+                entries: entries,
+                niriEngine: niriEngine,
+                zigNiriEngine: zigNiriEngine,
+                focusedHandle: focusedHandle
+            )
             let orderedEntries = sortEntries(entries, orderMap: orderMap)
             let useLayoutOrder = !(orderMap?.isEmpty ?? true)
             let windows: [WorkspaceBarWindowItem] = if deduplicate {
@@ -58,12 +65,38 @@ enum WorkspaceBarDataSource {
 
     private static func orderMap(
         for workspaceId: WorkspaceDescriptor.ID,
-        engine: NiriLayoutEngine?
+        entries: [WindowModel.Entry],
+        niriEngine: NiriLayoutEngine?,
+        zigNiriEngine: ZigNiriEngine?,
+        focusedHandle: WindowHandle?
     ) -> [WindowHandle: SortKey]? {
-        guard let engine else { return nil }
+        if let zigNiriEngine {
+            let handles = entries.map(\.handle)
+            _ = zigNiriEngine.syncWindows(
+                handles,
+                in: workspaceId,
+                selectedNodeId: nil,
+                focusedHandle: focusedHandle
+            )
+
+            if let workspaceView = zigNiriEngine.workspaceView(for: workspaceId) {
+                var order: [WindowHandle: SortKey] = [:]
+                for (colIdx, column) in workspaceView.columns.enumerated() {
+                    for (rowIdx, windowId) in column.windowIds.enumerated() {
+                        guard let handle = workspaceView.windowsById[windowId]?.handle else { continue }
+                        order[handle] = SortKey(group: 0, primary: colIdx, secondary: rowIdx)
+                    }
+                }
+                if !order.isEmpty {
+                    return order
+                }
+            }
+        }
+
+        guard let niriEngine else { return nil }
 
         var order: [WindowHandle: SortKey] = [:]
-        let columns = engine.columns(in: workspaceId)
+        let columns = niriEngine.columns(in: workspaceId)
 
         for (colIdx, column) in columns.enumerated() {
             for (rowIdx, window) in column.windowNodes.enumerated() {

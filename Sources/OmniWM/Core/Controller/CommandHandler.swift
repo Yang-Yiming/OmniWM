@@ -279,7 +279,8 @@ final class CommandHandler {
         guard let controller else { return }
         controller.niriLayoutHandler.withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
+                  let windowNode = engine.findNode(for: currentHandle),
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -305,7 +306,11 @@ final class CommandHandler {
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId)
+                  let currentNode = (
+                      controller.zigWindowHandle(for: currentId, workspaceId: wsId)
+                          .flatMap { engine.findNode(for: $0) }
+                          ?? engine.findNode(by: currentId)
+                  )
             else {
                 return
             }
