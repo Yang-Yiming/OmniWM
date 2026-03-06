@@ -188,7 +188,7 @@ enum NiriRuntimeBoundaryError: Error, CustomStringConvertible {
     case missingWorkspaceRoot(workspaceId: WorkspaceDescriptor.ID)
     case missingRuntimeContext(workspaceId: WorkspaceDescriptor.ID)
     case workspaceTargetRequired
-    case projection(NiriLayoutEngine.RuntimeProjectionError)
+    case mirrorSync(workspaceId: WorkspaceDescriptor.ID, error: NiriLayoutEngine.RuntimeMirrorError)
     case runtimeSnapshot(workspaceId: WorkspaceDescriptor.ID, error: NiriStateZigKernel.RuntimeExportDecodeError)
 
     var description: String {
@@ -199,7 +199,7 @@ enum NiriRuntimeBoundaryError: Error, CustomStringConvertible {
             return "runtime boundary missing runtime context for \(workspaceId)"
         case .workspaceTargetRequired:
             return "workspace command requires a target workspace store"
-        case let .projection(error):
+        case let .mirrorSync(_, error):
             return error.description
         case let .runtimeSnapshot(workspaceId, error):
             return "runtime snapshot failed workspace=\(workspaceId): \(error.description)"
@@ -276,15 +276,19 @@ final class NiriRuntimeWorkspaceStore {
         )
 
         if outcome.rc == 0 {
-            switch engine.applyProjectedRuntimeExport(
-                context: context,
+            switch engine.syncRuntimeWorkspaceMirror(
                 workspaceId: workspaceId,
-                delta: outcome.delta
+                ensureWorkspaceRoot: ensureWorkspaceRoot
             ) {
             case .success:
                 break
             case let .failure(error):
-                return .failure(.projection(error))
+                return .failure(
+                    .mirrorSync(
+                        workspaceId: workspaceId,
+                        error: error
+                    )
+                )
             }
         }
 
@@ -573,15 +577,19 @@ final class NiriRuntimeWorkspaceStore {
         )
 
         if outcome.rc == 0, outcome.applied {
-            switch engine.applyProjectedRuntimeExport(
-                context: context,
+            switch engine.syncRuntimeWorkspaceMirror(
                 workspaceId: workspaceId,
-                delta: outcome.delta
+                ensureWorkspaceRoot: ensureWorkspaceRoot
             ) {
             case .success:
                 break
             case let .failure(error):
-                return .failure(.projection(error))
+                return .failure(
+                    .mirrorSync(
+                        workspaceId: workspaceId,
+                        error: error
+                    )
+                )
             }
         }
 
@@ -606,36 +614,32 @@ final class NiriRuntimeWorkspaceStore {
         let request = lifecycleRequest(for: command)
         let outcome = NiriStateZigKernel.applyMutation(
             context: context,
-            request: request.applyRequest
+            request: request
         )
 
         if outcome.rc == 0, outcome.applied {
-            switch request.projectionMode {
-            case .none:
+            var additionalHandlesByWindowId: [NodeId: WindowHandle] = [:]
+            if case let .addWindow(incomingHandle, _, _, _, _) = command {
+                let targetWindowId = outcome.targetWindowId
+                    ?? outcome.delta?.targetWindowId
+                    ?? NodeId(uuid: incomingHandle.id)
+                additionalHandlesByWindowId[targetWindowId] = incomingHandle
+            }
+
+            switch engine.syncRuntimeWorkspaceMirror(
+                workspaceId: workspaceId,
+                ensureWorkspaceRoot: ensureWorkspaceRoot,
+                additionalHandlesByWindowId: additionalHandlesByWindowId
+            ) {
+            case .success:
                 break
-            case .defaultSnapshot:
-                switch engine.applyProjectedRuntimeExport(
-                    context: context,
-                    workspaceId: workspaceId,
-                    delta: outcome.delta
-                ) {
-                case .success:
-                    break
-                case let .failure(error):
-                    return .failure(.projection(error))
-                }
-            case let .lifecycle(incomingHandlesById):
-                switch engine.applyProjectedLifecycleRuntimeExport(
-                    context: context,
-                    workspaceId: workspaceId,
-                    incomingHandlesById: incomingHandlesById,
-                    delta: outcome.delta
-                ) {
-                case .success:
-                    break
-                case let .failure(error):
-                    return .failure(.projection(error))
-                }
+            case let .failure(error):
+                return .failure(
+                    .mirrorSync(
+                        workspaceId: workspaceId,
+                        error: error
+                    )
+                )
             }
         }
 
@@ -669,19 +673,32 @@ final class NiriRuntimeWorkspaceStore {
         )
 
         if outcome.rc == 0, outcome.applied {
-            switch engine.applyProjectedWorkspaceRuntimeExports(
-                sourceContext: sourceContext,
-                sourceWorkspaceId: workspaceId,
-                targetContext: targetContext,
-                targetWorkspaceId: targetStore.workspaceId,
-                sourceDelta: outcome.sourceDelta,
-                targetDelta: outcome.targetDelta,
-                refreshMirrorStateFromExport: false
+            switch engine.syncRuntimeWorkspaceMirror(
+                workspaceId: targetStore.workspaceId,
+                ensureWorkspaceRoot: targetStore.ensureWorkspaceRoot
             ) {
             case .success:
-                break
+                switch engine.syncRuntimeWorkspaceMirror(
+                    workspaceId: workspaceId,
+                    ensureWorkspaceRoot: ensureWorkspaceRoot
+                ) {
+                case .success:
+                    break
+                case let .failure(error):
+                    return .failure(
+                        .mirrorSync(
+                            workspaceId: workspaceId,
+                            error: error
+                        )
+                    )
+                }
             case let .failure(error):
-                return .failure(.projection(error))
+                return .failure(
+                    .mirrorSync(
+                        workspaceId: targetStore.workspaceId,
+                        error: error
+                    )
+                )
             }
         }
 
@@ -698,7 +715,9 @@ final class NiriRuntimeWorkspaceStore {
         )
     }
 
-    func queryView() -> Result<NiriRuntimeWorkspaceView, NiriRuntimeBoundaryError> {
+    func queryView(
+        additionalHandlesByWindowId: [NodeId: WindowHandle] = [:]
+    ) -> Result<NiriRuntimeWorkspaceView, NiriRuntimeBoundaryError> {
         guard let context = prepareContext() else {
             return .failure(.missingRuntimeContext(workspaceId: workspaceId))
         }
@@ -712,11 +731,19 @@ final class NiriRuntimeWorkspaceStore {
         }
 
         var windowHandlesByNodeId: [NodeId: WindowHandle] = [:]
-        if let root = engine.root(for: workspaceId) {
-            windowHandlesByNodeId.reserveCapacity(root.allWindows.count)
-            for window in root.allWindows {
+        windowHandlesByNodeId.reserveCapacity(
+            engine.handleToNode.count + additionalHandlesByWindowId.count
+        )
+        for (handle, node) in engine.handleToNode {
+            windowHandlesByNodeId[node.id] = handle
+        }
+        for root in engine.roots.values {
+            for window in root.allWindows where windowHandlesByNodeId[window.id] == nil {
                 windowHandlesByNodeId[window.id] = window.handle
             }
+        }
+        for (windowId, handle) in additionalHandlesByWindowId {
+            windowHandlesByNodeId[windowId] = handle
         }
 
         var rowByWindowId: [NodeId: Int] = [:]
@@ -835,16 +862,6 @@ final class NiriRuntimeWorkspaceStore {
         )
     }
 
-    private func workspaceColumns() -> [NiriContainer]? {
-        if ensureWorkspaceRoot {
-            return engine.ensureRoot(for: workspaceId).columns
-        }
-        guard let root = engine.root(for: workspaceId) else {
-            return nil
-        }
-        return root.columns
-    }
-
     private typealias RuntimeSnapshotMutationResult = (
         applied: Bool,
         targetWindowId: NodeId?,
@@ -903,10 +920,9 @@ final class NiriRuntimeWorkspaceStore {
             )
         }
 
-        switch engine.applyProjectedRuntimeExport(
-            context: context,
+        switch engine.syncRuntimeWorkspaceMirror(
             workspaceId: workspaceId,
-            refreshMirrorStateFromExport: false
+            ensureWorkspaceRoot: ensureWorkspaceRoot
         ) {
         case .success:
             return .success(
@@ -919,7 +935,12 @@ final class NiriRuntimeWorkspaceStore {
                 )
             )
         case let .failure(error):
-            return .failure(.projection(error))
+            return .failure(
+                .mirrorSync(
+                    workspaceId: workspaceId,
+                    error: error
+                )
+            )
         }
     }
 
@@ -943,13 +964,12 @@ final class NiriRuntimeWorkspaceStore {
     }
 
     private func prepareContext() -> NiriLayoutZigKernel.LayoutContext? {
-        guard let workspaceColumns = workspaceColumns() else {
+        if ensureWorkspaceRoot {
+            _ = engine.ensureRoot(for: workspaceId)
+        } else if engine.root(for: workspaceId) == nil {
             return nil
         }
-        return engine.prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: workspaceColumns)
-        )
+        return engine.ensureLayoutContext(for: workspaceId)
     }
 
     private func navigationRequest(
@@ -1209,67 +1229,44 @@ final class NiriRuntimeWorkspaceStore {
         }
     }
 
-    private enum LifecycleProjectionMode {
-        case none
-        case defaultSnapshot
-        case lifecycle(incomingHandlesById: [UUID: WindowHandle])
-    }
-
-    private typealias LifecycleApplyRequest = (
-        applyRequest: NiriStateZigKernel.MutationApplyRequest,
-        projectionMode: LifecycleProjectionMode
-    )
-
     private func lifecycleRequest(
         for command: NiriRuntimeLifecycleCommand
-    ) -> LifecycleApplyRequest {
+    ) -> NiriStateZigKernel.MutationApplyRequest {
         switch command {
         case let .addWindow(incomingHandle, selectedNodeId, focusedWindowId, createdColumnId, placeholderColumnId):
-            return (
-                applyRequest: .init(
-                    request: NiriStateZigKernel.MutationRequest(
-                        op: .addWindow,
-                        maxVisibleColumns: engine.maxVisibleColumns,
-                        selectedNodeId: selectedNodeId,
-                        focusedWindowId: focusedWindowId
-                    ),
-                    incomingWindowId: incomingHandle.id,
-                    createdColumnId: createdColumnId,
-                    placeholderColumnId: placeholderColumnId
+            return .init(
+                request: NiriStateZigKernel.MutationRequest(
+                    op: .addWindow,
+                    maxVisibleColumns: engine.maxVisibleColumns,
+                    selectedNodeId: selectedNodeId,
+                    focusedWindowId: focusedWindowId
                 ),
-                projectionMode: .lifecycle(incomingHandlesById: [incomingHandle.id: incomingHandle])
+                incomingWindowId: incomingHandle.id,
+                createdColumnId: createdColumnId,
+                placeholderColumnId: placeholderColumnId
             )
         case let .removeWindow(sourceWindowId, placeholderColumnId):
-            return (
-                applyRequest: .init(
-                    request: NiriStateZigKernel.MutationRequest(
-                        op: .removeWindow,
-                        sourceWindowId: sourceWindowId
-                    ),
-                    placeholderColumnId: placeholderColumnId
+            return .init(
+                request: NiriStateZigKernel.MutationRequest(
+                    op: .removeWindow,
+                    sourceWindowId: sourceWindowId
                 ),
-                projectionMode: .defaultSnapshot
+                placeholderColumnId: placeholderColumnId
             )
         case let .validateSelection(selectedNodeId, focusedWindowId):
-            return (
-                applyRequest: .init(
-                    request: NiriStateZigKernel.MutationRequest(
-                        op: .validateSelection,
-                        selectedNodeId: selectedNodeId,
-                        focusedWindowId: focusedWindowId
-                    )
-                ),
-                projectionMode: .none
+            return .init(
+                request: NiriStateZigKernel.MutationRequest(
+                    op: .validateSelection,
+                    selectedNodeId: selectedNodeId,
+                    focusedWindowId: focusedWindowId
+                )
             )
         case let .fallbackSelectionOnRemoval(sourceWindowId):
-            return (
-                applyRequest: .init(
-                    request: NiriStateZigKernel.MutationRequest(
-                        op: .fallbackSelectionOnRemoval,
-                        sourceWindowId: sourceWindowId
-                    )
-                ),
-                projectionMode: .none
+            return .init(
+                request: NiriStateZigKernel.MutationRequest(
+                    op: .fallbackSelectionOnRemoval,
+                    sourceWindowId: sourceWindowId
+                )
             )
         }
     }

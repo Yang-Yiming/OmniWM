@@ -655,6 +655,11 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         XCTAssertEqual(added.windowId, handle.id)
         XCTAssertNotNil(engine.findNode(by: added.id))
+        guard let runtimeView = engine.runtimeWorkspaceView(for: workspace.id) else {
+            XCTFail("Expected runtime workspace view to be available after addWindow")
+            return
+        }
+        XCTAssertNotNil(runtimeView.window(for: added.id))
     }
 
     func testMutationTxnValidateSelectionAcceptsUnknownSelectedNodeId() throws {
@@ -687,6 +692,15 @@ final class NiriTxnIntegrationTests: XCTestCase {
         let targetColumn = NiriContainer()
         root.appendChild(targetColumn)
         targetColumn.appendChild(makeWindow())
+
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: context,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: root.columns)
+            ),
+            Int32(OMNI_OK)
+        )
 
         let store = engine.runtimeStore(for: workspace.id)
         let outcome: NiriRuntimeMutationOutcome
@@ -730,6 +744,15 @@ final class NiriTxnIntegrationTests: XCTestCase {
         engine.handleToNode[secondWindow.handle] = secondWindow
         engine.handleToNode[thirdWindow.handle] = thirdWindow
 
+        let context = try XCTUnwrap(engine.ensureLayoutContext(for: workspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: context,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: root.columns)
+            ),
+            Int32(OMNI_OK)
+        )
+
         let store = engine.runtimeStore(for: workspace.id)
         let view: NiriRuntimeWorkspaceView
         switch store.queryView() {
@@ -758,7 +781,24 @@ final class NiriTxnIntegrationTests: XCTestCase {
         let movingWindow = makeWindow()
         sourceColumn.appendChild(movingWindow)
 
-        _ = engine.ensureRoot(for: targetWorkspace.id)
+        let targetRoot = engine.ensureRoot(for: targetWorkspace.id)
+
+        let sourceContext = try XCTUnwrap(engine.ensureLayoutContext(for: sourceWorkspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: sourceContext,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: sourceRoot.columns)
+            ),
+            Int32(OMNI_OK)
+        )
+        let targetContext = try XCTUnwrap(engine.ensureLayoutContext(for: targetWorkspace.id))
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: targetContext,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: targetRoot.columns)
+            ),
+            Int32(OMNI_OK)
+        )
 
         let sourceStore = engine.runtimeStore(for: sourceWorkspace.id)
         let targetStore = engine.runtimeStore(for: targetWorkspace.id, ensureWorkspaceRoot: true)

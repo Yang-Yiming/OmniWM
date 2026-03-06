@@ -132,7 +132,6 @@ final class NiriLayoutEngine {
     var moveConfiguration = MoveConfiguration.default
     var layoutContexts: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.LayoutContext] = [:]
     var interactionIndexes: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.InteractionIndex] = [:]
-    var runtimeSeededWorkspaces: Set<WorkspaceDescriptor.ID> = []
 
     var windowMovementAnimationConfig: SpringConfig = .balanced.with(
         epsilon: 0.0001,
@@ -206,6 +205,25 @@ final class NiriLayoutEngine {
             return context
         }
         guard let context = NiriLayoutZigKernel.LayoutContext() else { return nil }
+        let bootstrapColumnId = root(for: workspaceId)?.columns.first?.id ?? NodeId()
+        let bootstrapState = NiriStateZigKernel.RuntimeStateExport(
+            columns: [
+                .init(
+                    columnId: bootstrapColumnId,
+                    windowStart: 0,
+                    windowCount: 0,
+                    activeTileIdx: 0,
+                    isTabbed: false,
+                    sizeValue: 1.0
+                ),
+            ],
+            windows: []
+        )
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: bootstrapState
+        )
+        guard seedRC == 0 else { return nil }
         layoutContexts[workspaceId] = context
         return context
     }
@@ -222,23 +240,9 @@ final class NiriLayoutEngine {
         return (context, index)
     }
 
-    @discardableResult
-    func syncRuntimeStateNow(workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let context = ensureLayoutContext(for: workspaceId) else { return false }
-
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        let rc = NiriStateZigKernel.seedRuntimeState(
-            context: context,
-            snapshot: snapshot
-        )
-        guard rc == 0 else { return false }
-
-        runtimeSeededWorkspaces.insert(workspaceId)
-        return true
-    }
-
     func clearRuntimeMirrorState(for workspaceId: WorkspaceDescriptor.ID) {
-        runtimeSeededWorkspaces.remove(workspaceId)
+        layoutContexts.removeValue(forKey: workspaceId)
+        interactionIndexes.removeValue(forKey: workspaceId)
     }
 
     func wrapIndex(_ idx: Int, total: Int) -> Int? {

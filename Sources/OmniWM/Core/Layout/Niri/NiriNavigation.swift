@@ -3,100 +3,8 @@ import CZigLayout
 import Foundation
 
 extension NiriLayoutEngine {
-    private func navigationSelectionIds(
-        for node: NiriNode,
-        snapshot: NiriStateZigKernel.Snapshot
-    ) -> (sourceWindowId: NodeId?, sourceColumnId: NodeId?)? {
-        if let windowIndex = snapshot.windowIndexByNodeId[node.id],
-           snapshot.windowEntries.indices.contains(windowIndex)
-        {
-            let entry = snapshot.windowEntries[windowIndex]
-            return (sourceWindowId: entry.window.id, sourceColumnId: entry.column.id)
-        }
-
-        guard let columnIndex = snapshot.columnIndexByNodeId[node.id],
-              snapshot.columnEntries.indices.contains(columnIndex)
-        else {
-            return nil
-        }
-
-        let columnEntry = snapshot.columnEntries[columnIndex]
-        guard columnEntry.windowCount > 0 else { return nil }
-        return (sourceWindowId: nil, sourceColumnId: columnEntry.column.id)
-    }
-
-    private func column(
-        for columnId: NodeId,
-        snapshot: NiriStateZigKernel.Snapshot
-    ) -> NiriContainer? {
-        snapshot.columnEntries.first(where: { $0.column.id == columnId })?.column
-    }
-
-    private func applyNavigationResultSideEffects(
-        snapshot: NiriStateZigKernel.Snapshot,
-        outcome: NiriStateZigKernel.NavigationApplyOutcome
-    ) {
-        if let sourceUpdate = outcome.sourceActiveTileUpdate,
-           let column = column(for: sourceUpdate.columnId, snapshot: snapshot)
-        {
-            column.setActiveTileIdx(sourceUpdate.activeTileIdx)
-        }
-
-        if let targetUpdate = outcome.targetActiveTileUpdate,
-           let column = column(for: targetUpdate.columnId, snapshot: snapshot)
-        {
-            column.setActiveTileIdx(targetUpdate.activeTileIdx)
-        }
-
-        for columnId in navigationRefreshColumnIds(
-            sourceColumnId: outcome.refreshSourceColumnId,
-            targetColumnId: outcome.refreshTargetColumnId
-        ) {
-            guard let column = column(for: columnId, snapshot: snapshot) else { continue }
-            updateTabbedColumnVisibility(column: column)
-        }
-    }
-
-    private func resolveNavigationTargetWithTransientRuntime(
-        snapshot: NiriStateZigKernel.Snapshot,
-        request: NiriStateZigKernel.NavigationRequest
-    ) -> NiriNode? {
-        guard let context = NiriLayoutZigKernel.LayoutContext() else {
-            return nil
-        }
-
-        let seedRC = NiriStateZigKernel.seedRuntimeState(
-            context: context,
-            snapshot: snapshot
-        )
-        guard seedRC == OMNI_OK else {
-            return nil
-        }
-
-        let outcome = NiriStateZigKernel.applyNavigation(
-            context: context,
-            request: .init(
-                request: request
-            )
-        )
-        guard outcome.rc == OMNI_OK else {
-            return nil
-        }
-
-        applyNavigationResultSideEffects(
-            snapshot: snapshot,
-            outcome: outcome
-        )
-
-        guard let targetWindowId = outcome.targetWindowId else {
-            return nil
-        }
-        return snapshot.windowEntries.first(where: { $0.window.id == targetWindowId })?.window
-    }
-
     private func resolveNavigationTargetNode(
-        snapshot: NiriStateZigKernel.Snapshot,
-        workspaceId: WorkspaceDescriptor.ID?,
+        workspaceId: WorkspaceDescriptor.ID,
         op: NiriStateZigKernel.NavigationOp,
         currentSelection: NiriNode,
         direction: Direction? = nil,
@@ -107,28 +15,10 @@ extension NiriLayoutEngine {
         focusWindowIndex: Int = -1,
         allowMissingSelection: Bool = false
     ) -> NiriNode? {
-        let selectionAnchor: NiriRuntimeSelectionAnchor?
-        if let workspaceId {
-            selectionAnchor = runtimeSelectionAnchor(
-                selectedNodeId: currentSelection.id,
-                workspaceId: workspaceId
-            )
-        } else {
-            let selection = navigationSelectionIds(
-                for: currentSelection,
-                snapshot: snapshot
-            )
-            if let sourceWindowId = selection?.sourceWindowId {
-                selectionAnchor = .window(
-                    windowId: sourceWindowId,
-                    columnId: selection?.sourceColumnId
-                )
-            } else if let sourceColumnId = selection?.sourceColumnId {
-                selectionAnchor = .column(columnId: sourceColumnId)
-            } else {
-                selectionAnchor = nil
-            }
-        }
+        let selectionAnchor = runtimeSelectionAnchor(
+            selectedNodeId: currentSelection.id,
+            workspaceId: workspaceId
+        )
         if selectionAnchor == nil, !allowMissingSelection {
             return nil
         }
@@ -207,25 +97,6 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        guard let workspaceId else {
-            let request = NiriStateZigKernel.NavigationRequest(
-                op: op,
-                sourceWindowId: selectionAnchor?.sourceWindowId,
-                sourceColumnId: selectionAnchor?.sourceColumnId,
-                direction: direction,
-                orientation: orientation,
-                infiniteLoop: infiniteLoop,
-                step: step,
-                targetRowIndex: targetRowIndex,
-                focusColumnIndex: focusColumnIndex,
-                focusWindowIndex: focusWindowIndex
-            )
-            return resolveNavigationTargetWithTransientRuntime(
-                snapshot: snapshot,
-                request: request
-            )
-        }
-
         let runtimeStore = runtimeStore(for: workspaceId)
         let outcome: NiriRuntimeNavigationOutcome
         switch runtimeStore.executeNavigation(command) {
@@ -266,7 +137,6 @@ extension NiriLayoutEngine {
         }
 
         return resolveNavigationTargetNode(
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: []),
             workspaceId: workspaceId,
             op: op,
             currentSelection: currentSelection,
@@ -378,24 +248,16 @@ extension NiriLayoutEngine {
     ) -> NiriNode? {
         guard let step = direction.secondaryStep(for: orientation) else { return nil }
 
-        guard let container = column(of: currentSelection) else {
+        guard column(of: currentSelection) != nil else {
             return step > 0 ? currentSelection.nextSibling() : currentSelection.prevSibling()
         }
 
-        if let resolvedWorkspaceId = workspaceId ?? currentSelection.findRoot()?.workspaceId {
-            return resolveWorkspaceNavigationTargetNode(
-                workspaceId: resolvedWorkspaceId,
-                op: .moveVertical,
-                currentSelection: currentSelection,
-                direction: direction,
-                orientation: orientation
-            )
+        guard let resolvedWorkspaceId = workspaceId ?? currentSelection.findRoot()?.workspaceId else {
+            return step > 0 ? currentSelection.nextSibling() : currentSelection.prevSibling()
         }
 
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: [container])
-        return resolveNavigationTargetNode(
-            snapshot: snapshot,
-            workspaceId: nil,
+        return resolveWorkspaceNavigationTargetNode(
+            workspaceId: resolvedWorkspaceId,
             op: .moveVertical,
             currentSelection: currentSelection,
             direction: direction,
@@ -416,6 +278,25 @@ extension NiriLayoutEngine {
     ) {
         let containers = columns(in: workspaceId)
         guard !containers.isEmpty else { return }
+
+        for container in containers {
+            switch orientation {
+            case .horizontal:
+                if container.cachedWidth <= 0 {
+                    container.resolveAndCacheWidth(
+                        workingAreaWidth: workingFrame.width,
+                        gaps: gaps
+                    )
+                }
+            case .vertical:
+                if container.cachedHeight <= 0 {
+                    container.resolveAndCacheHeight(
+                        workingAreaHeight: workingFrame.height,
+                        gaps: gaps
+                    )
+                }
+            }
+        }
 
         guard let container = column(of: node),
               let targetIdx = columnIndex(of: container, in: workspaceId)
