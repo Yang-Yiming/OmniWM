@@ -61,7 +61,7 @@ let package = Package(
         ),
         .testTarget(
             name: "OmniWMBenchmarkTests",
-            dependencies: ["OmniWM"],
+            dependencies: ["OmniWM", "CZigLayout"],
             path: "Tests/OmniWMBenchmarkTests",
             resources: [
                 .process("Fixtures")

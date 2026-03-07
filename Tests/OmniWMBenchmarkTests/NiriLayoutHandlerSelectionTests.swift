@@ -5,6 +5,24 @@ import XCTest
 
 @MainActor
 final class NiriLayoutHandlerSelectionTests: XCTestCase {
+    func testBorderUpdateModeUsesCoalescedForAnimationTicks() {
+        XCTAssertEqual(
+            NiriLayoutHandler.borderUpdateMode(for: 123.0),
+            .coalesced
+        )
+        XCTAssertEqual(
+            NiriLayoutHandler.borderUpdateMode(for: nil),
+            .coalesced
+        )
+    }
+
+    func testDwindleActiveAnimationUsesCoalescedBorderMode() {
+        XCTAssertEqual(
+            DwindleLayoutHandler.activeAnimationBorderUpdateMode,
+            .coalesced
+        )
+    }
+
     func testResolveActionableWindowIdPrefersFocusedWindowInSelectedColumn() {
         let columnId = NodeId()
         let firstWindowId = NodeId()

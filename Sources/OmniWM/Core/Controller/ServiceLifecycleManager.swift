@@ -41,6 +41,7 @@ final class ServiceLifecycleManager {
     private func startServices() {
         guard let controller, !controller.hasStartedServices else { return }
         controller.hasStartedServices = true
+        controller.resetBorderRuntimeHealth()
         controller.layoutRefreshController.setup()
         controller.axEventHandler.setup()
         if controller.hotkeysEnabled {
@@ -167,7 +168,7 @@ final class ServiceLifecycleManager {
         guard let controller else { return }
         // Invalidate border cache so it gets fully recomputed after monitor change
         // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
-        controller.borderManager.hideBorder()
+        controller.invalidateBorderDisplays()
         let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
@@ -253,7 +254,7 @@ final class ServiceLifecycleManager {
             queue: .main
         ) { [weak controller] _ in
             Task { @MainActor in
-                controller?.borderManager.hideBorder()
+                controller?.refreshBorderPresentation(forceHide: true)
                 controller?.layoutRefreshController.refreshWindowsAndLayout()
             }
         }
@@ -322,7 +323,7 @@ final class ServiceLifecycleManager {
         controller.axEventHandler.cleanup()
 
         controller.tabbedOverlayManager.removeAll()
-        controller.borderManager.cleanup()
+        controller.cleanupBorderRuntime()
         controller.cleanupUIOnStop()
 
         controller.axManager.cleanup()

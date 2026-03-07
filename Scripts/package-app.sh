@@ -8,6 +8,44 @@ CONFIG_CAPITALIZED="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIG:0:1}")${CONFIG:1}
 BUILD_DIR="$ROOT_DIR/.build/apple/Products/$CONFIG_CAPITALIZED"
 EXECUTABLE="$BUILD_DIR/OmniWM"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
+REQUIRED_SYMBOLS=(
+  "omni_niri_ctx_apply_txn"
+  "omni_niri_ctx_export_delta"
+  "omni_border_runtime_create"
+  "omni_border_runtime_destroy"
+  "omni_border_runtime_apply_config"
+  "omni_border_runtime_apply_presentation"
+  "omni_border_runtime_submit_snapshot"
+  "omni_border_runtime_invalidate_displays"
+  "omni_border_runtime_hide"
+)
+
+verify_required_symbols() {
+  local artifact="$1"
+  local label="$2"
+  local symbol_names
+
+  symbol_names="$(nm "${artifact}" 2>/dev/null | awk '{ name = $NF; sub(/^_/, "", name); print name }')"
+  if [[ -z "${symbol_names}" ]]; then
+    echo "error: unable to inspect symbols in ${artifact}" >&2
+    exit 1
+  fi
+
+  local missing=0
+  local symbol
+  for symbol in "${REQUIRED_SYMBOLS[@]}"; do
+    if ! grep -Fxq "${symbol}" <<< "${symbol_names}"; then
+      echo "error: missing required symbol '${symbol}' in ${label} (${artifact})" >&2
+      missing=1
+    fi
+  done
+
+  if [[ "${missing}" -ne 0 ]]; then
+    exit 1
+  fi
+
+  echo "Verified ${label} exports required layout and border symbols."
+}
 
 # Signing identity and notarization profile
 SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
@@ -18,11 +56,18 @@ echo "Building Zig static library (universal arm64 + x86_64)..."
 unset ZIG_TARGET
 "$ROOT_DIR/build-zig.sh"
 
+ZIG_LIB="$ROOT_DIR/.build/zig/libomni_layout.a"
+if [[ -f "$ZIG_LIB" ]]; then
+  verify_required_symbols "$ZIG_LIB" "Zig archive"
+fi
+
 echo "Building OmniWM universal binary ($CONFIG)..."
 swift build -c "$CONFIG" --arch arm64 --arch x86_64
 
 echo "Verifying universal binary..."
 lipo -info "$EXECUTABLE"
+
+verify_required_symbols "$EXECUTABLE" "App binary"
 
 echo "Packaging $APP_DIR"
 rm -rf "$APP_DIR"

@@ -208,7 +208,7 @@ final class CommandHandler {
         _ = AXWindowService.setNativeFullscreen(entry.axRef, fullscreen: newState)
 
         if newState {
-            controller.borderManager.hideBorder()
+            controller.refreshBorderPresentation(forceHide: true)
         }
     }
 

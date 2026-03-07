@@ -68,6 +68,6 @@ struct BorderSettingsTab: View {
     }
 
     private func syncBorderConfig() {
-        controller.updateBorderConfig(BorderConfig.from(settings: settings))
+        controller.updateBorderConfig()
     }
 }

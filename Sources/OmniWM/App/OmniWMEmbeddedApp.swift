@@ -44,8 +44,7 @@ struct OmniWMEmbeddedApp: App {
 
         controller.setEnabled(true)
 
-        controller.setBordersEnabled(settings.bordersEnabled)
-        controller.updateBorderConfig(BorderConfig.from(settings: settings))
+        controller.syncBorderConfigFromSettings()
 
         controller.setFocusFollowsMouse(settings.focusFollowsMouse)
         controller.setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)

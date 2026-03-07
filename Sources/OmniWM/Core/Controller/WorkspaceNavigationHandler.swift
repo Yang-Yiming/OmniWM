@@ -277,7 +277,7 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspace(index: Int) {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.refreshBorderPresentation(forceHide: true)
 
         let targetName = String(max(0, index) + 1)
         if let currentWorkspace = controller.activeWorkspace(),
@@ -321,7 +321,7 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.refreshBorderPresentation(forceHide: true)
 
         guard let currentMonitorId = controller.activeMonitorId ?? controller.monitorForInteraction()?.id
         else { return }
@@ -426,7 +426,7 @@ final class WorkspaceNavigationHandler {
 
     func focusWorkspaceAnywhere(index: Int) {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.refreshBorderPresentation(forceHide: true)
 
         let targetName = String(max(0, index) + 1)
 
@@ -479,7 +479,7 @@ final class WorkspaceNavigationHandler {
 
     func workspaceBackAndForth() {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.refreshBorderPresentation(forceHide: true)
 
         guard let currentMonitorId = controller.activeMonitorId ?? controller.monitorForInteraction()?.id
         else { return }

@@ -1,5 +1,29 @@
 import AppKit
+import CZigLayout
 import Foundation
+
+final class BorderRuntimeStorage {
+    private var rawValue: UInt?
+
+    var runtime: OpaquePointer? {
+        guard let rawValue else { return nil }
+        return OpaquePointer(bitPattern: rawValue)
+    }
+
+    func store(_ runtime: OpaquePointer) {
+        rawValue = UInt(bitPattern: runtime)
+    }
+
+    func destroy() {
+        guard let runtime else { return }
+        omni_border_runtime_destroy(runtime)
+        rawValue = nil
+    }
+
+    deinit {
+        destroy()
+    }
+}
 
 @MainActor @Observable
 final class WMController {
@@ -38,7 +62,25 @@ final class WMController {
 
     let tabbedOverlayManager = TabbedColumnOverlayManager()
     @ObservationIgnored
-    lazy var borderManager: BorderManager = .init()
+    let borderRuntimeStorage = BorderRuntimeStorage()
+    @ObservationIgnored
+    var borderRuntime: OpaquePointer? {
+        borderRuntimeStorage.runtime
+    }
+    @ObservationIgnored
+    var borderRuntimeDegraded: Bool = false
+    @ObservationIgnored
+    var borderRuntimeFailureCount: Int = 0
+    @ObservationIgnored
+    var borderRuntimePlatformFailureStreak: Int = 0
+    @ObservationIgnored
+    var borderRuntimeRetryNotBefore: TimeInterval = 0
+    @ObservationIgnored
+    var borderDisplayCache: [OmniBorderDisplayInfo] = []
+    @ObservationIgnored
+    var borderDisplayCacheValid: Bool = false
+    @ObservationIgnored
+    let borderRuntimeFactory: () -> OpaquePointer?
     @ObservationIgnored
     private lazy var workspaceBarManager: WorkspaceBarManager = .init()
     @ObservationIgnored
@@ -71,14 +113,16 @@ final class WMController {
     private(set) lazy var windowActionHandler = WindowActionHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var focusNotificationDispatcher = FocusNotificationDispatcher(controller: self)
-    @ObservationIgnored
-    private(set) lazy var borderCoordinator = BorderCoordinator(controller: self)
     var hasStartedServices = false
 
     let animationClock = AnimationClock()
 
-    init(settings: SettingsStore) {
+    init(
+        settings: SettingsStore,
+        createBorderRuntime: @escaping () -> OpaquePointer? = { omni_border_runtime_create() }
+    ) {
         self.settings = settings
+        borderRuntimeFactory = createBorderRuntime
         workspaceManager = WorkspaceManager(settings: settings)
         workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
@@ -115,11 +159,15 @@ final class WMController {
     }
 
     func setBordersEnabled(_ enabled: Bool) {
-        borderManager.setEnabled(enabled)
+        settings.bordersEnabled = enabled
+        if enabled {
+            resetBorderRuntimeHealth()
+        }
+        refreshBorderPresentation(forceHide: !enabled)
     }
 
-    func updateBorderConfig(_ config: BorderConfig) {
-        borderManager.updateConfig(config)
+    func updateBorderConfig() {
+        refreshBorderPresentation()
     }
 
     func setWorkspaceBarEnabled(_ enabled: Bool) {
@@ -578,9 +626,9 @@ extension WMController {
                        let nodeId = self.zigNiriEngine?.nodeId(for: handle),
                        let frame = workspaceView.windowsById[nodeId]?.frame
                     {
-                        self.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                        self.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
                     } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                        self.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                        self.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
                     }
                 }
             },

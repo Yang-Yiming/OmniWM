@@ -138,14 +138,20 @@ final class NiriLayoutHandler {
         }
 
         controller.axManager.applyFramesParallel(frameUpdates)
-        updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: animationTime != nil)
+        let updateMode = Self.borderUpdateMode(for: animationTime)
+        updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, updateMode: updateMode)
         return layoutResult.isAnimating
+    }
+
+    static func borderUpdateMode(for animationTime: TimeInterval?) -> BorderPresentationUpdateMode {
+        _ = animationTime
+        return .coalesced
     }
 
     private func updateBorderDuringLayout(
         frames: [WindowHandle: CGRect],
         hiddenHandles: [WindowHandle: HideSide],
-        direct: Bool
+        updateMode: BorderPresentationUpdateMode
     ) {
         guard let controller,
               let focusedHandle = controller.focusedHandle
@@ -154,7 +160,7 @@ final class NiriLayoutHandler {
         }
 
         if hiddenHandles[focusedHandle] != nil {
-            controller.borderManager.hideBorder()
+            controller.refreshBorderPresentation(forceHide: true, updateMode: updateMode)
             return
         }
 
@@ -164,11 +170,11 @@ final class NiriLayoutHandler {
             return
         }
 
-        if direct {
-            controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
-        } else {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-        }
+        controller.refreshBorderPresentation(
+            focusedFrame: frame,
+            windowId: entry.windowId,
+            updateMode: updateMode
+        )
     }
 
     private func finalizeAnimation(for workspaceId: WorkspaceDescriptor.ID) {
@@ -180,7 +186,7 @@ final class NiriLayoutHandler {
            let nodeId = controller.zigNodeId(for: focusedHandle),
            let frame = workspaceView.windowsById[nodeId]?.frame
         {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+            controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
         }
 
         if controller.moveMouseToFocusedWindowEnabled,

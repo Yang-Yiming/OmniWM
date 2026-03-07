@@ -90,8 +90,12 @@ final class AXEventHandler: CGSEventDelegate {
               entry.windowId == Int(windowId)
         else { return }
 
+        if controller.isLayoutAnimationActive(for: entry.workspaceId) {
+            return
+        }
+
         if let frame = try? AXWindowService.frame(entry.axRef) {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: Int(windowId))
+            controller.refreshBorderPresentation(focusedFrame: frame, windowId: Int(windowId))
         }
     }
 
@@ -243,9 +247,9 @@ final class AXEventHandler: CGSEventDelegate {
            let entry = controller.workspaceManager.entry(for: focused),
            let frame = try? AXWindowService.frame(entry.axRef)
         {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: focused, frame: frame, windowId: entry.windowId)
+            controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
         } else {
-            controller.borderManager.hideBorder()
+            controller.refreshBorderPresentation(forceHide: true)
         }
     }
 
@@ -257,16 +261,17 @@ final class AXEventHandler: CGSEventDelegate {
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
 
         guard result == .success, let windowElement = focusedWindow else {
-            controller.focusManager.setNonManagedFocus(active: true)
-            controller.focusManager.setAppFullscreen(active: false)
-            controller.borderManager.hideBorder()
+            markNonManagedFocusAndHideBorder()
             return
         }
 
-        guard let axRef = try? AXWindowRef(element: windowElement as! AXUIElement) else {
-            controller.focusManager.setNonManagedFocus(active: true)
-            controller.focusManager.setAppFullscreen(active: false)
-            controller.borderManager.hideBorder()
+        guard CFGetTypeID(windowElement) == AXUIElementGetTypeID() else {
+            markNonManagedFocusAndHideBorder()
+            return
+        }
+        let axElement = unsafeDowncast(windowElement, to: AXUIElement.self)
+        guard let axRef = try? AXWindowRef(element: axElement) else {
+            markNonManagedFocusAndHideBorder()
             return
         }
         let winId = axRef.windowId
@@ -310,10 +315,10 @@ final class AXEventHandler: CGSEventDelegate {
                     controller.layoutRefreshController.executeLayoutRefreshImmediate()
                 }
                 if let frame = try? AXWindowService.frame(entry.axRef) {
-                    controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
                 }
             } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
             }
             controller.niriLayoutHandler.updateTabbedColumnOverlays()
             if !isWorkspaceActive {
@@ -325,7 +330,14 @@ final class AXEventHandler: CGSEventDelegate {
 
         controller.focusManager.setNonManagedFocus(active: true)
         controller.focusManager.setAppFullscreen(active: false)
-        controller.borderManager.hideBorder()
+        controller.refreshBorderPresentation(forceHide: true)
+    }
+
+    private func markNonManagedFocusAndHideBorder() {
+        guard let controller else { return }
+        controller.focusManager.setNonManagedFocus(active: true)
+        controller.focusManager.setAppFullscreen(active: false)
+        controller.refreshBorderPresentation(forceHide: true)
     }
 
     func handleAppHidden(pid: pid_t) {

@@ -4,6 +4,7 @@
 
 typedef struct OmniNiriLayoutContext OmniNiriLayoutContext;
 typedef struct OmniNiriRuntime OmniNiriRuntime;
+typedef struct OmniBorderRuntime OmniBorderRuntime;
 typedef struct OmniDwindleLayoutContext OmniDwindleLayoutContext;
 
 /// Input descriptor for one window on a single axis.
@@ -96,6 +97,73 @@ typedef struct {
     uint8_t is_gesture;
     uint8_t is_animating;
 } OmniNiriRuntimeViewportStatus;
+
+typedef struct {
+    double red;
+    double green;
+    double blue;
+    double alpha;
+} OmniBorderColor;
+
+typedef struct {
+    uint8_t enabled;
+    double width;
+    OmniBorderColor color;
+} OmniBorderConfig;
+
+typedef struct {
+    double x;
+    double y;
+    double width;
+    double height;
+} OmniBorderRect;
+
+typedef struct {
+    uint32_t display_id;
+    OmniBorderRect appkit_frame;
+    OmniBorderRect window_server_frame;
+    double backing_scale;
+} OmniBorderDisplayInfo;
+
+typedef struct {
+    OmniBorderConfig config;
+    uint8_t has_focused_window_id;
+    int64_t focused_window_id;
+    uint8_t has_focused_frame;
+    OmniBorderRect focused_frame;
+    uint8_t is_focused_window_in_active_workspace;
+    uint8_t is_non_managed_focus_active;
+    uint8_t is_native_fullscreen_active;
+    uint8_t is_managed_fullscreen_active;
+    uint8_t defer_updates;
+    uint8_t update_mode;
+    uint8_t layout_animation_active;
+    const OmniBorderDisplayInfo *displays;
+    size_t display_count;
+} OmniBorderPresentationInput;
+
+typedef struct {
+    OmniBorderConfig config;
+    uint8_t has_focused_window_id;
+    int64_t focused_window_id;
+    uint8_t has_focused_frame;
+    OmniBorderRect focused_frame;
+    uint8_t is_focused_window_in_active_workspace;
+    uint8_t is_non_managed_focus_active;
+    uint8_t is_native_fullscreen_active;
+    uint8_t is_managed_fullscreen_active;
+    uint8_t defer_updates;
+    uint8_t update_mode;
+    uint8_t layout_animation_active;
+    uint8_t force_hide;
+    const OmniBorderDisplayInfo *displays;
+    size_t display_count;
+} OmniBorderSnapshotInput;
+
+typedef enum {
+    OMNI_BORDER_UPDATE_MODE_COALESCED = 0,
+    OMNI_BORDER_UPDATE_MODE_REALTIME = 1
+} OmniBorderUpdateMode;
 
 typedef enum {
     OMNI_NIRI_ORIENTATION_HORIZONTAL = 0,
@@ -254,7 +322,8 @@ typedef struct {
 enum {
     OMNI_OK = 0,
     OMNI_ERR_INVALID_ARGS = -1,
-    OMNI_ERR_OUT_OF_RANGE = -2
+    OMNI_ERR_OUT_OF_RANGE = -2,
+    OMNI_ERR_PLATFORM = -3
 };
 
 /// Compute viewport offset needed to reveal a target container index.
@@ -1046,8 +1115,44 @@ int32_t omni_niri_ctx_export_delta(
 /// Returns NULL on allocation failure.
 OmniNiriRuntime *omni_niri_runtime_create(void);
 
+/// Create a border runtime owner for focused-window presentation.
+/// Returns NULL on allocation failure or missing platform symbols.
+OmniBorderRuntime *omni_border_runtime_create(void);
+
 /// Destroy a runtime owner.
 void omni_niri_runtime_destroy(OmniNiriRuntime *runtime);
+
+/// Destroy a border runtime owner.
+void omni_border_runtime_destroy(OmniBorderRuntime *runtime);
+
+/// Synchronize border config into the runtime.
+/// Returns 0 on success, -1 for invalid args, -3 for platform failures.
+int32_t omni_border_runtime_apply_config(
+    OmniBorderRuntime *runtime,
+    const OmniBorderConfig *config);
+
+/// Compatibility wrapper for legacy callers.
+/// Prefer omni_border_runtime_submit_snapshot for all new integrations.
+/// Returns 0 on success, -1 for invalid args, -3 for platform failures.
+int32_t omni_border_runtime_apply_presentation(
+    OmniBorderRuntime *runtime,
+    const OmniBorderPresentationInput *input);
+
+/// Submit a complete border snapshot (config + presentation flags + displays).
+/// Returns 0 on success, -1 for invalid args, -3 for platform failures.
+int32_t omni_border_runtime_submit_snapshot(
+    OmniBorderRuntime *runtime,
+    const OmniBorderSnapshotInput *snapshot);
+
+/// Clear cached display transforms and hide any visible border.
+/// Returns 0 on success, -1 for invalid args, -3 for platform failures.
+int32_t omni_border_runtime_invalidate_displays(
+    OmniBorderRuntime *runtime);
+
+/// Hide any visible border.
+/// Returns 0 on success, -1 for invalid args, -3 for platform failures.
+int32_t omni_border_runtime_hide(
+    OmniBorderRuntime *runtime);
 
 /// Seed authoritative runtime state.
 /// Returns 0 on success, -1 for invalid args, -2 for capacity/range failures.

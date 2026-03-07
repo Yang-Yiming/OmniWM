@@ -76,6 +76,68 @@ pub const OmniNiriRuntimeViewportStatus = extern struct {
     is_animating: u8,
 };
 
+pub const OmniBorderColor = extern struct {
+    red: f64,
+    green: f64,
+    blue: f64,
+    alpha: f64,
+};
+
+pub const OmniBorderConfig = extern struct {
+    enabled: u8,
+    width: f64,
+    color: OmniBorderColor,
+};
+
+pub const OmniBorderRect = extern struct {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+};
+
+pub const OmniBorderDisplayInfo = extern struct {
+    display_id: u32,
+    appkit_frame: OmniBorderRect,
+    window_server_frame: OmniBorderRect,
+    backing_scale: f64,
+};
+
+pub const OmniBorderPresentationInput = extern struct {
+    config: OmniBorderConfig,
+    has_focused_window_id: u8,
+    focused_window_id: i64,
+    has_focused_frame: u8,
+    focused_frame: OmniBorderRect,
+    is_focused_window_in_active_workspace: u8,
+    is_non_managed_focus_active: u8,
+    is_native_fullscreen_active: u8,
+    is_managed_fullscreen_active: u8,
+    defer_updates: u8,
+    update_mode: u8,
+    layout_animation_active: u8,
+    displays: [*c]const OmniBorderDisplayInfo,
+    display_count: usize,
+};
+
+pub const OmniBorderSnapshotInput = extern struct {
+    config: OmniBorderConfig,
+    has_focused_window_id: u8,
+    focused_window_id: i64,
+    has_focused_frame: u8,
+    focused_frame: OmniBorderRect,
+    is_focused_window_in_active_workspace: u8,
+    is_non_managed_focus_active: u8,
+    is_native_fullscreen_active: u8,
+    is_managed_fullscreen_active: u8,
+    defer_updates: u8,
+    update_mode: u8,
+    layout_animation_active: u8,
+    force_hide: u8,
+    displays: [*c]const OmniBorderDisplayInfo,
+    display_count: usize,
+};
+
 pub const OmniNiriColumnInput = extern struct {
     span: f64,
     render_offset_x: f64,
@@ -778,6 +840,10 @@ pub const MAX_WINDOWS: usize = 512;
 pub const OMNI_OK: i32 = 0;
 pub const OMNI_ERR_INVALID_ARGS: i32 = -1;
 pub const OMNI_ERR_OUT_OF_RANGE: i32 = -2;
+pub const OMNI_ERR_PLATFORM: i32 = -3;
+
+pub const OMNI_BORDER_UPDATE_MODE_COALESCED: u8 = 0;
+pub const OMNI_BORDER_UPDATE_MODE_REALTIME: u8 = 1;
 
 pub const OMNI_CENTER_NEVER: u8 = 0;
 pub const OMNI_CENTER_ALWAYS: u8 = 1;

@@ -16,6 +16,7 @@ const layout_context = @import("omni/layout_context.zig");
 const runtime = @import("omni/runtime.zig");
 const viewport = @import("omni/viewport.zig");
 const dwindle = @import("omni/dwindle.zig");
+const border = @import("omni/border.zig");
 
 /// Validate a Niri state snapshot for bounds, ownership, and assignment consistency.
 ///
@@ -41,9 +42,54 @@ export fn omni_niri_layout_context_create() [*c]layout_context.OmniNiriLayoutCon
     return layout_context.omni_niri_layout_context_create_impl();
 }
 
+/// Create a reusable border runtime owner.
+export fn omni_border_runtime_create() [*c]border.OmniBorderRuntime {
+    return border.omni_border_runtime_create_impl();
+}
+
 /// Destroy a reusable Niri layout context.
 export fn omni_niri_layout_context_destroy(context: [*c]layout_context.OmniNiriLayoutContext) void {
     layout_context.omni_niri_layout_context_destroy_impl(context);
+}
+
+/// Destroy a reusable border runtime owner.
+export fn omni_border_runtime_destroy(runtime_owner: [*c]border.OmniBorderRuntime) void {
+    border.omni_border_runtime_destroy_impl(runtime_owner);
+}
+
+/// Synchronize border config into the runtime owner.
+export fn omni_border_runtime_apply_config(
+    runtime_owner: [*c]border.OmniBorderRuntime,
+    config: [*c]const abi.OmniBorderConfig,
+) i32 {
+    return border.omni_border_runtime_apply_config_impl(runtime_owner, config);
+}
+
+/// Compatibility wrapper for legacy callers.
+/// Prefer `omni_border_runtime_submit_snapshot` for all new integrations.
+export fn omni_border_runtime_apply_presentation(
+    runtime_owner: [*c]border.OmniBorderRuntime,
+    input: [*c]const abi.OmniBorderPresentationInput,
+) i32 {
+    return border.omni_border_runtime_apply_presentation_impl(runtime_owner, input);
+}
+
+/// Submit a full border snapshot (config + presentation flags + display payload).
+export fn omni_border_runtime_submit_snapshot(
+    runtime_owner: [*c]border.OmniBorderRuntime,
+    snapshot: [*c]const abi.OmniBorderSnapshotInput,
+) i32 {
+    return border.omni_border_runtime_submit_snapshot_impl(runtime_owner, snapshot);
+}
+
+/// Invalidate cached display geometry and hide the current border.
+export fn omni_border_runtime_invalidate_displays(runtime_owner: [*c]border.OmniBorderRuntime) i32 {
+    return border.omni_border_runtime_invalidate_displays_impl(runtime_owner);
+}
+
+/// Hide the current border without destroying the runtime.
+export fn omni_border_runtime_hide(runtime_owner: [*c]border.OmniBorderRuntime) i32 {
+    return border.omni_border_runtime_hide_impl(runtime_owner);
 }
 
 /// Seed context interaction buffers directly (primarily for tests and parity harnesses).

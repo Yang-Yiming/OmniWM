@@ -21,6 +21,45 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+REQUIRED_SYMBOLS=(
+    "omni_niri_ctx_apply_txn"
+    "omni_niri_ctx_export_delta"
+    "omni_border_runtime_create"
+    "omni_border_runtime_destroy"
+    "omni_border_runtime_apply_config"
+    "omni_border_runtime_apply_presentation"
+    "omni_border_runtime_submit_snapshot"
+    "omni_border_runtime_invalidate_displays"
+    "omni_border_runtime_hide"
+)
+
+verify_required_symbols() {
+    local artifact="$1"
+    local label="$2"
+    local symbol_names
+
+    symbol_names="$(nm "${artifact}" 2>/dev/null | awk '{ name = $NF; sub(/^_/, "", name); print name }')"
+    if [[ -z "${symbol_names}" ]]; then
+        echo "error: unable to inspect symbols in ${artifact}" >&2
+        exit 1
+    fi
+
+    local missing=0
+    local symbol
+    for symbol in "${REQUIRED_SYMBOLS[@]}"; do
+        if ! grep -Fxq "${symbol}" <<< "${symbol_names}"; then
+            echo "error: missing required symbol '${symbol}' in ${label} (${artifact})" >&2
+            missing=1
+        fi
+    done
+
+    if [[ "${missing}" -ne 0 ]]; then
+        exit 1
+    fi
+
+    echo "==> ${label}: required layout and border symbols verified"
+}
+
 APP_MODE=false
 RUN_FLAG=false
 BUILD_ONLY=false
@@ -74,21 +113,12 @@ if [[ "${APP_MODE}" == "true" ]]; then
     if [[ -f "${ZIG_LIB}" ]]; then
         echo "==> Zig archive timestamp:"
         stat -f "%Sm %N" "${ZIG_LIB}"
-        if rg -q "omni_niri_ctx_apply_txn|omni_niri_ctx_export_delta" < <(nm "${ZIG_LIB}" 2>/dev/null || true); then
-            echo "==> Zig archive check: txn symbols found"
-        else
-            echo "==> Zig archive check: ERROR missing txn symbols" >&2
-            exit 1
-        fi
+        verify_required_symbols "${ZIG_LIB}" "Zig archive"
     fi
     if [[ -x "${APP_BIN}" ]]; then
         echo "==> App binary timestamp:"
         stat -f "%Sm %N" "${APP_BIN}"
-        if rg -q "omni_niri_ctx_apply_txn|omni_niri_ctx_export_delta" < <(nm "${APP_BIN}" 2>/dev/null || true); then
-            echo "==> App binary symbol check: txn symbols visible"
-        else
-            echo "==> App binary symbol check: symbol not visible (likely linker-internalized/stripped)"
-        fi
+        verify_required_symbols "${APP_BIN}" "App binary"
     fi
 
     echo "==> Accessibility reminder:"
@@ -106,6 +136,11 @@ fi
 
 echo "==> Building Zig static library"
 ./build-zig.sh
+
+ZIG_LIB=".build/zig/libomni_layout.a"
+if [[ -f "${ZIG_LIB}" ]]; then
+    verify_required_symbols "${ZIG_LIB}" "Zig archive"
+fi
 
 echo "==> Building Swift"
 swift build

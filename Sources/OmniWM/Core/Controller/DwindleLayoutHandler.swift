@@ -4,8 +4,11 @@ import QuartzCore
 
 @MainActor final class DwindleLayoutHandler {
     weak var controller: WMController?
+    static let activeAnimationBorderUpdateMode: BorderPresentationUpdateMode = .coalesced
+    private let borderTickInterval: CFTimeInterval = 1.0 / 60.0
 
     var dwindleAnimationByDisplay: [CGDirectDisplayID: (WorkspaceDescriptor.ID, Monitor)] = [:]
+    private var lastBorderTickTimeByDisplay: [CGDirectDisplayID: CFTimeInterval] = [:]
 
     init(controller: WMController?) {
         self.controller = controller
@@ -49,15 +52,59 @@ import QuartzCore
         }
 
         controller.axManager.applyFramesParallel(frameUpdates)
+        refreshFocusedBorderDuringTick(
+            controller: controller,
+            displayId: displayId,
+            targetTime: targetTime,
+            animatedFrames: animatedFrames
+        )
 
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
+            lastBorderTickTimeByDisplay.removeValue(forKey: displayId)
             if let focusedHandle = controller.focusedHandle,
                let frame = animatedFrames[focusedHandle],
                let entry = controller.workspaceManager.entry(for: focusedHandle) {
-                controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                controller.refreshBorderPresentation(
+                    focusedFrame: frame,
+                    windowId: entry.windowId,
+                    updateMode: Self.activeAnimationBorderUpdateMode
+                )
             }
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
         }
+    }
+
+    private func refreshFocusedBorderDuringTick(
+        controller: WMController,
+        displayId: CGDirectDisplayID,
+        targetTime: CFTimeInterval,
+        animatedFrames: [WindowHandle: CGRect]
+    ) {
+        guard shouldRefreshFocusedBorderTick(displayId: displayId, targetTime: targetTime),
+              let focusedHandle = controller.focusedHandle,
+              let frame = animatedFrames[focusedHandle],
+              let entry = controller.workspaceManager.entry(for: focusedHandle)
+        else {
+            return
+        }
+
+        controller.refreshBorderPresentation(
+            focusedFrame: frame,
+            windowId: entry.windowId,
+            updateMode: .realtime
+        )
+    }
+
+    private func shouldRefreshFocusedBorderTick(displayId: CGDirectDisplayID, targetTime: CFTimeInterval) -> Bool {
+        guard let lastTick = lastBorderTickTimeByDisplay[displayId] else {
+            lastBorderTickTimeByDisplay[displayId] = targetTime
+            return true
+        }
+        guard targetTime - lastTick >= borderTickInterval else {
+            return false
+        }
+        lastBorderTickTimeByDisplay[displayId] = targetTime
+        return true
     }
 
     func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async {
@@ -113,7 +160,11 @@ import QuartzCore
                 if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
-                    controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
+                    controller.refreshBorderPresentation(
+                        focusedFrame: frame,
+                        windowId: entry.windowId,
+                        updateMode: Self.activeAnimationBorderUpdateMode
+                    )
                 }
             } else {
                 var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
@@ -129,7 +180,7 @@ import QuartzCore
                 if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
-                    controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                    controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
                 }
             }
 
