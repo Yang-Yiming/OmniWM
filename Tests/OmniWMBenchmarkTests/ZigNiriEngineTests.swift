@@ -161,6 +161,64 @@ final class ZigNiriEngineTests: XCTestCase {
         XCTAssertEqual(width, 0.66, accuracy: 0.001)
     }
 
+    func testSetColumnActiveWindowMutationUpdatesAndClampsActiveIndex() throws {
+        let workspace = WorkspaceDescriptor(name: "zig-niri-column-active-window-mutation")
+        let engine = ZigNiriEngine(maxWindowsPerColumn: 3)
+        let first = makeWindowHandle()
+        let second = makeWindowHandle()
+
+        _ = engine.syncWindows(
+            [first, second],
+            in: workspace.id,
+            selectedNodeId: nil,
+            focusedHandle: first
+        )
+
+        let secondId = try XCTUnwrap(engine.nodeId(for: second))
+        var consumeApplied = false
+        for direction in [Direction.left, .right] {
+            let result = engine.applyMutation(
+                .consumeWindow(windowId: secondId, direction: direction),
+                in: workspace.id
+            )
+            if result.applied {
+                consumeApplied = true
+                break
+            }
+        }
+        XCTAssertTrue(consumeApplied)
+
+        var view = try XCTUnwrap(engine.workspaceView(for: workspace.id))
+        let columnId = try XCTUnwrap(view.windowsById[secondId]?.columnId)
+        let column = try XCTUnwrap(view.columns.first(where: { $0.nodeId == columnId }))
+        XCTAssertGreaterThanOrEqual(column.windowIds.count, 2)
+
+        let desiredIndex = column.windowIds.count - 1
+        let setActiveResult = engine.applyMutation(
+            .setColumnActiveWindow(columnId: columnId, windowIndex: desiredIndex),
+            in: workspace.id
+        )
+        XCTAssertTrue(setActiveResult.applied)
+
+        view = try XCTUnwrap(engine.workspaceView(for: workspace.id))
+        XCTAssertEqual(
+            view.columns.first(where: { $0.nodeId == columnId })?.activeWindowIndex,
+            desiredIndex
+        )
+
+        let clampResult = engine.applyMutation(
+            .setColumnActiveWindow(columnId: columnId, windowIndex: -1),
+            in: workspace.id
+        )
+        XCTAssertTrue(clampResult.applied)
+
+        view = try XCTUnwrap(engine.workspaceView(for: workspace.id))
+        XCTAssertEqual(
+            view.columns.first(where: { $0.nodeId == columnId })?.activeWindowIndex,
+            0
+        )
+    }
+
     func testBalanceSizesSignalsStructuralAnimation() throws {
         let workspace = WorkspaceDescriptor(name: "zig-niri-balance-sizes-animation")
         let engine = ZigNiriEngine()

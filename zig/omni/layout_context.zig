@@ -2496,6 +2496,7 @@ fn mutationOpRequiresSourceWindow(op: u8) bool {
         abi.OMNI_NIRI_MUTATION_OP_EXPEL_WINDOW,
         abi.OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW,
         abi.OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL,
+        abi.OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT,
         => true,
         else => false,
     };
@@ -2506,6 +2507,10 @@ fn mutationOpRequiresSourceColumn(op: u8) bool {
         abi.OMNI_NIRI_MUTATION_OP_MOVE_COLUMN,
         abi.OMNI_NIRI_MUTATION_OP_CLEANUP_EMPTY_COLUMN,
         abi.OMNI_NIRI_MUTATION_OP_NORMALIZE_WINDOW_SIZES,
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY,
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_ACTIVE_TILE,
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH,
+        abi.OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH,
         => true,
         else => false,
     };
@@ -2535,9 +2540,222 @@ fn mutationOpTriggersStructuralAnimation(op: u8) bool {
         abi.OMNI_NIRI_MUTATION_OP_BALANCE_SIZES,
         abi.OMNI_NIRI_MUTATION_OP_ADD_WINDOW,
         abi.OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW,
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY,
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH,
+        abi.OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH,
         => true,
         else => false,
     };
+}
+
+fn applyDirectMutationTxn(
+    source_ctx: *OmniNiriLayoutContext,
+    runtime_state: *RuntimeState,
+    payload: abi.OmniNiriTxnMutationPayload,
+    source_window_index: i64,
+    source_column_index: i64,
+    out_result: [*c]abi.OmniNiriTxnResult,
+    source_delta_meta: *TxnDeltaMeta,
+) ?i32 {
+    var mutated = false;
+
+    switch (payload.op) {
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY => {
+            if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
+            const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+            const is_tabbed: u8 = if (payload.custom_u8_a != 0) 1 else 0;
+            var column = &runtime_state.columns[column_idx];
+            if (column.is_tabbed != is_tabbed) {
+                column.is_tabbed = is_tabbed;
+                mutated = true;
+            }
+
+            const clamped_active: usize = if (column.window_count == 0)
+                0
+            else
+                @min(column.active_tile_idx, column.window_count - 1);
+            if (column.active_tile_idx != clamped_active) {
+                column.active_tile_idx = clamped_active;
+                mutated = true;
+            }
+
+            if (mutated) {
+                appendRefreshColumnMeta(source_delta_meta, column.column_id);
+            }
+        },
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_ACTIVE_TILE => {
+            if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
+            const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+            var column = &runtime_state.columns[column_idx];
+            if (column.window_count == 0) {
+                return abi.OMNI_OK;
+            }
+
+            const requested = payload.custom_i64_a;
+            const requested_idx: usize = if (requested < 0)
+                0
+            else
+                std.math.cast(usize, requested) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            const clamped_active = @min(requested_idx, column.window_count - 1);
+            if (column.active_tile_idx != clamped_active) {
+                column.active_tile_idx = clamped_active;
+                mutated = true;
+                if (column.is_tabbed != 0) {
+                    appendRefreshColumnMeta(source_delta_meta, column.column_id);
+                }
+            }
+        },
+        abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH => {
+            if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
+            const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+            const width_kind = payload.custom_u8_a;
+            if (width_kind != abi.OMNI_NIRI_SIZE_KIND_PROPORTION and
+                width_kind != abi.OMNI_NIRI_SIZE_KIND_FIXED)
+            {
+                return abi.OMNI_ERR_INVALID_ARGS;
+            }
+            const width_value = payload.custom_f64_a;
+            if (!(std.math.isFinite(width_value)) or width_value <= 0) return abi.OMNI_ERR_INVALID_ARGS;
+
+            var column = &runtime_state.columns[column_idx];
+            if (column.width_kind != width_kind or
+                column.size_value != width_value or
+                column.is_full_width != 0 or
+                column.has_saved_width != 0)
+            {
+                column.size_value = width_value;
+                column.width_kind = width_kind;
+                column.is_full_width = 0;
+                column.has_saved_width = 0;
+                column.saved_width_kind = width_kind;
+                column.saved_width_value = width_value;
+                mutated = true;
+            }
+        },
+        abi.OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH => {
+            if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
+            const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+            var column = &runtime_state.columns[column_idx];
+            if (column.is_full_width != 0) {
+                var restored_kind: u8 = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
+                var restored_value: f64 = 1.0;
+                if (column.has_saved_width != 0) {
+                    restored_kind = column.saved_width_kind;
+                    restored_value = column.saved_width_value;
+                }
+
+                column.size_value = restored_value;
+                column.width_kind = restored_kind;
+                column.is_full_width = 0;
+                column.has_saved_width = 0;
+                column.saved_width_kind = restored_kind;
+                column.saved_width_value = restored_value;
+                mutated = true;
+            } else {
+                column.is_full_width = 1;
+                column.has_saved_width = 1;
+                column.saved_width_kind = column.width_kind;
+                column.saved_width_value = column.size_value;
+                mutated = true;
+            }
+        },
+        abi.OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT => {
+            if (source_window_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
+            const window_idx = std.math.cast(usize, source_window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (window_idx >= runtime_state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+            const height_kind = payload.custom_u8_a;
+            if (height_kind != abi.OMNI_NIRI_HEIGHT_KIND_AUTO and
+                height_kind != abi.OMNI_NIRI_HEIGHT_KIND_FIXED)
+            {
+                return abi.OMNI_ERR_INVALID_ARGS;
+            }
+            const height_value = payload.custom_f64_a;
+            if (!(std.math.isFinite(height_value))) return abi.OMNI_ERR_INVALID_ARGS;
+
+            const size_value: f64 = if (height_kind == abi.OMNI_NIRI_HEIGHT_KIND_AUTO)
+                height_value
+            else
+                1.0;
+            var window = &runtime_state.windows[window_idx];
+            if (window.height_kind != height_kind or
+                window.height_value != height_value or
+                window.size_value != size_value)
+            {
+                window.height_kind = height_kind;
+                window.height_value = height_value;
+                window.size_value = size_value;
+                mutated = true;
+            }
+        },
+        abi.OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE => {
+            const placeholder_id = if (payload.has_placeholder_column_id != 0)
+                payload.placeholder_column_id
+            else if (runtime_state.column_count > 0)
+                runtime_state.columns[0].column_id
+            else
+                zeroUuid();
+
+            if (uuidEqual(placeholder_id, zeroUuid())) return abi.OMNI_ERR_INVALID_ARGS;
+
+            const already_empty = runtime_state.window_count == 0 and
+                runtime_state.column_count == 1 and
+                uuidEqual(runtime_state.columns[0].column_id, placeholder_id) and
+                runtime_state.columns[0].window_count == 0 and
+                runtime_state.columns[0].active_tile_idx == 0 and
+                runtime_state.columns[0].is_tabbed == 0 and
+                runtime_state.columns[0].size_value == 1.0 and
+                runtime_state.columns[0].width_kind == abi.OMNI_NIRI_SIZE_KIND_PROPORTION and
+                runtime_state.columns[0].is_full_width == 0 and
+                runtime_state.columns[0].has_saved_width == 0 and
+                runtime_state.columns[0].saved_width_kind == abi.OMNI_NIRI_SIZE_KIND_PROPORTION and
+                runtime_state.columns[0].saved_width_value == 1.0;
+            if (already_empty) {
+                return abi.OMNI_OK;
+            }
+
+            runtime_state.window_count = 0;
+            runtime_state.column_count = 1;
+            runtime_state.columns[0] = .{
+                .column_id = placeholder_id,
+                .window_start = 0,
+                .window_count = 0,
+                .active_tile_idx = 0,
+                .is_tabbed = 0,
+                .size_value = 1.0,
+                .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .is_full_width = 0,
+                .has_saved_width = 0,
+                .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+                .saved_width_value = 1.0,
+            };
+            mutated = true;
+        },
+        else => return null,
+    }
+
+    if (!mutated) {
+        return abi.OMNI_OK;
+    }
+
+    const refresh_rc = refreshRuntimeState(runtime_state);
+    if (refresh_rc != abi.OMNI_OK) return refresh_rc;
+
+    commitRuntimeState(source_ctx, runtime_state);
+    out_result[0].applied = 1;
+    out_result[0].changed_source_context = 1;
+    out_result[0].structural_animation_active = @intFromBool(
+        mutationOpTriggersStructuralAnimation(payload.op)
+    );
+    return abi.OMNI_OK;
 }
 
 fn applyNavigationTxn(
@@ -2777,6 +2995,18 @@ fn applyMutationTxn(
         &focused_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
+
+    if (applyDirectMutationTxn(
+        source_ctx,
+        runtime_state,
+        payload,
+        source_window_index,
+        source_column_index,
+        out_result,
+        source_delta_meta,
+    )) |direct_rc| {
+        return direct_rc;
+    }
 
     var selected_node_kind: u8 = abi.OMNI_NIRI_MUTATION_NODE_NONE;
     var selected_node_index: i64 = -1;

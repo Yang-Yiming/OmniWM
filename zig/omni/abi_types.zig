@@ -573,6 +573,12 @@ pub const OmniNiriTxnMutationPayload = extern struct {
     created_column_id: OmniUuid128,
     has_placeholder_column_id: u8,
     placeholder_column_id: OmniUuid128,
+    custom_u8_a: u8,
+    custom_u8_b: u8,
+    custom_i64_a: i64,
+    custom_i64_b: i64,
+    custom_f64_a: f64,
+    custom_f64_b: f64,
 };
 
 pub const OmniNiriTxnWorkspacePayload = extern struct {
@@ -921,6 +927,12 @@ pub const OMNI_NIRI_MUTATION_OP_ADD_WINDOW: u8 = 16;
 pub const OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW: u8 = 17;
 pub const OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION: u8 = 18;
 pub const OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL: u8 = 19;
+pub const OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY: u8 = 20;
+pub const OMNI_NIRI_MUTATION_OP_SET_COLUMN_ACTIVE_TILE: u8 = 21;
+pub const OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH: u8 = 22;
+pub const OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH: u8 = 23;
+pub const OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT: u8 = 24;
+pub const OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE: u8 = 25;
 
 pub const OMNI_NIRI_MUTATION_NODE_NONE: u8 = 0;
 pub const OMNI_NIRI_MUTATION_NODE_WINDOW: u8 = 1;

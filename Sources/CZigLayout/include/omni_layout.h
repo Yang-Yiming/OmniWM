@@ -798,7 +798,13 @@ typedef enum {
     OMNI_NIRI_MUTATION_OP_ADD_WINDOW = 16,
     OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW = 17,
     OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION = 18,
-    OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL = 19
+    OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL = 19,
+    OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY = 20,
+    OMNI_NIRI_MUTATION_OP_SET_COLUMN_ACTIVE_TILE = 21,
+    OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH = 22,
+    OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH = 23,
+    OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT = 24,
+    OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE = 25
 } OmniNiriMutationOp;
 
 typedef enum {
@@ -1003,6 +1009,12 @@ typedef struct {
     OmniUuid128 created_column_id;
     uint8_t has_placeholder_column_id;
     OmniUuid128 placeholder_column_id;
+    uint8_t custom_u8_a;
+    uint8_t custom_u8_b;
+    int64_t custom_i64_a;
+    int64_t custom_i64_b;
+    double custom_f64_a;
+    double custom_f64_b;
 } OmniNiriTxnMutationPayload;
 
 typedef struct {

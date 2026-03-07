@@ -38,6 +38,12 @@ enum ZigNiriStateKernel {
         case removeWindow = 17
         case validateSelection = 18
         case fallbackSelectionOnRemoval = 19
+        case setColumnDisplay = 20
+        case setColumnActiveTile = 21
+        case setColumnWidth = 22
+        case toggleColumnFullWidth = 23
+        case setWindowHeight = 24
+        case clearWorkspace = 25
     }
 
     enum MutationNodeKind: UInt8 {
@@ -133,6 +139,12 @@ enum ZigNiriStateKernel {
         let selectedNodeId: NodeId?
         let focusedWindowId: NodeId?
         let incomingSpawnMode: IncomingSpawnMode
+        let customU8A: UInt8
+        let customU8B: UInt8
+        let customI64A: Int
+        let customI64B: Int
+        let customF64A: Double
+        let customF64B: Double
 
         init(
             op: MutationOp,
@@ -148,7 +160,13 @@ enum ZigNiriStateKernel {
             maxVisibleColumns: Int = -1,
             selectedNodeId: NodeId? = nil,
             focusedWindowId: NodeId? = nil,
-            incomingSpawnMode: IncomingSpawnMode = .newColumn
+            incomingSpawnMode: IncomingSpawnMode = .newColumn,
+            customU8A: UInt8 = 0,
+            customU8B: UInt8 = 0,
+            customI64A: Int = 0,
+            customI64B: Int = 0,
+            customF64A: Double = 0,
+            customF64B: Double = 0
         ) {
             self.op = op
             self.sourceWindowId = sourceWindowId
@@ -164,6 +182,12 @@ enum ZigNiriStateKernel {
             self.selectedNodeId = selectedNodeId
             self.focusedWindowId = focusedWindowId
             self.incomingSpawnMode = incomingSpawnMode
+            self.customU8A = customU8A
+            self.customU8B = customU8B
+            self.customI64A = customI64A
+            self.customI64B = customI64B
+            self.customF64A = customF64A
+            self.customF64B = customF64B
         }
     }
 
@@ -501,6 +525,9 @@ enum ZigNiriStateKernel {
     }
 
     private static let runtimeExportMaxEntries = 512
+#if DEBUG
+    nonisolated(unsafe) static var debugForceDeltaExportFailure = false
+#endif
 
     private static func validatedRuntimeExportCount<T: BinaryInteger>(
         _ rawCount: T,
@@ -617,6 +644,18 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION.rawValue)
         case .fallbackSelectionOnRemoval:
             return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL.rawValue)
+        case .setColumnDisplay:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY.rawValue)
+        case .setColumnActiveTile:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SET_COLUMN_ACTIVE_TILE.rawValue)
+        case .setColumnWidth:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH.rawValue)
+        case .toggleColumnFullWidth:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH.rawValue)
+        case .setWindowHeight:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT.rawValue)
+        case .clearWorkspace:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE.rawValue)
         }
     }
 
@@ -860,6 +899,12 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         export: RuntimeStateExport
     ) -> Int32 {
+        guard export.columns.count <= runtimeExportMaxEntries,
+              export.windows.count <= runtimeExportMaxEntries
+        else {
+            return Int32(OMNI_ERR_OUT_OF_RANGE)
+        }
+
         let rawColumns = export.columns.map { column in
             OmniNiriRuntimeColumnState(
                 column_id: omniUUID(from: column.columnId),
@@ -973,7 +1018,13 @@ enum ZigNiriStateKernel {
             has_created_column_id: 0,
             created_column_id: zeroUUID(),
             has_placeholder_column_id: 0,
-            placeholder_column_id: zeroUUID()
+            placeholder_column_id: zeroUUID(),
+            custom_u8_a: 0,
+            custom_u8_b: 0,
+            custom_i64_a: 0,
+            custom_i64_b: 0,
+            custom_f64_a: 0,
+            custom_f64_b: 0
         )
     }
 
@@ -1203,6 +1254,11 @@ enum ZigNiriStateKernel {
     static func exportDelta(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> (rc: Int32, export: DeltaExport) {
+#if DEBUG
+        if debugForceDeltaExportFailure {
+            return (rc: Int32(OMNI_ERR_INVALID_ARGS), export: emptyDeltaExport())
+        }
+#endif
         switch exportDeltaResult(context: context) {
         case let .success(export):
             return (rc: Int32(OMNI_OK), export: export)
@@ -1277,7 +1333,13 @@ enum ZigNiriStateKernel {
                 has_created_column_id: mutationRequest.createdColumnId == nil ? 0 : 1,
                 created_column_id: mutationRequest.createdColumnId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_placeholder_column_id: mutationRequest.placeholderColumnId == nil ? 0 : 1,
-                placeholder_column_id: mutationRequest.placeholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
+                placeholder_column_id: mutationRequest.placeholderColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                custom_u8_a: mutationRequest.request.customU8A,
+                custom_u8_b: mutationRequest.request.customU8B,
+                custom_i64_a: Int64(mutationRequest.request.customI64A),
+                custom_i64_b: Int64(mutationRequest.request.customI64B),
+                custom_f64_a: mutationRequest.request.customF64A,
+                custom_f64_b: mutationRequest.request.customF64B
             )
         case let .workspace(source, target, workspaceRequest):
             sourceContext = source
@@ -1368,9 +1430,9 @@ enum ZigNiriStateKernel {
             context: context,
             sampleTime: sampleTime
         )
-        guard exported.outcome.rc == OMNI_OK, exported.deltaRC == OMNI_OK else {
+        guard exported.outcome.rc == OMNI_OK else {
             return MutationApplyOutcome(
-                rc: exported.outcome.rc != OMNI_OK ? exported.outcome.rc : exported.deltaRC,
+                rc: exported.outcome.rc,
                 applied: false,
                 structuralAnimationActive: false,
                 targetWindowId: nil,
@@ -1384,7 +1446,7 @@ enum ZigNiriStateKernel {
             structuralAnimationActive: exported.outcome.structuralAnimationActive,
             targetWindowId: exported.outcome.targetWindowId,
             targetNode: exported.outcome.targetNode,
-            delta: exported.delta
+            delta: exported.deltaRC == OMNI_OK ? exported.delta : nil
         )
     }
 
@@ -1444,6 +1506,19 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeRenderRequest
     ) -> (rc: Int32, output: RuntimeRenderOutput) {
+        guard request.windows.count <= runtimeExportMaxEntries,
+              request.columns.count <= runtimeExportMaxEntries
+        else {
+            return (
+                rc: Int32(OMNI_ERR_OUT_OF_RANGE),
+                output: RuntimeRenderOutput(
+                    windows: [],
+                    columns: [],
+                    animationActive: false
+                )
+            )
+        }
+
         var rawWindows = Array(
             repeating: OmniNiriWindowOutput(),
             count: request.windows.count
@@ -1619,6 +1694,10 @@ enum ZigNiriStateKernel {
         gap: CGFloat,
         viewportSpan: CGFloat
     ) -> (rc: Int32, result: RuntimeViewportGestureUpdateResult?) {
+        guard spans.count <= runtimeExportMaxEntries else {
+            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
+        }
+
         var rawResult = OmniViewportGestureUpdateResult(
             current_view_offset: 0,
             selection_progress: 0,
@@ -1656,6 +1735,10 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportGestureEndRequest
     ) -> (rc: Int32, resolvedColumnIndex: Int?) {
+        guard request.spans.count <= runtimeExportMaxEntries else {
+            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
+        }
+
         var rawResult = OmniViewportGestureEndResult(
             resolved_column_index: 0,
             spring_from: 0,
@@ -1688,6 +1771,10 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportTransitionRequest
     ) -> (rc: Int32, resolvedColumnIndex: Int?) {
+        guard request.spans.count <= runtimeExportMaxEntries else {
+            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
+        }
+
         var rawResult = OmniViewportTransitionResult(
             resolved_column_index: 0,
             offset_delta: 0,
