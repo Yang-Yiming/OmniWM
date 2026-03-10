@@ -1,5 +1,55 @@
 import Foundation
 
+struct RunLoopTimeoutError: Error, Sendable {
+    let timeout: Duration
+}
+
+// Coordinates continuation installation and exactly-once resumption across
+// run-loop execution, timeout, and task cancellation.
+private final class RunLoopResumeState<T: Sendable>: @unchecked Sendable {
+    private enum State {
+        case empty
+        case waiting(CheckedContinuation<T, any Error>)
+        case pending(Result<T, any Error>)
+        case resumed
+    }
+
+    private let lock = NSLock()
+    private var state: State = .empty
+
+    func install(_ continuation: CheckedContinuation<T, any Error>) -> Result<T, any Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch state {
+        case .empty:
+            state = .waiting(continuation)
+            return nil
+        case let .pending(result):
+            state = .resumed
+            return result
+        case .waiting, .resumed:
+            return nil
+        }
+    }
+
+    func takeContinuation(orStore result: Result<T, any Error>) -> CheckedContinuation<T, any Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch state {
+        case .empty:
+            state = .pending(result)
+            return nil
+        case let .waiting(continuation):
+            state = .resumed
+            return continuation
+        case .pending, .resumed:
+            return nil
+        }
+    }
+}
+
 extension Thread {
     @discardableResult
     func runInLoopAsync(
@@ -19,25 +69,55 @@ extension Thread {
     ) async throws -> T {
         try Task.checkCancellation()
         let job = RunLoopJob()
-
-        Task {
-            try? await Task.sleep(for: timeout)
-            job.cancel()
-        }
+        let state = RunLoopResumeState<T>()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in
+                if let pendingResult = state.install(cont) {
+                    cont.resume(with: pendingResult)
+                    return
+                }
+
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+
+                    job.cancel()
+                    let timeoutError = RunLoopTimeoutError(timeout: timeout)
+                    guard let continuation = state.takeContinuation(orStore: .failure(timeoutError)) else {
+                        return
+                    }
+                    continuation.resume(throwing: timeoutError)
+                }
+
                 self.runInLoopAsync(job: job, autoCheckCancelled: false) { job in
+                    timeoutTask.cancel()
+
                     do {
                         try job.checkCancellation()
-                        try cont.resume(returning: body(job))
+                        let value = try body(job)
+                        guard let continuation = state.takeContinuation(orStore: .success(value)) else {
+                            return
+                        }
+                        continuation.resume(returning: value)
                     } catch {
-                        cont.resume(throwing: error)
+                        guard let continuation = state.takeContinuation(orStore: .failure(error)) else {
+                            return
+                        }
+                        continuation.resume(throwing: error)
                     }
                 }
             }
         } onCancel: {
             job.cancel()
+            let cancellationError = CancellationError()
+            guard let continuation = state.takeContinuation(orStore: .failure(cancellationError)) else {
+                return
+            }
+            continuation.resume(throwing: cancellationError)
         }
     }
 }
