@@ -6,16 +6,18 @@ final class OverviewWindow: NSPanel {
     private let overlayView: OverviewView
     private let monitor: Monitor
 
+    var monitorId: Monitor.ID { monitor.id }
+
     var onWindowSelected: ((WindowHandle) -> Void)?
     var onWindowClosed: ((WindowHandle) -> Void)?
     var onDismiss: (() -> Void)?
     var onSearchChanged: ((String) -> Void)?
-    var onNavigate: ((Direction) -> Void)?
-    var onScroll: ((CGFloat) -> Void)?
-    var onScrollWithModifiers: ((CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
-    var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
-    var onDragUpdate: ((CGPoint) -> Void)?
-    var onDragEnd: ((CGPoint) -> Void)?
+    var onNavigate: ((Monitor.ID, Direction) -> Void)?
+    var onScroll: ((Monitor.ID, CGFloat) -> Void)?
+    var onScrollWithModifiers: ((Monitor.ID, CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
+    var onDragBegin: ((Monitor.ID, WindowHandle, CGPoint) -> Void)?
+    var onDragUpdate: ((Monitor.ID, CGPoint) -> Void)?
+    var onDragEnd: ((Monitor.ID, CGPoint) -> Void)?
     var onDragCancel: (() -> Void)?
 
     init(monitor: Monitor) {
@@ -59,22 +61,28 @@ final class OverviewWindow: NSPanel {
             self?.onSearchChanged?(query)
         }
         overlayView.onNavigate = { [weak self] direction in
-            self?.onNavigate?(direction)
+            guard let self else { return }
+            self.onNavigate?(self.monitor.id, direction)
         }
         overlayView.onScroll = { [weak self] delta in
-            self?.onScroll?(delta)
+            guard let self else { return }
+            self.onScroll?(self.monitor.id, delta)
         }
         overlayView.onScrollWithModifiers = { [weak self] delta, modifiers, isPrecise in
-            self?.onScrollWithModifiers?(delta, modifiers, isPrecise)
+            guard let self else { return }
+            self.onScrollWithModifiers?(self.monitor.id, delta, modifiers, isPrecise)
         }
         overlayView.onDragBegin = { [weak self] handle, start in
-            self?.onDragBegin?(handle, start)
+            guard let self else { return }
+            self.onDragBegin?(self.monitor.id, handle, start)
         }
         overlayView.onDragUpdate = { [weak self] point in
-            self?.onDragUpdate?(point)
+            guard let self else { return }
+            self.onDragUpdate?(self.monitor.id, point)
         }
         overlayView.onDragEnd = { [weak self] point in
-            self?.onDragEnd?(point)
+            guard let self else { return }
+            self.onDragEnd?(self.monitor.id, point)
         }
         overlayView.onDragCancel = { [weak self] in
             self?.onDragCancel?()

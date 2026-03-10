@@ -1,6 +1,20 @@
 import AppKit
 import Foundation
 
+typealias OverviewWorkspaceLayoutItem = (
+    id: WorkspaceDescriptor.ID,
+    name: String,
+    isActive: Bool
+)
+
+typealias OverviewWindowLayoutData = (
+    entry: WindowModel.Entry,
+    title: String,
+    appName: String,
+    appIcon: NSImage?,
+    frame: CGRect
+)
+
 enum OverviewLayoutMetrics {
     static let searchBarHeight: CGFloat = 44
     static let searchBarPadding: CGFloat = 20
@@ -19,10 +33,21 @@ enum OverviewLayoutMetrics {
 
 @MainActor
 struct OverviewLayoutCalculator {
+    static func clampedScale(_ scale: CGFloat) -> CGFloat {
+        max(0.5, min(1.5, scale))
+    }
+
+    static func viewportFrame(for monitorFrame: CGRect) -> CGRect {
+        CGRect(origin: .zero, size: monitorFrame.size)
+    }
+
+    static func localizedFrame(_ frame: CGRect, to monitorFrame: CGRect) -> CGRect {
+        frame.offsetBy(dx: -monitorFrame.minX, dy: -monitorFrame.minY)
+    }
 
     static func calculateLayout(
-        workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)],
-        windows: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)],
+        workspaces: [OverviewWorkspaceLayoutItem],
+        windows: [WindowHandle: OverviewWindowLayoutData],
         screenFrame: CGRect,
         searchQuery: String,
         scale: CGFloat
@@ -30,7 +55,7 @@ struct OverviewLayoutCalculator {
         var layout = OverviewLayout()
         layout.scale = scale
 
-        let metricsScale = max(0.5, min(1.5, scale))
+        let metricsScale = clampedScale(scale)
         let scaledSearchBarHeight = OverviewLayoutMetrics.searchBarHeight * metricsScale
         let scaledSearchBarPadding = OverviewLayoutMetrics.searchBarPadding * metricsScale
         let searchBarY = screenFrame.maxY - scaledSearchBarHeight - scaledSearchBarPadding
@@ -193,7 +218,7 @@ struct OverviewLayoutCalculator {
     }
 
     static func scrollOffsetBounds(layout: OverviewLayout, screenFrame: CGRect) -> ClosedRange<CGFloat> {
-        let metricsScale = max(0.5, min(1.5, layout.scale))
+        let metricsScale = clampedScale(layout.scale)
         let contentTop = layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale
         let contentBottom = contentTop - layout.totalContentHeight
         let minOffset = min(0, contentBottom - screenFrame.minY)

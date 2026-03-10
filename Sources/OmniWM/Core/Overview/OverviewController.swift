@@ -11,11 +11,24 @@ final class OverviewController {
         static let zoomEpsilon: CGFloat = 0.0001
     }
 
+    private struct OverviewSnapshot {
+        var workspaces: [OverviewWorkspaceLayoutItem] = []
+        var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
+
+        var windowIds: [Int] {
+            windows.values.map(\.entry.windowId).sorted()
+        }
+    }
+
     private weak var wmController: WMController?
 
     private(set) var state: OverviewState = .closed
-    private var layout: OverviewLayout = .init()
+    private var overviewSnapshot = OverviewSnapshot()
+    private var layoutsByMonitor: [Monitor.ID: OverviewLayout] = [:]
     private var searchQuery: String = ""
+    private var scale: CGFloat = 1.0
+    private var selectedWindowHandle: WindowHandle?
+    private var activeInteractionMonitorId: Monitor.ID?
 
     private var windows: [OverviewWindow] = []
     private var animator: OverviewAnimator?
@@ -32,8 +45,8 @@ final class OverviewController {
 
     init(wmController: WMController) {
         self.wmController = wmController
-        self.animator = OverviewAnimator(controller: self)
-        self.inputHandler = OverviewInputHandler(controller: self)
+        animator = OverviewAnimator(controller: self)
+        inputHandler = OverviewInputHandler(controller: self)
     }
 
     func toggle() {
@@ -49,13 +62,13 @@ final class OverviewController {
 
     func open() {
         guard case .closed = state else { return }
-        guard let wmController else { return }
+        guard wmController != nil else { return }
 
-        buildLayout()
+        buildOverviewState()
         createWindows()
         startThumbnailCapture()
 
-        let monitor = wmController.workspaceManager.monitors.first
+        let monitor = animationMonitor()
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
@@ -72,8 +85,8 @@ final class OverviewController {
     func dismiss() {
         guard state.isOpen else { return }
 
-        let targetWindow = layout.selectedWindow()?.handle
-        let monitor = wmController?.workspaceManager.monitors.first
+        let targetWindow = selectedWindowHandle
+        let monitor = animationMonitor()
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
@@ -85,13 +98,18 @@ final class OverviewController {
         )
     }
 
-    private func buildLayout() {
+    private func buildOverviewState() {
+        buildOverviewSnapshot()
+        rebuildProjectedLayouts()
+    }
+
+    private func buildOverviewSnapshot() {
         guard let wmController else { return }
         let workspaceManager = wmController.workspaceManager
         let appInfoCache = wmController.appInfoCache
 
-        var workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)] = []
-        var windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)] = [:]
+        var workspaces: [OverviewWorkspaceLayoutItem] = []
+        var windowData: [WindowHandle: OverviewWindowLayoutData] = [:]
 
         for monitor in workspaceManager.monitors {
             let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
@@ -121,23 +139,75 @@ final class OverviewController {
             }
         }
 
-        guard let screen = NSScreen.main else { return }
-
-        let previousScale = layout.scale
-        layout = OverviewLayoutCalculator.calculateLayout(
+        overviewSnapshot = OverviewSnapshot(
             workspaces: workspaces,
-            windows: windowData,
-            screenFrame: screen.frame,
-            searchQuery: searchQuery,
-            scale: previousScale
+            windows: windowData
         )
+    }
 
-        if let firstWindow = layout.allWindows.first {
-            layout.setSelected(handle: firstWindow.handle)
+    private func rebuildProjectedLayouts() {
+        guard let wmController else { return }
+
+        let previousLayouts = layoutsByMonitor
+        let monitors = wmController.workspaceManager.monitors
+
+        if let selectedWindowHandle,
+           overviewSnapshot.windows[selectedWindowHandle] == nil
+        {
+            self.selectedWindowHandle = nil
         }
 
-        buildNiriColumnLayout(windowData: windowData)
-        buildNiriDropZones()
+        layoutsByMonitor = [:]
+        for monitor in monitors {
+            var layout = projectedLayout(for: monitor)
+            let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
+            let previousOffset = previousLayouts[monitor.id]?.scrollOffset ?? 0
+            layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
+                previousOffset,
+                layout: layout,
+                screenFrame: viewportFrame
+            )
+            layout.dragTarget = previousLayouts[monitor.id]?.dragTarget
+            layoutsByMonitor[monitor.id] = layout
+        }
+
+        reconcileSelectedWindowHandle()
+        applySelectedWindowHandleToLayouts()
+
+        if let activeInteractionMonitorId,
+           layoutsByMonitor[activeInteractionMonitorId] == nil
+        {
+            self.activeInteractionMonitorId = nil
+        }
+
+        if activeInteractionMonitorId == nil {
+            activeInteractionMonitorId = monitors.first?.id
+        }
+    }
+
+    private func projectedLayout(for monitor: Monitor) -> OverviewLayout {
+        let localizedWindowData = overviewSnapshot.windows.mapValues { windowData in
+            (
+                entry: windowData.entry,
+                title: windowData.title,
+                appName: windowData.appName,
+                appIcon: windowData.appIcon,
+                frame: OverviewLayoutCalculator.localizedFrame(windowData.frame, to: monitor.frame)
+            )
+        }
+
+        let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
+        var layout = OverviewLayoutCalculator.calculateLayout(
+            workspaces: overviewSnapshot.workspaces,
+            windows: localizedWindowData,
+            screenFrame: viewportFrame,
+            searchQuery: searchQuery,
+            scale: scale
+        )
+
+        buildNiriColumnLayout(in: &layout, windowData: localizedWindowData)
+        buildNiriDropZones(in: &layout)
+        return layout
     }
 
     private func createWindows() {
@@ -160,23 +230,28 @@ final class OverviewController {
             window.onSearchChanged = { [weak self] query in
                 self?.updateSearchQuery(query)
             }
-            window.onNavigate = { [weak self] direction in
-                self?.navigateSelection(direction)
+            window.onNavigate = { [weak self] monitorId, direction in
+                self?.navigateSelection(direction, on: monitorId)
             }
-            window.onScroll = { [weak self] delta in
-                self?.adjustScrollOffset(by: delta)
+            window.onScroll = { [weak self] monitorId, delta in
+                self?.adjustScrollOffset(by: delta, on: monitorId)
             }
-            window.onScrollWithModifiers = { [weak self] delta, modifiers, isPrecise in
-                self?.handleScroll(delta: delta, modifiers: modifiers, isPrecise: isPrecise)
+            window.onScrollWithModifiers = { [weak self] monitorId, delta, modifiers, isPrecise in
+                self?.handleScroll(
+                    delta: delta,
+                    modifiers: modifiers,
+                    isPrecise: isPrecise,
+                    on: monitorId
+                )
             }
-            window.onDragBegin = { [weak self] handle, start in
-                self?.beginDrag(handle: handle, startPoint: start)
+            window.onDragBegin = { [weak self] monitorId, handle, start in
+                self?.beginDrag(on: monitorId, handle: handle, startPoint: start)
             }
-            window.onDragUpdate = { [weak self] point in
-                self?.updateDrag(at: point)
+            window.onDragUpdate = { [weak self] monitorId, point in
+                self?.updateDrag(on: monitorId, at: point)
             }
-            window.onDragEnd = { [weak self] point in
-                self?.endDrag(at: point)
+            window.onDragEnd = { [weak self] monitorId, point in
+                self?.endDrag(on: monitorId, at: point)
             }
             window.onDragCancel = { [weak self] in
                 self?.cancelDrag()
@@ -206,6 +281,7 @@ final class OverviewController {
 
     private func updateWindowDisplays() {
         for window in windows {
+            let layout = layoutsByMonitor[window.monitorId] ?? .init()
             window.updateLayout(layout, state: state, searchQuery: searchQuery)
             window.updateThumbnails(thumbnailCache)
         }
@@ -219,7 +295,7 @@ final class OverviewController {
     }
 
     private func captureThumbnails() async {
-        let windowIds = layout.allWindows.map(\.windowId)
+        let windowIds = overviewSnapshot.windowIds
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -227,7 +303,6 @@ final class OverviewController {
 
             for windowId in windowIds {
                 guard !Task.isCancelled else { return }
-
                 guard let scWindow = windowMap[CGWindowID(windowId)] else { continue }
 
                 if let thumbnail = await captureWindowThumbnail(scWindow: scWindow) {
@@ -292,7 +367,7 @@ final class OverviewController {
     }
 
     func selectAndActivateWindow(_ handle: WindowHandle) {
-        layout.setSelected(handle: handle)
+        setSelectedWindowHandle(handle)
         updateWindowDisplays()
 
         Task { @MainActor in
@@ -311,15 +386,15 @@ final class OverviewController {
     }
 
     private func rebuildLayoutAfterWindowClose(removedHandle: WindowHandle) {
-        let wasSelected = layout.selectedWindow()?.handle == removedHandle
+        let removedWindowId = overviewSnapshot.windows[removedHandle]?.entry.windowId
+        if selectedWindowHandle == removedHandle {
+            selectedWindowHandle = nil
+        }
 
-        buildLayout()
-        thumbnailCache.removeValue(forKey: layout.allWindows.first { $0.handle == removedHandle }?.windowId ?? 0)
+        buildOverviewState()
 
-        if wasSelected {
-            if let first = layout.allWindows.first {
-                layout.setSelected(handle: first.handle)
-            }
+        if let removedWindowId {
+            thumbnailCache.removeValue(forKey: removedWindowId)
         }
 
         updateWindowDisplays()
@@ -328,65 +403,76 @@ final class OverviewController {
     func updateSearchQuery(_ query: String) {
         searchQuery = query
         inputHandler?.searchQuery = query
-
-        OverviewSearchFilter.filterWindows(in: &layout, query: query)
-        OverviewSearchFilter.updateSelectionForSearch(layout: &layout)
-
+        rebuildProjectedLayouts()
         updateWindowDisplays()
     }
 
-    func navigateSelection(_ direction: Direction) {
-        let currentHandle = layout.selectedWindow()?.handle
+    func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
+        let targetMonitorId = monitorId ?? activeInteractionMonitorId
+        if let targetMonitorId {
+            activeInteractionMonitorId = targetMonitorId
+        }
+
+        guard let layout = canonicalLayout(preferredMonitorId: targetMonitorId) else { return }
         if let nextHandle = OverviewLayoutCalculator.findNextWindow(
             in: layout,
-            from: currentHandle,
+            from: selectedWindowHandle,
             direction: direction
         ) {
-            layout.setSelected(handle: nextHandle)
+            setSelectedWindowHandle(nextHandle)
             updateWindowDisplays()
         }
     }
 
     func activateSelectedWindow() {
-        guard let selected = layout.selectedWindow() else { return }
-        selectAndActivateWindow(selected.handle)
+        guard let selectedWindowHandle else { return }
+        selectAndActivateWindow(selectedWindowHandle)
     }
 
     func adjustScrollOffset(by delta: CGFloat) {
-        let screenFrame = NSScreen.main?.frame ?? .zero
-        let nextOffset = layout.scrollOffset - delta
-        layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
-            nextOffset,
-            layout: layout,
-            screenFrame: screenFrame
-        )
-        updateWindowDisplays()
+        guard let monitorId = activeInteractionMonitorId
+            ?? wmController?.workspaceManager.monitors.first?.id
+        else {
+            return
+        }
+        adjustScrollOffset(by: delta, on: monitorId)
     }
 
-    func handleScroll(delta: CGFloat, modifiers: NSEvent.ModifierFlags) {
-        handleScroll(delta: delta, modifiers: modifiers, isPrecise: false)
-    }
-
-    func handleScroll(delta: CGFloat, modifiers: NSEvent.ModifierFlags, isPrecise: Bool) {
-        if modifiers.contains([.option, .shift]) {
-            guard abs(delta) > ScrollTuning.zoomEpsilon else { return }
-            let step: CGFloat = delta > 0 ? ScrollTuning.zoomStep : -ScrollTuning.zoomStep
-            layout.scale = (layout.scale + step).clamped(to: 0.5 ... 1.5)
-            let previousOffset = layout.scrollOffset
-            buildLayout()
-            let screenFrame = NSScreen.main?.frame ?? .zero
+    func adjustScrollOffset(by delta: CGFloat, on monitorId: Monitor.ID) {
+        activeInteractionMonitorId = monitorId
+        mutateLayout(for: monitorId) { layout in
+            let screenFrame = viewportFrame(for: monitorId)
+            let nextOffset = layout.scrollOffset - delta
             layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
-                previousOffset,
+                nextOffset,
                 layout: layout,
                 screenFrame: screenFrame
             )
-            updateWindowDisplays()
-        } else {
-            let multiplier = isPrecise
-                ? ScrollTuning.preciseScrollMultiplier
-                : ScrollTuning.nonPreciseScrollMultiplier
-            adjustScrollOffset(by: delta * multiplier)
         }
+        updateWindowDisplays()
+    }
+
+    func handleScroll(
+        delta: CGFloat,
+        modifiers: NSEvent.ModifierFlags,
+        isPrecise: Bool,
+        on monitorId: Monitor.ID
+    ) {
+        activeInteractionMonitorId = monitorId
+
+        if modifiers.contains([.option, .shift]) {
+            guard abs(delta) > ScrollTuning.zoomEpsilon else { return }
+            let step: CGFloat = delta > 0 ? ScrollTuning.zoomStep : -ScrollTuning.zoomStep
+            scale = (scale + step).clamped(to: 0.5 ... 1.5)
+            buildOverviewState()
+            updateWindowDisplays()
+            return
+        }
+
+        let multiplier = isPrecise
+            ? ScrollTuning.preciseScrollMultiplier
+            : ScrollTuning.nonPreciseScrollMultiplier
+        adjustScrollOffset(by: delta * multiplier, on: monitorId)
     }
 
     private func cleanup() {
@@ -395,7 +481,11 @@ final class OverviewController {
         thumbnailCache.removeAll()
         inputHandler?.reset()
         searchQuery = ""
-        layout = .init()
+        scale = 1.0
+        selectedWindowHandle = nil
+        activeInteractionMonitorId = nil
+        overviewSnapshot = .init()
+        layoutsByMonitor = [:]
         dragGhostController?.endDrag()
         dragGhostController = nil
         dragSession = nil
@@ -407,6 +497,103 @@ final class OverviewController {
             return mode.refreshRate > 0 ? mode.refreshRate : 60.0
         }
         return 60.0
+    }
+
+    private func animationMonitor() -> Monitor? {
+        guard let wmController else { return nil }
+        if let activeInteractionMonitorId,
+           let monitor = wmController.workspaceManager.monitor(byId: activeInteractionMonitorId)
+        {
+            return monitor
+        }
+        return wmController.workspaceManager.monitors.first
+    }
+
+    private func canonicalLayout(preferredMonitorId: Monitor.ID? = nil) -> OverviewLayout? {
+        let monitorId = preferredMonitorId
+            ?? activeInteractionMonitorId
+            ?? wmController?.workspaceManager.monitors.first?.id
+        if let monitorId,
+           let layout = layoutsByMonitor[monitorId]
+        {
+            return layout
+        }
+        return layoutsByMonitor.values.first
+    }
+
+    private func setSelectedWindowHandle(_ handle: WindowHandle?) {
+        selectedWindowHandle = handle
+        applySelectedWindowHandleToLayouts()
+    }
+
+    private func reconcileSelectedWindowHandle() {
+        guard let layout = canonicalLayout(preferredMonitorId: activeInteractionMonitorId) else {
+            selectedWindowHandle = nil
+            return
+        }
+
+        if let selectedWindowHandle,
+           let selectedWindow = layout.window(for: selectedWindowHandle),
+           selectedWindow.matchesSearch
+        {
+            return
+        }
+
+        selectedWindowHandle = OverviewSearchFilter.firstMatchingWindow(in: layout)?.handle
+    }
+
+    private func applySelectedWindowHandleToLayouts() {
+        for monitorId in layoutsByMonitor.keys {
+            mutateLayout(for: monitorId) { layout in
+                layout.setSelected(handle: selectedWindowHandle)
+            }
+        }
+    }
+
+    private func mutateLayout(
+        for monitorId: Monitor.ID,
+        _ mutate: (inout OverviewLayout) -> Void
+    ) {
+        guard var layout = layoutsByMonitor[monitorId] else { return }
+        mutate(&layout)
+        layoutsByMonitor[monitorId] = layout
+    }
+
+    private func setDragTarget(_ target: OverviewDragTarget?, for monitorId: Monitor.ID) {
+        for id in layoutsByMonitor.keys {
+            mutateLayout(for: id) { layout in
+                layout.dragTarget = id == monitorId ? target : nil
+            }
+        }
+    }
+
+    private func clearDragTargets() {
+        for monitorId in layoutsByMonitor.keys {
+            mutateLayout(for: monitorId) { layout in
+                layout.dragTarget = nil
+            }
+        }
+    }
+
+    private func viewportFrame(for monitorId: Monitor.ID) -> CGRect {
+        guard let wmController,
+              let monitor = wmController.workspaceManager.monitor(byId: monitorId)
+        else {
+            return .zero
+        }
+        return OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
+    }
+
+    private func globalPoint(from localPoint: CGPoint, on monitorId: Monitor.ID) -> CGPoint {
+        guard let wmController,
+              let monitor = wmController.workspaceManager.monitor(byId: monitorId)
+        else {
+            return localPoint
+        }
+        return CGPoint(
+            x: monitor.frame.minX + localPoint.x,
+            y: monitor.frame.minY + localPoint.y
+        )
     }
 
     deinit {
@@ -421,17 +608,20 @@ private extension OverviewController {
         let handle: WindowHandle
         let windowId: Int
         let workspaceId: WorkspaceDescriptor.ID
+        let monitorId: Monitor.ID
         let startPoint: CGPoint
     }
 
-    func beginDrag(handle: WindowHandle, startPoint: CGPoint) {
+    func beginDrag(on monitorId: Monitor.ID, handle: WindowHandle, startPoint: CGPoint) {
         guard let wmController else { return }
         guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
 
+        activeInteractionMonitorId = monitorId
         dragSession = DragSession(
             handle: handle,
             windowId: entry.windowId,
             workspaceId: entry.workspaceId,
+            monitorId: monitorId,
             startPoint: startPoint
         )
 
@@ -442,28 +632,31 @@ private extension OverviewController {
             dragGhostController?.beginDrag(
                 windowId: entry.windowId,
                 originalFrame: frame,
-                cursorLocation: startPoint
+                cursorLocation: globalPoint(from: startPoint, on: monitorId)
             )
         }
     }
 
-    func updateDrag(at point: CGPoint) {
+    func updateDrag(on monitorId: Monitor.ID, at point: CGPoint) {
         guard dragSession != nil else { return }
-        dragGhostController?.updatePosition(cursorLocation: point)
+        activeInteractionMonitorId = monitorId
+        dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
 
-        let target = resolveDragTarget(at: point)
-        if target != layout.dragTarget {
-            layout.dragTarget = target
+        let target = resolveDragTarget(at: point, on: monitorId)
+        let currentTarget = layoutsByMonitor[monitorId]?.dragTarget
+        if target != currentTarget {
+            setDragTarget(target, for: monitorId)
             updateWindowDisplays()
         }
     }
 
-    func endDrag(at point: CGPoint) {
+    func endDrag(on monitorId: Monitor.ID, at point: CGPoint) {
         guard let session = dragSession else { return }
-        dragGhostController?.updatePosition(cursorLocation: point)
+        activeInteractionMonitorId = monitorId
+        dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
 
-        let target = layout.dragTarget
-        layout.dragTarget = nil
+        let target = layoutsByMonitor[monitorId]?.dragTarget
+        clearDragTargets()
         dragGhostController?.endDrag()
         dragSession = nil
 
@@ -477,18 +670,20 @@ private extension OverviewController {
             target: target
         )
 
-        buildLayout()
+        buildOverviewState()
         updateWindowDisplays()
     }
 
     func cancelDrag() {
-        layout.dragTarget = nil
+        clearDragTargets()
         dragGhostController?.endDrag()
         dragSession = nil
         updateWindowDisplays()
     }
 
-    func resolveDragTarget(at point: CGPoint) -> OverviewDragTarget? {
+    func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
+        guard let layout = layoutsByMonitor[monitorId] else { return nil }
+
         if let window = layout.windowAt(point: point) {
             guard window.handle != dragSession?.handle else { return nil }
             if isNiriLayout(workspaceId: window.workspaceId) {
@@ -570,14 +765,15 @@ private extension OverviewController {
         return layoutType != .dwindle
     }
 
-    func buildNiriDropZones() {
+    func buildNiriDropZones(in layout: inout OverviewLayout) {
         guard let wmController else { return }
         guard wmController.niriEngine != nil else {
             layout.niriColumnDropZonesByWorkspace = [:]
             return
         }
 
-        let gapBase = CGFloat(wmController.workspaceManager.gaps)
+        let metricsScale = OverviewLayoutCalculator.clampedScale(layout.scale)
+        let gapBase = CGFloat(wmController.workspaceManager.gaps) * metricsScale
         var zonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]] = [:]
 
         for section in layout.workspaceSections {
@@ -586,7 +782,7 @@ private extension OverviewController {
             let niriColumns = layout.niriColumnsByWorkspace[section.workspaceId] ?? []
             guard !niriColumns.isEmpty else { continue }
             let columnFrames = niriColumns.map(\.frame)
-            let zoneWidth = max(12.0, min(30.0, gapBase))
+            let zoneWidth = max(12.0 * metricsScale, min(30.0 * metricsScale, gapBase))
 
             var zones: [OverviewColumnDropZone] = []
             let leftBoundary = columnFrames.first?.minX ?? section.gridFrame.minX
@@ -647,7 +843,8 @@ private extension OverviewController {
     }
 
     func buildNiriColumnLayout(
-        windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)]
+        in layout: inout OverviewLayout,
+        windowData: [WindowHandle: OverviewWindowLayoutData]
     ) {
         guard let wmController else { return }
         guard let engine = wmController.niriEngine else {
@@ -655,6 +852,10 @@ private extension OverviewController {
             return
         }
 
+        let metricsScale = OverviewLayoutCalculator.clampedScale(layout.scale)
+        let spacing = OverviewLayoutMetrics.windowSpacing * metricsScale
+        let maxWidth = OverviewLayoutMetrics.maxThumbnailWidth * metricsScale
+        let minWidth = OverviewLayoutMetrics.minThumbnailWidth * metricsScale
         var columnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]] = [:]
 
         for section in layout.workspaceSections {
@@ -663,12 +864,11 @@ private extension OverviewController {
             guard !niriColumns.isEmpty else { continue }
 
             let columnCount = niriColumns.count
-            let spacing = OverviewLayoutMetrics.windowSpacing
             let totalSpacing = spacing * CGFloat(max(0, columnCount - 1))
             let rawWidth = (section.gridFrame.width - totalSpacing) / CGFloat(columnCount)
             let columnWidth = min(
-                OverviewLayoutMetrics.maxThumbnailWidth,
-                max(OverviewLayoutMetrics.minThumbnailWidth, rawWidth)
+                maxWidth,
+                max(minWidth, rawWidth)
             )
             let totalWidth = CGFloat(columnCount) * columnWidth + totalSpacing
             let startX = section.gridFrame.minX + max(0, (section.gridFrame.width - totalWidth) / 2)
@@ -697,9 +897,9 @@ private extension OverviewController {
                     .map(\.0)
 
                 let tileCount = max(1, orderedHandles.count)
-                let innerSpacing: CGFloat = 6
+                let innerSpacing: CGFloat = 6 * metricsScale
                 let totalInnerSpacing = innerSpacing * CGFloat(max(0, tileCount - 1))
-                let tileHeight = max(30, (columnHeight - totalInnerSpacing) / CGFloat(tileCount))
+                let tileHeight = max(30 * metricsScale, (columnHeight - totalInnerSpacing) / CGFloat(tileCount))
 
                 for (tileIdx, handle) in orderedHandles.enumerated() {
                     let tileY = columnFrame.maxY - CGFloat(tileIdx + 1) * tileHeight - CGFloat(tileIdx) * innerSpacing
