@@ -70,14 +70,37 @@ private func makeRunInLoopTask(
 }
 
 @Suite struct ThreadRunLoopTests {
-    @Test func cancellationResumesWhenTargetRunLoopNeverDrains() async {
+    @Test func pendingCancellationResumesContinuationInstalledLater() async {
+        let state = RunLoopResumeState<Int>()
+        let cancellationError = CancellationError()
+
+        let stored = state.takeContinuation(orStore: .failure(cancellationError))
+        #expect(stored == nil)
+
+        do {
+            _ = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int, any Error>) in
+                if let pendingResult = state.install(cont) {
+                    cont.resume(with: pendingResult)
+                } else {
+                    Issue.record("Expected pending cancellation to resume immediately after install")
+                    cont.resume(returning: -1)
+                }
+            }
+            Issue.record("Expected pending cancellation to throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
+    @Test func immediateCancellationResumesWhenTargetRunLoopNeverDrains() async {
         let thread = GatedRunLoopThread()
         thread.startAndWait()
         defer { thread.stopAndWait() }
 
         let task = makeRunInLoopTask(thread: thread, timeout: .seconds(5))
 
-        await Task.yield()
         task.cancel()
 
         do {

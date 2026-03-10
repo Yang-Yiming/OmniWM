@@ -1,6 +1,27 @@
 import AppKit
 import Foundation
 
+@MainActor
+struct WindowFocusOperations {
+    let activateApp: (pid_t) -> Void
+    let focusSpecificWindow: (pid_t, UInt32, AXUIElement) -> Void
+    let raiseWindow: (AXUIElement) -> Void
+
+    static let live = WindowFocusOperations(
+        activateApp: { pid in
+            if let runningApp = NSRunningApplication(processIdentifier: pid) {
+                runningApp.activate(options: [])
+            }
+        },
+        focusSpecificWindow: { pid, windowId, element in
+            OmniWM.focusWindow(pid: pid, windowId: windowId, windowRef: element)
+        },
+        raiseWindow: { element in
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        }
+    )
+}
+
 @MainActor @Observable
 final class WMController {
     var isEnabled: Bool = true
@@ -76,9 +97,14 @@ final class WMController {
     var hasStartedServices = false
 
     let animationClock = AnimationClock()
+    private let windowFocusOperations: WindowFocusOperations
 
-    init(settings: SettingsStore) {
+    init(
+        settings: SettingsStore,
+        windowFocusOperations: WindowFocusOperations = .live
+    ) {
         self.settings = settings
+        self.windowFocusOperations = windowFocusOperations
         workspaceManager = WorkspaceManager(settings: settings)
         workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
@@ -519,15 +545,13 @@ extension WMController {
             workspaceId: entry.workspaceId,
             performFocus: {
                 // 1. Activate app first (brings process to front, may pick wrong key window)
-                if let runningApp = NSRunningApplication(processIdentifier: pid) {
-                    runningApp.activate(options: [])
-                }
+                self.windowFocusOperations.activateApp(pid)
 
                 // 2. Private API sets the SPECIFIC window as key (overrides activate's choice)
-                OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
+                self.windowFocusOperations.focusSpecificWindow(pid, UInt32(windowId), axRef.element)
 
                 // 3. AX raise ensures the window is visually on top and receives keyboard focus
-                AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+                self.windowFocusOperations.raiseWindow(axRef.element)
 
                 if moveMouseEnabled {
                     self.moveMouseToWindow(handle)

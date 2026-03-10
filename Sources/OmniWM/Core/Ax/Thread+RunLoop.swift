@@ -6,7 +6,7 @@ struct RunLoopTimeoutError: Error, Sendable {
 
 // Coordinates continuation installation and exactly-once resumption across
 // run-loop execution, timeout, and task cancellation.
-private final class RunLoopResumeState<T: Sendable>: @unchecked Sendable {
+final class RunLoopResumeState<T: Sendable>: @unchecked Sendable {
     private enum State {
         case empty
         case waiting(CheckedContinuation<T, any Error>)
