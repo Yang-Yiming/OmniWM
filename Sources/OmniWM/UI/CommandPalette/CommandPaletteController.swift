@@ -11,14 +11,69 @@ struct CommandPaletteWindowItem: Identifiable {
     let workspaceName: String
 }
 
+struct CommandPaletteAppSnapshot: Equatable {
+    let processIdentifier: pid_t
+    let bundleIdentifier: String?
+    let localizedName: String?
+    let isTerminated: Bool
+
+    init(
+        processIdentifier: pid_t,
+        bundleIdentifier: String?,
+        localizedName: String?,
+        isTerminated: Bool
+    ) {
+        self.processIdentifier = processIdentifier
+        self.bundleIdentifier = bundleIdentifier
+        self.localizedName = localizedName
+        self.isTerminated = isTerminated
+    }
+
+    init(app: NSRunningApplication) {
+        processIdentifier = app.processIdentifier
+        bundleIdentifier = app.bundleIdentifier
+        localizedName = app.localizedName
+        isTerminated = app.isTerminated
+    }
+}
+
 private struct CommandPaletteFocusTarget {
-    let app: NSRunningApplication
+    let app: CommandPaletteAppSnapshot
     let focusedWindow: AXUIElement?
 }
 
 enum CommandPaletteSelectionID: Hashable {
     case window(WindowToken)
     case menu(UUID)
+}
+
+private final class CommandPaletteActionBox: @unchecked Sendable {
+    let action: () -> Void
+
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+}
+
+@MainActor
+struct CommandPaletteEnvironment {
+    var frontmostApplication: () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication }
+    var runningApplication: (pid_t) -> NSRunningApplication? = { NSRunningApplication(processIdentifier: $0) }
+    var ownBundleIdentifier: () -> String? = { Bundle.main.bundleIdentifier }
+    var fetchMenuItems: (pid_t) -> [MenuItemModel] = { MenuAnywhereFetcher().fetchMenuItemsSync(for: $0) }
+    var activateOmniWM: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    var navigateToWindow: (WMController, WindowHandle) -> Void = { controller, handle in
+        controller.navigateToCommandPaletteWindow(handle)
+    }
+    var scheduleMenuAction: (@escaping () -> Void) -> Void = { action in
+        let box = CommandPaletteActionBox(action)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            box.action()
+        }
+    }
+    var performMenuAction: (AXUIElement) -> Void = { element in
+        AXUIElementPerformAction(element, "AXPress" as CFString)
+    }
 }
 
 @MainActor
@@ -46,13 +101,14 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 
     @Published private(set) var isMenuLoading = false
 
+    private let environment: CommandPaletteEnvironment
     private var panel: NSPanel?
     private var eventMonitor: Any?
-    private let fetcher = MenuAnywhereFetcher()
 
     private weak var wmController: WMController?
     private var restoreFocusTarget: CommandPaletteFocusTarget?
     private var menuFocusTarget: CommandPaletteFocusTarget?
+    private var cachedMenuTargetApp: CommandPaletteAppSnapshot?
     private var hasLoadedMenuItems = false
     private var menuLoadGeneration = 0
     private var isProgrammaticDismiss = false
@@ -64,7 +120,15 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         case superseded
     }
 
-    private override init() {}
+    private enum SelectionAction {
+        case navigateWindow(WMController, WindowHandle)
+        case pressMenu(CommandPaletteFocusTarget, AXUIElement)
+    }
+
+    init(environment: CommandPaletteEnvironment = .init()) {
+        self.environment = environment
+        super.init()
+    }
 
     var filteredWindowItems: [CommandPaletteWindowItem] {
         filterWindowItems(windows, query: searchText)
@@ -93,7 +157,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         self.wmController = wmController
 
         restoreFocusTarget = captureFrontmostFocusTarget()
-        menuFocusTarget = captureMenuFocusTarget()
+        menuFocusTarget = resolveMenuFocusTarget()
         windows = buildWindowItems(from: wmController)
         menuItems = []
         hasLoadedMenuItems = false
@@ -117,7 +181,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 
         isVisible = true
         panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        environment.activateOmniWM()
 
         if selectedMode == .menu {
             loadMenuItemsIfNeeded()
@@ -134,6 +198,22 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 
     static func availableMenuStatusText(for appName: String?) -> String {
         "Searching menus in \(appName ?? "Current App")"
+    }
+
+    static func windowsStatusText(isMenuModeAvailable: Bool) -> String {
+        if isMenuModeAvailable {
+            return "Use Command-1 for windows and Command-2 for menu search."
+        }
+        return "Menu search becomes available after you open the palette while another app is frontmost."
+    }
+
+    static func resolveMenuTarget(
+        current: CommandPaletteAppSnapshot?,
+        cached: CommandPaletteAppSnapshot?,
+        ownBundleIdentifier: String?
+    ) -> CommandPaletteAppSnapshot? {
+        sanitizedMenuTarget(current, ownBundleIdentifier: ownBundleIdentifier)
+            ?? sanitizedMenuTarget(cached, ownBundleIdentifier: ownBundleIdentifier)
     }
 
     func windowDidResignKey(_: Notification) {
@@ -253,25 +333,89 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     }
 
     private func captureFrontmostFocusTarget() -> CommandPaletteFocusTarget? {
-        guard let app = NSWorkspace.shared.frontmostApplication, !app.isTerminated else { return nil }
-        return CommandPaletteFocusTarget(
-            app: app,
-            focusedWindow: focusedWindow(for: app)
-        )
-    }
-
-    private func captureMenuFocusTarget() -> CommandPaletteFocusTarget? {
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              !app.isTerminated,
-              app.bundleIdentifier != Bundle.main.bundleIdentifier
+        guard let app = environment.frontmostApplication(),
+              !app.isTerminated
         else {
             return nil
         }
 
-        return CommandPaletteFocusTarget(
-            app: app,
+        return captureFocusTarget(for: app)
+    }
+
+    private func resolveMenuFocusTarget() -> CommandPaletteFocusTarget? {
+        let ownBundleIdentifier = environment.ownBundleIdentifier()
+        let currentTarget = environment.frontmostApplication().map(CommandPaletteAppSnapshot.init(app:))
+        if let currentTarget = Self.resolveMenuTarget(
+            current: currentTarget,
+            cached: nil,
+            ownBundleIdentifier: ownBundleIdentifier
+        ) {
+            cachedMenuTargetApp = currentTarget
+            return focusTarget(for: currentTarget)
+        }
+
+        let cachedTarget = liveCachedMenuTarget()
+        guard let resolvedTarget = Self.resolveMenuTarget(
+            current: nil,
+            cached: cachedTarget,
+            ownBundleIdentifier: ownBundleIdentifier
+        ) else {
+            return nil
+        }
+        return focusTarget(for: resolvedTarget)
+    }
+
+    private static func sanitizedMenuTarget(
+        _ target: CommandPaletteAppSnapshot?,
+        ownBundleIdentifier: String?
+    ) -> CommandPaletteAppSnapshot? {
+        guard let target, !target.isTerminated else { return nil }
+        guard target.bundleIdentifier != ownBundleIdentifier else { return nil }
+        return target
+    }
+
+    private func liveCachedMenuTarget() -> CommandPaletteAppSnapshot? {
+        guard let cachedMenuTargetApp else { return nil }
+        guard let app = environment.runningApplication(cachedMenuTargetApp.processIdentifier) else {
+            self.cachedMenuTargetApp = nil
+            return nil
+        }
+
+        let liveTarget = CommandPaletteAppSnapshot(app: app)
+        guard !liveTarget.isTerminated else {
+            self.cachedMenuTargetApp = nil
+            return nil
+        }
+
+        if let expectedBundleIdentifier = cachedMenuTargetApp.bundleIdentifier,
+           liveTarget.bundleIdentifier != expectedBundleIdentifier
+        {
+            self.cachedMenuTargetApp = nil
+            return nil
+        }
+
+        self.cachedMenuTargetApp = liveTarget
+        return liveTarget
+    }
+
+    private func captureFocusTarget(for app: NSRunningApplication) -> CommandPaletteFocusTarget {
+        CommandPaletteFocusTarget(
+            app: CommandPaletteAppSnapshot(app: app),
             focusedWindow: focusedWindow(for: app)
         )
+    }
+
+    private func focusTarget(for appSnapshot: CommandPaletteAppSnapshot) -> CommandPaletteFocusTarget? {
+        guard let app = environment.runningApplication(appSnapshot.processIdentifier),
+              !app.isTerminated
+        else {
+            if cachedMenuTargetApp?.processIdentifier == appSnapshot.processIdentifier {
+                cachedMenuTargetApp = nil
+            }
+            return nil
+        }
+
+        return captureFocusTarget(for: app)
     }
 
     private func focusedWindow(for app: NSRunningApplication) -> AXUIElement? {
@@ -317,7 +461,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
                 return
             }
 
-            let items = self.fetcher.fetchMenuItemsSync(for: menuFocusTarget.app.processIdentifier)
+            let items = self.environment.fetchMenuItems(menuFocusTarget.app.processIdentifier)
             guard self.isVisible, self.menuLoadGeneration == generation else { return }
             self.menuItems = items
             self.isMenuLoading = false
@@ -342,19 +486,11 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let commandOnly = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
 
-        if commandOnly, let characters = event.charactersIgnoringModifiers {
-            switch characters {
-            case "1":
-                selectedMode = .windows
-                return true
-            case "2":
-                if isMenuModeAvailable {
-                    selectedMode = .menu
-                }
-                return true
-            default:
-                break
-            }
+        if commandOnly,
+           let characters = event.charactersIgnoringModifiers,
+           handleModeShortcut(characters)
+        {
+            return true
         }
 
         switch event.keyCode {
@@ -392,31 +528,9 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     }
 
     func selectCurrent() {
-        switch selectedMode {
-        case .windows:
-            let filtered = filteredWindowItems
-            guard case let .window(token)? = selectedItemID,
-                  let item = filtered.first(where: { $0.id == token })
-            else {
-                return
-            }
-            let handle = item.handle
-            dismiss(reason: .selection)
-            wmController?.navigateToCommandPaletteWindow(handle)
-        case .menu:
-            let filtered = filteredMenuItems
-            guard case let .menu(id)? = selectedItemID,
-                  let item = filtered.first(where: { $0.id == id }),
-                  let menuFocusTarget
-            else {
-                return
-            }
-            dismiss(reason: .selection)
-            focus(target: menuFocusTarget)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                AXUIElementPerformAction(item.axElement, "AXPress" as CFString)
-            }
-        }
+        guard let action = resolvedSelectionAction() else { return }
+        dismiss(reason: .selection)
+        performSelectionAction(action)
     }
 
     private func dismiss(reason: DismissReason) {
@@ -445,8 +559,61 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         }
     }
 
+    private func handleModeShortcut(_ characters: String) -> Bool {
+        switch characters {
+        case "1":
+            selectedMode = .windows
+            return true
+        case "2":
+            guard isMenuModeAvailable else { return false }
+            selectedMode = .menu
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resolvedSelectionAction() -> SelectionAction? {
+        switch selectedMode {
+        case .windows:
+            let filtered = filteredWindowItems
+            guard let wmController,
+                  case let .window(token)? = selectedItemID,
+                  let item = filtered.first(where: { $0.id == token })
+            else {
+                return nil
+            }
+            return .navigateWindow(wmController, item.handle)
+        case .menu:
+            let filtered = filteredMenuItems
+            guard case let .menu(id)? = selectedItemID,
+                  let item = filtered.first(where: { $0.id == id }),
+                  let menuFocusTarget
+            else {
+                return nil
+            }
+            return .pressMenu(menuFocusTarget, item.axElement)
+        }
+    }
+
+    private func performSelectionAction(_ action: SelectionAction) {
+        switch action {
+        case let .navigateWindow(wmController, handle):
+            environment.navigateToWindow(wmController, handle)
+        case let .pressMenu(target, element):
+            focus(target: target)
+            environment.scheduleMenuAction { [environment] in
+                environment.performMenuAction(element)
+            }
+        }
+    }
+
     private func focus(target: CommandPaletteFocusTarget) {
-        guard !target.app.isTerminated else { return }
+        guard let app = environment.runningApplication(target.app.processIdentifier),
+              !app.isTerminated
+        else {
+            return
+        }
 
         if let focusedWindow = target.focusedWindow,
            let windowId = getWindowId(from: focusedWindow)
@@ -460,7 +627,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
             }
         }
 
-        target.app.activate(options: [])
+        app.activate(options: [])
     }
 
     private func currentSelectionList() -> [CommandPaletteSelectionID] {
@@ -541,6 +708,27 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
             return
         }
         panel?.makeFirstResponder(textField)
+    }
+
+    func setWindowSelectionStateForTests(
+        wmController: WMController,
+        items: [CommandPaletteWindowItem],
+        selectedItemID: CommandPaletteSelectionID?
+    ) {
+        self.wmController = wmController
+        windows = items
+        menuItems = []
+        selectedMode = .windows
+        self.selectedItemID = selectedItemID
+    }
+
+    func setMenuAvailabilityForTests(_ target: CommandPaletteAppSnapshot?) {
+        menuFocusTarget = target.map { CommandPaletteFocusTarget(app: $0, focusedWindow: nil) }
+    }
+
+    @discardableResult
+    func handleModeShortcutForTests(_ characters: String) -> Bool {
+        handleModeShortcut(characters)
     }
 }
 
@@ -649,7 +837,7 @@ private struct CommandPaletteView: View {
     private var statusText: String {
         switch controller.selectedMode {
         case .windows:
-            "Use Command-1 for windows and Command-2 for menu search."
+            CommandPaletteController.windowsStatusText(isMenuModeAvailable: controller.isMenuModeAvailable)
         case .menu:
             controller.menuStatusText
         }
