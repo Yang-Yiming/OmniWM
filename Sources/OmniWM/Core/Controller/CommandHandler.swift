@@ -47,18 +47,12 @@ final class CommandHandler {
             controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: true)
         case .switchWorkspacePrevious:
             controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: false)
-        case let .moveToMonitor(direction):
-            controller.workspaceNavigationHandler.moveFocusedWindowToMonitor(direction: direction)
-        case let .focusMonitor(direction):
-            controller.workspaceNavigationHandler.focusMonitorInDirection(direction)
         case .focusMonitorPrevious:
             controller.workspaceNavigationHandler.focusMonitorCyclic(previous: true)
         case .focusMonitorNext:
             controller.workspaceNavigationHandler.focusMonitorCyclic(previous: false)
         case .focusMonitorLast:
             controller.workspaceNavigationHandler.focusLastMonitor()
-        case let .moveColumnToMonitor(direction):
-            controller.workspaceNavigationHandler.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
             toggleFullscreen()
         case .toggleNativeFullscreen:
@@ -77,22 +71,12 @@ final class CommandHandler {
             focusColumnLastInNiri()
         case let .focusColumn(index):
             focusColumnInNiri(index: index)
-        case .focusWindowTop:
-            focusWindowTopInNiri()
-        case .focusWindowBottom:
-            focusWindowBottomInNiri()
         case .cycleColumnWidthForward:
             layoutHandler(as: LayoutSizable.self)?.cycleSize(forward: true)
         case .cycleColumnWidthBackward:
             layoutHandler(as: LayoutSizable.self)?.cycleSize(forward: false)
         case .toggleColumnFullWidth:
             toggleColumnFullWidthInNiri()
-        case let .moveWorkspaceToMonitor(direction):
-            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitor(direction: direction)
-        case .moveWorkspaceToMonitorNext:
-            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitorRelative(previous: false)
-        case .moveWorkspaceToMonitorPrevious:
-            controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitorRelative(previous: true)
         case let .swapWorkspaceWithMonitor(direction):
             controller.workspaceNavigationHandler.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .balanceSizes:
@@ -109,8 +93,6 @@ final class CommandHandler {
             preselectInDwindle(direction: direction)
         case .preselectClear:
             clearPreselectInDwindle()
-        case let .summonWorkspace(index):
-            controller.workspaceNavigationHandler.summonWorkspace(index: index)
         case .workspaceBackAndForth:
             controller.workspaceNavigationHandler.workspaceBackAndForth()
         case let .focusWorkspaceAnywhere(index):
@@ -234,30 +216,6 @@ final class CommandHandler {
         executeCombinedNavigation { engine, currentNode, wsId, state, workingFrame, gaps in
             engine.focusColumn(
                 index,
-                currentSelection: currentNode,
-                in: wsId,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
-        }
-    }
-
-    private func focusWindowTopInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, state, workingFrame, gaps in
-            engine.focusWindowTop(
-                currentSelection: currentNode,
-                in: wsId,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
-        }
-    }
-
-    private func focusWindowBottomInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, state, workingFrame, gaps in
-            engine.focusWindowBottom(
                 currentSelection: currentNode,
                 in: wsId,
                 state: &state,

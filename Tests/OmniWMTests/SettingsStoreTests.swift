@@ -744,6 +744,42 @@ private func makeSettingsTestMonitor(
         #expect(HotkeyCommand.move(.left).layoutCompatibility == .shared)
     }
 
+    @Test func removedDirectionalMonitorBindingsAreAbsent() {
+        let ids = Set(HotkeyBindingRegistry.defaults().map(\.id))
+
+        #expect(!ids.contains("moveToMonitor.left"))
+        #expect(!ids.contains("moveToMonitor.right"))
+        #expect(!ids.contains("moveToMonitor.up"))
+        #expect(!ids.contains("moveToMonitor.down"))
+        #expect(!ids.contains("focusMonitor.left"))
+        #expect(!ids.contains("focusMonitor.right"))
+        #expect(!ids.contains("focusMonitor.up"))
+        #expect(!ids.contains("focusMonitor.down"))
+        #expect(!ids.contains("moveColumnToMonitor.left"))
+        #expect(!ids.contains("moveColumnToMonitor.right"))
+        #expect(!ids.contains("moveColumnToMonitor.up"))
+        #expect(!ids.contains("moveColumnToMonitor.down"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.left"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.right"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.up"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.down"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.next"))
+        #expect(!ids.contains("moveWorkspaceToMonitor.previous"))
+        #expect(!ids.contains("focusWindowTop"))
+        #expect(!ids.contains("focusWindowBottom"))
+        #expect(!ids.contains("summonWorkspace.0"))
+        #expect(!ids.contains("summonWorkspace.1"))
+        #expect(!ids.contains("summonWorkspace.2"))
+        #expect(!ids.contains("summonWorkspace.3"))
+        #expect(!ids.contains("summonWorkspace.4"))
+        #expect(!ids.contains("summonWorkspace.5"))
+        #expect(!ids.contains("summonWorkspace.6"))
+        #expect(!ids.contains("summonWorkspace.7"))
+        #expect(!ids.contains("summonWorkspace.8"))
+        #expect(ids.contains("focusMonitorNext"))
+        #expect(ids.contains("focusMonitorLast"))
+    }
+
     @Test func hotkeyBindingEncodesWithoutSerializedCommand() throws {
         let binding = HotkeyBinding(id: "move.left", command: .move(.left), binding: .unassigned)
         let data = try JSONEncoder().encode(binding)
@@ -813,6 +849,106 @@ private func makeSettingsTestMonitor(
             keyCode: UInt32(kVK_RightArrow),
             modifiers: UInt32(optionKey | shiftKey)
         ))
+    }
+
+    @Test func settingsStoreDropsRemovedDirectionalBindingsWithoutTouchingValidOnes() throws {
+        let defaults = makeTestDefaults()
+        let rawData = Data(
+            """
+            [
+              { "id": "moveToMonitor.left", "binding": "Control+Option+Left" },
+              { "id": "focusWindowTop", "binding": "Option+Shift+Home" },
+              { "id": "move.left", "binding": "Control+Option+K" }
+            ]
+            """.utf8
+        )
+        defaults.set(rawData, forKey: "settings.hotkeyBindings")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(settings.hotkeyBindings.contains { $0.id == "moveToMonitor.left" } == false)
+        #expect(settings.hotkeyBindings.contains { $0.id == "focusWindowTop" } == false)
+    }
+
+    @Test func mergedImportDataDropsRemovedDirectionalBindingsWithoutTouchingValidOnes() throws {
+        let rawData = Data(
+            """
+            {
+              "version": \(SettingsMigration.currentSettingsEpoch),
+              "hotkeyBindings": [
+                { "id": "moveWorkspaceToMonitor.left", "binding": "Option+Shift+M" },
+                { "id": "focusMonitor.left", "binding": "Control+Command+Left" },
+                { "id": "move.left", "binding": "Control+Option+K" }
+              ]
+            }
+            """.utf8
+        )
+
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.left" } == false)
+        #expect(decoded.hotkeyBindings.contains { $0.id == "focusMonitor.left" } == false)
+    }
+
+    @Test func settingsStoreDropsRemovedRelativeMonitorMoveAndSummonBindings() throws {
+        let defaults = makeTestDefaults()
+        let rawData = Data(
+            """
+            [
+              { "id": "moveWorkspaceToMonitor.next", "binding": "Control+Option+N" },
+              { "id": "moveWorkspaceToMonitor.previous", "binding": "Control+Option+P" },
+              { "id": "summonWorkspace.0", "binding": "Control+Shift+1" },
+              { "id": "move.left", "binding": "Control+Option+K" }
+            ]
+            """.utf8
+        )
+        defaults.set(rawData, forKey: "settings.hotkeyBindings")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(settings.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.next" } == false)
+        #expect(settings.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.previous" } == false)
+        #expect(settings.hotkeyBindings.contains { $0.id == "summonWorkspace.0" } == false)
+    }
+
+    @Test func mergedImportDataDropsRemovedRelativeMonitorMoveAndSummonBindings() throws {
+        let rawData = Data(
+            """
+            {
+              "version": \(SettingsMigration.currentSettingsEpoch),
+              "hotkeyBindings": [
+                { "id": "moveWorkspaceToMonitor.next", "binding": "Control+Option+N" },
+                { "id": "moveWorkspaceToMonitor.previous", "binding": "Control+Option+P" },
+                { "id": "summonWorkspace.8", "binding": "Control+Shift+9" },
+                { "id": "move.left", "binding": "Control+Option+K" }
+              ]
+            }
+            """.utf8
+        )
+
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.next" } == false)
+        #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.previous" } == false)
+        #expect(decoded.hotkeyBindings.contains { $0.id == "summonWorkspace.8" } == false)
     }
 
     @Test func settingsStoreMigratesLegacyWindowFinderBindingToCommandPalette() {

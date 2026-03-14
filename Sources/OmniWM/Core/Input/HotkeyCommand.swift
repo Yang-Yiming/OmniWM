@@ -19,12 +19,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case switchWorkspace(Int)
     case switchWorkspaceNext
     case switchWorkspacePrevious
-    case moveToMonitor(Direction)
-    case focusMonitor(Direction)
     case focusMonitorPrevious
     case focusMonitorNext
     case focusMonitorLast
-    case moveColumnToMonitor(Direction)
     case toggleFullscreen
     case toggleNativeFullscreen
     case moveColumn(Direction)
@@ -35,16 +32,10 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case focusColumnFirst
     case focusColumnLast
     case focusColumn(Int)
-    case focusWindowTop
-    case focusWindowBottom
-
     case cycleColumnWidthForward
     case cycleColumnWidthBackward
     case toggleColumnFullWidth
 
-    case moveWorkspaceToMonitor(Direction)
-    case moveWorkspaceToMonitorNext
-    case moveWorkspaceToMonitorPrevious
     case swapWorkspaceWithMonitor(Direction)
 
     case balanceSizes
@@ -55,7 +46,6 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case preselect(Direction)
     case preselectClear
 
-    case summonWorkspace(Int)
     case workspaceBackAndForth
     case focusWorkspaceAnywhere(Int)
     case moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction)
@@ -85,12 +75,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case let .switchWorkspace(idx): "Switch to Workspace \(idx + 1)"
         case .switchWorkspaceNext: "Switch to Next Workspace"
         case .switchWorkspacePrevious: "Switch to Previous Workspace"
-        case let .moveToMonitor(dir): "Move to \(dir.displayName) Monitor"
-        case let .focusMonitor(dir): "Focus \(dir.displayName) Monitor"
         case .focusMonitorPrevious: "Focus Previous Monitor"
         case .focusMonitorNext: "Focus Next Monitor"
         case .focusMonitorLast: "Focus Last Monitor"
-        case let .moveColumnToMonitor(dir): "Move Column to \(dir.displayName) Monitor"
         case .toggleFullscreen: "Toggle Fullscreen"
         case .toggleNativeFullscreen: "Toggle Native Fullscreen"
         case let .moveColumn(dir): "Move Column \(dir.displayName)"
@@ -100,14 +87,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .focusColumnFirst: "Focus First Column"
         case .focusColumnLast: "Focus Last Column"
         case let .focusColumn(idx): "Focus Column \(idx + 1)"
-        case .focusWindowTop: "Focus Top Window"
-        case .focusWindowBottom: "Focus Bottom Window"
         case .cycleColumnWidthForward: "Cycle Column Width Forward"
         case .cycleColumnWidthBackward: "Cycle Column Width Backward"
         case .toggleColumnFullWidth: "Toggle Column Full Width"
-        case let .moveWorkspaceToMonitor(dir): "Move Workspace to \(dir.displayName) Monitor"
-        case .moveWorkspaceToMonitorNext: "Move Workspace to Next Monitor"
-        case .moveWorkspaceToMonitorPrevious: "Move Workspace to Previous Monitor"
         case let .swapWorkspaceWithMonitor(dir): "Swap Workspace with \(dir.displayName) Monitor"
         case .balanceSizes: "Balance Sizes"
         case .moveToRoot: "Move to Root"
@@ -116,7 +98,6 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case let .resizeInDirection(dir, grow): "\(grow ? "Grow" : "Shrink") \(dir.displayName)"
         case let .preselect(dir): "Preselect \(dir.displayName)"
         case .preselectClear: "Clear Preselection"
-        case let .summonWorkspace(idx): "Summon Workspace \(idx + 1)"
         case .workspaceBackAndForth: "Switch to Previous Workspace"
         case let .focusWorkspaceAnywhere(idx): "Focus Workspace \(idx + 1) Anywhere"
         case let .moveWindowToWorkspaceOnMonitor(wsIdx, monDir): "Move Window to Workspace \(wsIdx + 1) on \(monDir.displayName) Monitor"
@@ -136,10 +117,9 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
             .dwindle
 
         case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,
-             .moveColumnToMonitor, .toggleColumnFullWidth, .toggleColumnTabbed,
+             .toggleColumnFullWidth, .toggleColumnTabbed,
              .focusPrevious, .focusDownOrLeft, .focusUpOrRight,
-             .focusColumnFirst, .focusColumnLast, .focusColumn,
-             .focusWindowTop, .focusWindowBottom:
+             .focusColumnFirst, .focusColumnLast, .focusColumn:
             .niri
 
         case .focus, .toggleFullscreen, .cycleColumnWidthForward, .cycleColumnWidthBackward,
@@ -147,11 +127,10 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
              .move,
              .moveToWorkspace, .moveWindowToWorkspaceUp, .moveWindowToWorkspaceDown,
              .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious,
-             .moveToMonitor, .focusMonitor, .focusMonitorPrevious, .focusMonitorNext, .focusMonitorLast,
+             .focusMonitorPrevious, .focusMonitorNext, .focusMonitorLast,
              .toggleNativeFullscreen,
-             .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious,
              .swapWorkspaceWithMonitor,
-             .summonWorkspace, .workspaceBackAndForth, .focusWorkspaceAnywhere,
+             .workspaceBackAndForth, .focusWorkspaceAnywhere,
              .moveWindowToWorkspaceOnMonitor,
              .openCommandPalette, .raiseAllFloatingWindows,
              .openMenuAnywhere,

@@ -932,21 +932,6 @@ final class WorkspaceManager {
         return true
     }
 
-    func summonWorkspace(named workspaceName: String, to focusedMonitorId: Monitor.ID) -> WorkspaceDescriptor? {
-        guard let workspaceId = workspaceId(for: workspaceName, createIfMissing: false) else { return nil }
-        guard let targetMonitor = monitorForWorkspace(workspaceId) else { return nil }
-
-        if visibleWorkspaceId(on: targetMonitor.id) == workspaceId { return nil }
-        guard setActiveWorkspace(workspaceId, on: targetMonitor.id) else { return nil }
-        return descriptor(for: workspaceId)
-    }
-
-    @discardableResult
-    func summonWorkspace(_ workspaceId: WorkspaceDescriptor.ID, to targetMonitorId: Monitor.ID) -> Bool {
-        guard let workspace = descriptor(for: workspaceId) else { return false }
-        return summonWorkspace(named: workspace.name, to: targetMonitorId) != nil
-    }
-
     func setActiveWorkspace(
         _ workspaceId: WorkspaceDescriptor.ID,
         on monitorId: Monitor.ID,
@@ -965,17 +950,6 @@ final class WorkspaceManager {
         guard let monitor = monitor(byId: monitorId) else { return }
         guard isValidAssignment(workspaceId: workspaceId, monitorId: monitor.id) else { return }
         updateWorkspace(workspaceId) { $0.assignedMonitorPoint = monitor.workspaceAnchorPoint }
-    }
-
-    func resolveTargetForMonitorMove(
-        from workspaceId: WorkspaceDescriptor.ID,
-        direction: Direction
-    ) -> (workspace: WorkspaceDescriptor, monitor: Monitor)? {
-        guard let sourceWorkspace = descriptor(for: workspaceId) else { return nil }
-        guard let sourceMonitor = monitorForWorkspace(sourceWorkspace.id) else { return nil }
-        guard let targetMonitor = adjacentMonitor(from: sourceMonitor.id, direction: direction) else { return nil }
-        guard let targetWorkspace = activeWorkspaceOrFirst(on: targetMonitor.id) else { return nil }
-        return (targetWorkspace, targetMonitor)
     }
 
     func niriViewportState(for workspaceId: WorkspaceDescriptor.ID) -> ViewportState {

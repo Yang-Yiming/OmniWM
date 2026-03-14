@@ -1006,32 +1006,6 @@ private func prepareNiriState(
         assertNoLegacyReasons(recorder)
     }
 
-    @Test @MainActor func moveCurrentWorkspaceToForeignMonitorDoesNotRelayout() async {
-        let fixture = makeTwoMonitorRefreshTestController()
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: fixture.controller, recorder: recorder)
-
-        fixture.controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitor(direction: .right)
-        await waitForRefreshWork(on: fixture.controller)
-
-        #expect(recorder.relayoutEvents.isEmpty)
-        #expect(recorder.fullRescanReasons.isEmpty)
-        assertNoLegacyReasons(recorder)
-    }
-
-    @Test @MainActor func moveCurrentWorkspaceToForeignMonitorRelativeDoesNotRelayout() async {
-        let fixture = makeTwoMonitorRefreshTestController()
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: fixture.controller, recorder: recorder)
-
-        fixture.controller.workspaceNavigationHandler.moveCurrentWorkspaceToMonitorRelative(previous: false)
-        await waitForRefreshWork(on: fixture.controller)
-
-        #expect(recorder.relayoutEvents.isEmpty)
-        #expect(recorder.fullRescanReasons.isEmpty)
-        assertNoLegacyReasons(recorder)
-    }
-
     @Test @MainActor func swapCurrentWorkspaceWithMonitorDoesNotRelayoutAcrossFixedHomes() async {
         let fixture = makeTwoMonitorRefreshTestController()
         let recorder = RefreshEventRecorder()
@@ -1041,47 +1015,6 @@ private func prepareNiriState(
         await waitForRefreshWork(on: fixture.controller)
 
         #expect(recorder.relayoutEvents.isEmpty)
-        #expect(recorder.fullRescanReasons.isEmpty)
-        assertNoLegacyReasons(recorder)
-    }
-
-    @Test @MainActor func moveColumnToMonitorUsesImmediateRelayoutOnly() async {
-        let fixture = makeTwoMonitorRefreshTestController()
-        _ = await prepareNiriState(
-            on: fixture.controller,
-            assignments: [(fixture.primaryWorkspaceId, 401)],
-            focusedWindowId: 401,
-            ensureWorkspaces: [fixture.secondaryWorkspaceId]
-        )
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: fixture.controller, recorder: recorder)
-
-        fixture.controller.workspaceNavigationHandler.moveColumnToMonitorInDirection(.right)
-        await waitForRefreshWork(on: fixture.controller)
-
-        #expect(recorder.relayoutEvents.map(\.0) == [.workspaceTransition])
-        #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
-        #expect(recorder.fullRescanReasons.isEmpty)
-        assertNoLegacyReasons(recorder)
-    }
-
-    @Test @MainActor func moveFocusedWindowToMonitorUsesImmediateRelayoutOnly() async {
-        let fixture = makeTwoMonitorRefreshTestController()
-        fixture.controller.settings.focusFollowsWindowToMonitor = true
-        _ = await prepareNiriState(
-            on: fixture.controller,
-            assignments: [(fixture.primaryWorkspaceId, 402)],
-            focusedWindowId: 402,
-            ensureWorkspaces: [fixture.secondaryWorkspaceId]
-        )
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: fixture.controller, recorder: recorder)
-
-        fixture.controller.workspaceNavigationHandler.moveFocusedWindowToMonitor(direction: .right)
-        await waitForRefreshWork(on: fixture.controller)
-
-        #expect(recorder.relayoutEvents.map(\.0) == [.workspaceTransition])
-        #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
         #expect(recorder.fullRescanReasons.isEmpty)
         assertNoLegacyReasons(recorder)
     }

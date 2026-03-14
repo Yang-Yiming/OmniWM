@@ -453,43 +453,6 @@ extension NiriLayoutEngine {
         return target
     }
 
-    func focusWindowTop(
-        currentSelection: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat
-    ) -> NiriNode? {
-        focusWindowInColumn(
-            0,
-            currentSelection: currentSelection,
-            in: workspaceId,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
-    }
-
-    func focusWindowBottom(
-        currentSelection: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat
-    ) -> NiriNode? {
-        guard let currentColumn = column(of: currentSelection) else { return nil }
-        let windows = currentColumn.windowNodes
-        guard !windows.isEmpty else { return nil }
-        return focusWindowInColumn(
-            windows.count - 1,
-            currentSelection: currentSelection,
-            in: workspaceId,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
-    }
-
     func focusPrevious(
         currentNodeId: NodeId?,
         in workspaceId: WorkspaceDescriptor.ID,

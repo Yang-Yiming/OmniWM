@@ -679,39 +679,6 @@ private func workspaceConfigurations(
         #expect(manager.monitorId(for: ws2) == right.id)
     }
 
-    @Test @MainActor func summonWorkspaceActivatesOnHomeMonitorInsteadOfTargetMonitor() {
-        let defaults = makeWorkspaceManagerTestDefaults()
-        let settings = SettingsStore(defaults: defaults)
-        settings.workspaceConfigurations = workspaceConfigurations([
-            ("1", .main),
-            ("2", .secondary),
-            ("3", .secondary)
-        ])
-
-        let manager = WorkspaceManager(settings: settings)
-        let left = makeWorkspaceManagerTestMonitor(displayId: 10, name: "Left", x: 0, y: 0)
-        let right = makeWorkspaceManagerTestMonitor(displayId: 20, name: "Right", x: 1920, y: 0)
-        manager.applyMonitorConfigurationChange([left, right])
-
-        guard let ws1 = manager.workspaceId(for: "1", createIfMissing: true),
-              let ws2 = manager.workspaceId(for: "2", createIfMissing: true),
-              let ws3 = manager.workspaceId(for: "3", createIfMissing: true)
-        else {
-            Issue.record("Failed to create workspaces")
-            return
-        }
-
-        #expect(manager.setActiveWorkspace(ws1, on: left.id))
-        #expect(manager.setActiveWorkspace(ws3, on: right.id))
-        #expect(manager.setInteractionMonitor(left.id))
-        #expect(manager.summonWorkspace(ws2, to: left.id))
-        #expect(manager.activeWorkspace(on: left.id)?.id == ws1)
-        #expect(manager.activeWorkspace(on: right.id)?.id == ws2)
-        #expect(manager.previousWorkspace(on: right.id)?.id == ws3)
-        #expect(manager.monitorId(for: ws2) == right.id)
-        #expect(manager.interactionMonitorId == right.id)
-    }
-
     @Test @MainActor func viewportStatePersistsAcrossWorkspaceTransitions() {
         let defaults = makeWorkspaceManagerTestDefaults()
         let settings = SettingsStore(defaults: defaults)

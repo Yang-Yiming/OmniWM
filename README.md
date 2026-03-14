@@ -182,15 +182,12 @@ All shortcuts are customizable in Settings > Hotkeys.
 | Switch to Workspace 1-9 | `Option + 1-9` |
 | Move Window to Workspace 1-9 | `Option + Shift + 1-9` |
 | Toggle Back & Forth | `Option + Ctrl + Tab` |
-| Summon Workspace to Current Monitor | `Ctrl + Shift + 1-9` |
 
 #### Multi-Monitor
 
 | Action | Shortcut |
 |--------|----------|
-| Focus Monitor in Direction | `Ctrl + Cmd + Arrow Keys` |
 | Focus Next Monitor | `Ctrl + Cmd + Tab` |
-| Move Window to Monitor | `Option + Ctrl + Arrow Keys` |
 
 #### Layout Controls (Niri)
 

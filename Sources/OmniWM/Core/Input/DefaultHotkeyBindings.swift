@@ -129,49 +129,6 @@ enum DefaultHotkeyBindings {
 
         bindings.append(contentsOf: [
             HotkeyBinding(
-                id: "moveToMonitor.left",
-                command: .moveToMonitor(.left),
-                binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "moveToMonitor.down",
-                command: .moveToMonitor(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "moveToMonitor.up",
-                command: .moveToMonitor(.up),
-                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "moveToMonitor.right",
-                command: .moveToMonitor(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey | controlKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "focusMonitor.left",
-                command: .focusMonitor(.left),
-                binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(controlKey | cmdKey))
-            ),
-            HotkeyBinding(
-                id: "focusMonitor.right",
-                command: .focusMonitor(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(controlKey | cmdKey))
-            ),
-            HotkeyBinding(
-                id: "focusMonitor.up",
-                command: .focusMonitor(.up),
-                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(controlKey | cmdKey))
-            ),
-            HotkeyBinding(
-                id: "focusMonitor.down",
-                command: .focusMonitor(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(controlKey | cmdKey))
-            ),
-            HotkeyBinding(
                 id: "focusMonitorNext",
                 command: .focusMonitorNext,
                 binding: KeyBinding(keyCode: UInt32(kVK_Tab), modifiers: UInt32(controlKey | cmdKey))
@@ -185,57 +142,6 @@ enum DefaultHotkeyBindings {
                 id: "focusMonitorLast",
                 command: .focusMonitorLast,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(controlKey | cmdKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "moveColumnToMonitor.left",
-                command: .moveColumnToMonitor(.left),
-                binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(controlKey | cmdKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "moveColumnToMonitor.right",
-                command: .moveColumnToMonitor(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(controlKey | cmdKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "moveColumnToMonitor.up",
-                command: .moveColumnToMonitor(.up),
-                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(controlKey | cmdKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "moveColumnToMonitor.down",
-                command: .moveColumnToMonitor(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(controlKey | cmdKey | shiftKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "moveWorkspaceToMonitor.left",
-                command: .moveWorkspaceToMonitor(.left),
-                binding: .unassigned
-            ),
-            HotkeyBinding(
-                id: "moveWorkspaceToMonitor.right",
-                command: .moveWorkspaceToMonitor(.right),
-                binding: .unassigned
-            ),
-            HotkeyBinding(id: "moveWorkspaceToMonitor.up", command: .moveWorkspaceToMonitor(.up), binding: .unassigned),
-            HotkeyBinding(
-                id: "moveWorkspaceToMonitor.down",
-                command: .moveWorkspaceToMonitor(.down),
-                binding: .unassigned
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(id: "moveWorkspaceToMonitor.next", command: .moveWorkspaceToMonitorNext, binding: .unassigned),
-            HotkeyBinding(
-                id: "moveWorkspaceToMonitor.previous",
-                command: .moveWorkspaceToMonitorPrevious,
-                binding: .unassigned
             )
         ])
 
@@ -287,19 +193,6 @@ enum DefaultHotkeyBindings {
                 id: "focusColumnLast",
                 command: .focusColumnLast,
                 binding: KeyBinding(keyCode: UInt32(kVK_End), modifiers: UInt32(optionKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "focusWindowTop",
-                command: .focusWindowTop,
-                binding: KeyBinding(keyCode: UInt32(kVK_Home), modifiers: UInt32(optionKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "focusWindowBottom",
-                command: .focusWindowBottom,
-                binding: KeyBinding(keyCode: UInt32(kVK_End), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
 
@@ -371,14 +264,6 @@ enum DefaultHotkeyBindings {
             HotkeyBinding(id: "preselect.down", command: .preselect(.down), binding: .unassigned),
             HotkeyBinding(id: "preselectClear", command: .preselectClear, binding: .unassigned)
         ])
-
-        for (idx, code) in digitCodes.enumerated() {
-            bindings.append(HotkeyBinding(
-                id: "summonWorkspace.\(idx)",
-                command: .summonWorkspace(idx),
-                binding: KeyBinding(keyCode: code, modifiers: UInt32(controlKey | shiftKey))
-            ))
-        }
 
         bindings.append(HotkeyBinding(
             id: "openCommandPalette",

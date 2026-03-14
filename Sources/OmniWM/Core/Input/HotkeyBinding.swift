@@ -68,19 +68,18 @@ struct HotkeyBinding: Codable, Equatable, Identifiable {
     var category: HotkeyCategory {
         switch command {
         case .moveColumnToWorkspace, .moveColumnToWorkspaceDown, .moveColumnToWorkspaceUp, .moveToWorkspace,
-             .moveWindowToWorkspaceDown, .moveWindowToWorkspaceUp, .summonWorkspace,
+             .moveWindowToWorkspaceDown, .moveWindowToWorkspaceUp,
              .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious, .workspaceBackAndForth,
              .focusWorkspaceAnywhere:
             .workspace
         case .focus, .focusColumn, .focusColumnFirst, .focusColumnLast,
-             .focusDownOrLeft, .focusPrevious, .focusUpOrRight, .focusWindowBottom, .focusWindowTop,
+             .focusDownOrLeft, .focusPrevious, .focusUpOrRight,
              .openCommandPalette, .openMenuAnywhere, .toggleHiddenBar, .toggleQuakeTerminal,
              .toggleOverview:
             .focus
         case .move:
             .move
-        case .focusMonitor, .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious, .moveColumnToMonitor,
-             .moveToMonitor, .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious,
+        case .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious,
              .swapWorkspaceWithMonitor, .moveWindowToWorkspaceOnMonitor:
             .monitor
         case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen,
