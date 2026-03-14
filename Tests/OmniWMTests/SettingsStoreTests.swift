@@ -10,6 +10,13 @@ private func makeTestDefaults() -> UserDefaults {
     return UserDefaults(suiteName: suiteName)!
 }
 
+private func makeTestSettingsURL() -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("omniwm-settings-tests", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appendingPathComponent("settings-\(UUID().uuidString).json")
+}
+
 private func makeSettingsTestMonitor(
     displayId: CGDirectDisplayID,
     name: String,
@@ -257,6 +264,7 @@ private func makeSettingsTestMonitor(
             "hotkeysEnabled": true,
             "focusFollowsMouse": false,
             "moveMouseToFocusedWindow": false,
+            "focusFollowsWindowToMonitor": false,
             "mouseWarpMonitorOrder": [],
             "mouseWarpMargin": 2,
             "gapSize": 8,
@@ -307,9 +315,18 @@ private func makeSettingsTestMonitor(
             "scrollModifierKey": "futureModifier",
             "gestureFingerCount": 99,
             "gestureInvertDirection": true,
+            "commandPaletteLastMode": "futurePaletteMode",
             "animationsEnabled": true,
-            "hiddenBarEnabled": false,
             "hiddenBarIsCollapsed": false,
+            "quakeTerminalEnabled": false,
+            "quakeTerminalPosition": "futurePosition",
+            "quakeTerminalWidthPercent": 75,
+            "quakeTerminalHeightPercent": 50,
+            "quakeTerminalAnimationDuration": 0.4,
+            "quakeTerminalAutoHide": true,
+            "quakeTerminalOpacity": 0.8,
+            "quakeTerminalMonitorMode": "futureMonitorMode",
+            "quakeTerminalUseCustomFrame": false,
             "appearanceMode": "futureMode"
         }
         """
@@ -317,6 +334,9 @@ private func makeSettingsTestMonitor(
         #expect(decoded.niriCenterFocusedColumn == "futureUnknownValue")
         #expect(decoded.workspaceBarPosition == "futurePosition")
         #expect(decoded.scrollModifierKey == "futureModifier")
+        #expect(decoded.commandPaletteLastMode == "futurePaletteMode")
+        #expect(decoded.quakeTerminalPosition == "futurePosition")
+        #expect(decoded.quakeTerminalMonitorMode == "futureMonitorMode")
     }
 
     @Test func encodeDecodeRoundTrip() throws {
@@ -324,6 +344,7 @@ private func makeSettingsTestMonitor(
             hotkeysEnabled: true,
             focusFollowsMouse: true,
             moveMouseToFocusedWindow: true,
+            focusFollowsWindowToMonitor: true,
             mouseWarpMonitorOrder: ["Monitor1", "Monitor2"],
             mouseWarpMargin: 5,
             gapSize: 12.0,
@@ -376,10 +397,18 @@ private func makeSettingsTestMonitor(
             scrollModifierKey: "option",
             gestureFingerCount: 4,
             gestureInvertDirection: true,
-            hiddenBarEnabled: true,
+            commandPaletteLastMode: "menu",
             hiddenBarIsCollapsed: true,
+            quakeTerminalEnabled: true,
+            quakeTerminalPosition: "bottom",
+            quakeTerminalWidthPercent: 80,
+            quakeTerminalHeightPercent: 55,
+            quakeTerminalAnimationDuration: 0.4,
+            quakeTerminalAutoHide: false,
             quakeTerminalOpacity: 0.85,
-            quakeTerminalMonitorMode: "focused",
+            quakeTerminalMonitorMode: "focusedWindow",
+            quakeTerminalUseCustomFrame: true,
+            quakeTerminalCustomFrame: QuakeTerminalFrameExport(x: 10, y: 20, width: 1200, height: 700),
             appearanceMode: "dark"
         )
         let encoder = JSONEncoder()
@@ -456,7 +485,7 @@ private func makeSettingsTestMonitor(
 @Suite struct IncrementalSettingsExportTests {
     @Test func incrementalExportOmitsRemovedAnimationsKeyAndDefaultHotkeys() throws {
         var export = SettingsExport.defaults()
-        export.hiddenBarEnabled = true
+        export.hiddenBarIsCollapsed = true
 
         let data = try export.exportData(incrementalOnly: true)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -465,8 +494,51 @@ private func makeSettingsTestMonitor(
         }
 
         #expect(json["animationsEnabled"] == nil)
-        #expect((json["hiddenBarEnabled"] as? Bool) == true)
+        #expect((json["hiddenBarIsCollapsed"] as? Bool) == true)
         #expect(json["hotkeyBindings"] == nil)
+    }
+
+    @Test func incrementalExportIncludesReadableAdditionalPersistedSettings() throws {
+        var export = SettingsExport.defaults()
+        export.focusFollowsWindowToMonitor = true
+        export.commandPaletteLastMode = CommandPaletteMode.menu.rawValue
+        export.quakeTerminalEnabled = true
+        export.quakeTerminalPosition = QuakeTerminalPosition.bottom.rawValue
+        export.quakeTerminalWidthPercent = 80
+        export.quakeTerminalHeightPercent = 55
+        export.quakeTerminalAnimationDuration = 0.4
+        export.quakeTerminalAutoHide = false
+        export.quakeTerminalUseCustomFrame = true
+        export.quakeTerminalCustomFrame = QuakeTerminalFrameExport(x: 10, y: 20, width: 1200, height: 700)
+
+        let data = try export.exportData(incrementalOnly: true)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected incremental export to produce a JSON object")
+            return
+        }
+
+        #expect((json["focusFollowsWindowToMonitor"] as? Bool) == true)
+        #expect(json["commandPaletteLastMode"] as? String == "menu")
+        #expect((json["quakeTerminalEnabled"] as? Bool) == true)
+        #expect(json["quakeTerminalPosition"] as? String == "bottom")
+        #expect((json["quakeTerminalWidthPercent"] as? NSNumber)?.doubleValue == 80)
+        #expect((json["quakeTerminalHeightPercent"] as? NSNumber)?.doubleValue == 55)
+        #expect((json["quakeTerminalAnimationDuration"] as? NSNumber)?.doubleValue == 0.4)
+        #expect((json["quakeTerminalAutoHide"] as? Bool) == false)
+        #expect((json["quakeTerminalUseCustomFrame"] as? Bool) == true)
+        #expect(json["quakeTerminalCustomFrameX"] == nil)
+        #expect(json["quakeTerminalCustomFrameY"] == nil)
+        #expect(json["quakeTerminalCustomFrameWidth"] == nil)
+        #expect(json["quakeTerminalCustomFrameHeight"] == nil)
+
+        guard let frame = json["quakeTerminalCustomFrame"] as? [String: Any] else {
+            Issue.record("Expected incremental export to include a readable quakeTerminalCustomFrame object")
+            return
+        }
+        #expect((frame["x"] as? NSNumber)?.doubleValue == 10)
+        #expect((frame["y"] as? NSNumber)?.doubleValue == 20)
+        #expect((frame["width"] as? NSNumber)?.doubleValue == 1200)
+        #expect((frame["height"] as? NSNumber)?.doubleValue == 700)
     }
 
     @Test func fullExportOmitsRemovedMenuAnywhereKeys() throws {
@@ -511,14 +583,14 @@ private func makeSettingsTestMonitor(
             {
               "version": \(SettingsMigration.currentSettingsEpoch),
               "animationsEnabled": false,
-              "hiddenBarEnabled": true
+              "hiddenBarIsCollapsed": true
             }
             """.utf8
         )
 
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
-        #expect(decoded.hiddenBarEnabled == true)
+        #expect(decoded.hiddenBarIsCollapsed == true)
 
         let reexported = try decoded.exportData(incrementalOnly: false)
         guard let json = try JSONSerialization.jsonObject(with: reexported) as? [String: Any] else {
@@ -527,7 +599,7 @@ private func makeSettingsTestMonitor(
         }
 
         #expect(json["animationsEnabled"] == nil)
-        #expect((json["hiddenBarEnabled"] as? Bool) == true)
+        #expect((json["hiddenBarIsCollapsed"] as? Bool) == true)
     }
 
     @Test func sameEpochLegacyWorkspaceKeysAreIgnoredOnImportAndDroppedOnReexport() throws {
@@ -559,6 +631,32 @@ private func makeSettingsTestMonitor(
 
         #expect(reexportedJSON["persistentWorkspacesRaw"] == nil)
         #expect(reexportedJSON["workspaceAssignmentsRaw"] == nil)
+    }
+
+    @Test func mergedImportDataBackfillsNewPersistedSettingsWithDefaults() throws {
+        let rawData = Data(
+            """
+            {
+              "version": \(SettingsMigration.currentSettingsEpoch),
+              "hiddenBarIsCollapsed": true
+            }
+            """.utf8
+        )
+
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+
+        #expect(decoded.hiddenBarIsCollapsed == true)
+        #expect(decoded.focusFollowsWindowToMonitor == false)
+        #expect(decoded.commandPaletteLastMode == CommandPaletteMode.windows.rawValue)
+        #expect(decoded.quakeTerminalEnabled == false)
+        #expect(decoded.quakeTerminalPosition == QuakeTerminalPosition.top.rawValue)
+        #expect(decoded.quakeTerminalWidthPercent == 100.0)
+        #expect(decoded.quakeTerminalHeightPercent == 40.0)
+        #expect(decoded.quakeTerminalAnimationDuration == 0.2)
+        #expect(decoded.quakeTerminalAutoHide == true)
+        #expect(decoded.quakeTerminalUseCustomFrame == false)
+        #expect(decoded.quakeTerminalCustomFrame == nil)
     }
 }
 
@@ -821,6 +919,45 @@ private func makeSettingsTestMonitor(
     }
 }
 
+@Suite @MainActor struct SettingsStoreFileRoundTripTests {
+    @Test func exportAndImportRoundTripNewlyCoveredPersistedState() throws {
+        let exportURL = makeTestSettingsURL()
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
+        let settings = SettingsStore(defaults: makeTestDefaults())
+        settings.focusFollowsWindowToMonitor = true
+        settings.commandPaletteLastMode = .menu
+        settings.quakeTerminalEnabled = true
+        settings.quakeTerminalPosition = .bottom
+        settings.quakeTerminalWidthPercent = 80
+        settings.quakeTerminalHeightPercent = 55
+        settings.quakeTerminalAnimationDuration = 0.4
+        settings.quakeTerminalAutoHide = false
+        settings.quakeTerminalOpacity = 0.75
+        settings.quakeTerminalMonitorMode = .focusedWindow
+        settings.quakeTerminalUseCustomFrame = true
+        settings.quakeTerminalCustomFrame = CGRect(x: 10, y: 20, width: 1200, height: 700)
+
+        try settings.exportSettings(to: exportURL, incrementalOnly: false)
+
+        let imported = SettingsStore(defaults: makeTestDefaults())
+        try imported.importSettings(from: exportURL)
+
+        #expect(imported.focusFollowsWindowToMonitor == true)
+        #expect(imported.commandPaletteLastMode == .menu)
+        #expect(imported.quakeTerminalEnabled == true)
+        #expect(imported.quakeTerminalPosition == .bottom)
+        #expect(imported.quakeTerminalWidthPercent == 80)
+        #expect(imported.quakeTerminalHeightPercent == 55)
+        #expect(imported.quakeTerminalAnimationDuration == 0.4)
+        #expect(imported.quakeTerminalAutoHide == false)
+        #expect(imported.quakeTerminalOpacity == 0.75)
+        #expect(imported.quakeTerminalMonitorMode == .focusedWindow)
+        #expect(imported.quakeTerminalUseCustomFrame == true)
+        #expect(imported.quakeTerminalCustomFrame == CGRect(x: 10, y: 20, width: 1200, height: 700))
+    }
+}
+
 @Suite struct SettingsSectionTests {
     @Test func settingsSectionsExcludeMenuSection() {
         #expect(SettingsSection.allCases.map(\.id) == [
@@ -831,7 +968,6 @@ private func makeSettingsTestMonitor(
             "workspaces",
             "borders",
             "bar",
-            "hiddenBar",
             "hotkeys",
             "quakeTerminal",
         ])

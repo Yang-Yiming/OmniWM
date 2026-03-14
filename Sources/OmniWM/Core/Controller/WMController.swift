@@ -163,7 +163,7 @@ final class WMController {
 
         setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         setPreventSleepEnabled(settings.preventSleepEnabled)
-        setHiddenBarEnabled(settings.hiddenBarEnabled)
+        hiddenBarController.setup()
         setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
 
         setEnabled(true)
@@ -220,16 +220,7 @@ final class WMController {
         }
     }
 
-    func setHiddenBarEnabled(_ enabled: Bool) {
-        if enabled {
-            hiddenBarController.setup()
-        } else {
-            hiddenBarController.cleanup()
-        }
-    }
-
     func toggleHiddenBar() {
-        guard settings.hiddenBarEnabled else { return }
         hiddenBarController.toggle()
     }
 

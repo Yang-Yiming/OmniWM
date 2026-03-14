@@ -230,7 +230,7 @@ In Niri, `Move Left / Right` expels the focused window out of multi-window colum
 
 | Action | Shortcut |
 |--------|----------|
-| Toggle Hidden Bar (when enabled) | Right-click menu bar icon |
+| Toggle Hidden Bar | Right-click menu bar icon |
 | Toggle Hidden Bar (Hotkey, unassigned by default) | Unassigned |
 
 ### Features
@@ -276,7 +276,6 @@ A visual indicator showing your workspaces:
 #### Hidden Bar
 
 Hide or reveal status bar icons using a separator item:
-- Enable in Settings
 - Right-click the OmniWM menu bar icon to toggle
 - Optional hotkey exists but is unassigned by default
 
@@ -292,7 +291,7 @@ Hide or reveal status bar icons using a separator item:
 ## Configuration
 
 Access settings by clicking the **O** menu bar icon and selecting **Settings** or **App Rules**.
-Mouse/gesture settings and Hidden Bar options are available in Settings.
+Mouse and gesture settings are available in Settings.
 
 ## App Rules
 

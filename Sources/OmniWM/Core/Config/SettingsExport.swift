@@ -1,6 +1,32 @@
+import CoreGraphics
 import Foundation
 
 // MARK: - SettingsExport
+
+struct QuakeTerminalFrameExport: Codable, Equatable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    init(frame: CGRect) {
+        x = frame.origin.x
+        y = frame.origin.y
+        width = frame.size.width
+        height = frame.size.height
+    }
+
+    var frame: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+}
 
 struct SettingsExport: Codable {
     var version: Int = SettingsMigration.currentSettingsEpoch
@@ -8,6 +34,7 @@ struct SettingsExport: Codable {
     var hotkeysEnabled: Bool
     var focusFollowsMouse: Bool
     var moveMouseToFocusedWindow: Bool
+    var focusFollowsWindowToMonitor: Bool
     var mouseWarpMonitorOrder: [String]
     var mouseWarpMargin: Int
     var gapSize: Double
@@ -68,12 +95,20 @@ struct SettingsExport: Codable {
     var scrollModifierKey: String
     var gestureFingerCount: Int
     var gestureInvertDirection: Bool
+    var commandPaletteLastMode: String
 
-    var hiddenBarEnabled: Bool
     var hiddenBarIsCollapsed: Bool
 
+    var quakeTerminalEnabled: Bool
+    var quakeTerminalPosition: String
+    var quakeTerminalWidthPercent: Double
+    var quakeTerminalHeightPercent: Double
+    var quakeTerminalAnimationDuration: Double
+    var quakeTerminalAutoHide: Bool
     var quakeTerminalOpacity: Double?
     var quakeTerminalMonitorMode: String?
+    var quakeTerminalUseCustomFrame: Bool
+    var quakeTerminalCustomFrame: QuakeTerminalFrameExport?
 
     var appearanceMode: String
 }
@@ -86,6 +121,7 @@ extension SettingsExport {
             hotkeysEnabled: true,
             focusFollowsMouse: false,
             moveMouseToFocusedWindow: false,
+            focusFollowsWindowToMonitor: false,
             mouseWarpMonitorOrder: [],
             mouseWarpMargin: 2,
             gapSize: 8,
@@ -138,10 +174,18 @@ extension SettingsExport {
             scrollModifierKey: ScrollModifierKey.optionShift.rawValue,
             gestureFingerCount: GestureFingerCount.three.rawValue,
             gestureInvertDirection: true,
-            hiddenBarEnabled: false,
+            commandPaletteLastMode: CommandPaletteMode.windows.rawValue,
             hiddenBarIsCollapsed: false,
+            quakeTerminalEnabled: false,
+            quakeTerminalPosition: QuakeTerminalPosition.top.rawValue,
+            quakeTerminalWidthPercent: 100.0,
+            quakeTerminalHeightPercent: 40.0,
+            quakeTerminalAnimationDuration: 0.2,
+            quakeTerminalAutoHide: true,
             quakeTerminalOpacity: 1.0,
             quakeTerminalMonitorMode: QuakeTerminalMonitorMode.mouseCursor.rawValue,
+            quakeTerminalUseCustomFrame: false,
+            quakeTerminalCustomFrame: nil,
             appearanceMode: AppearanceMode.automatic.rawValue
         )
     }
@@ -246,10 +290,15 @@ extension SettingsStore {
     }
 
     func exportSettings(incrementalOnly: Bool = true) throws {
+        try exportSettings(to: Self.exportURL, incrementalOnly: incrementalOnly)
+    }
+
+    func exportSettings(to url: URL, incrementalOnly: Bool = true) throws {
         let export = SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
             focusFollowsMouse: focusFollowsMouse,
             moveMouseToFocusedWindow: moveMouseToFocusedWindow,
+            focusFollowsWindowToMonitor: focusFollowsWindowToMonitor,
             mouseWarpMonitorOrder: mouseWarpMonitorOrder,
             mouseWarpMargin: mouseWarpMargin,
             gapSize: gapSize,
@@ -302,33 +351,46 @@ extension SettingsStore {
             scrollModifierKey: scrollModifierKey.rawValue,
             gestureFingerCount: gestureFingerCount.rawValue,
             gestureInvertDirection: gestureInvertDirection,
-            hiddenBarEnabled: hiddenBarEnabled,
+            commandPaletteLastMode: commandPaletteLastMode.rawValue,
             hiddenBarIsCollapsed: hiddenBarIsCollapsed,
+            quakeTerminalEnabled: quakeTerminalEnabled,
+            quakeTerminalPosition: quakeTerminalPosition.rawValue,
+            quakeTerminalWidthPercent: quakeTerminalWidthPercent,
+            quakeTerminalHeightPercent: quakeTerminalHeightPercent,
+            quakeTerminalAnimationDuration: quakeTerminalAnimationDuration,
+            quakeTerminalAutoHide: quakeTerminalAutoHide,
             quakeTerminalOpacity: quakeTerminalOpacity,
             quakeTerminalMonitorMode: quakeTerminalMonitorMode.rawValue,
+            quakeTerminalUseCustomFrame: quakeTerminalUseCustomFrame,
+            quakeTerminalCustomFrame: quakeTerminalCustomFrame.map(QuakeTerminalFrameExport.init(frame:)),
             appearanceMode: appearanceMode.rawValue
         )
 
         let outputData = try export.exportData(incrementalOnly: incrementalOnly)
 
-        let directory = Self.exportURL.deletingLastPathComponent()
+        let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try outputData.write(to: Self.exportURL)
+        try outputData.write(to: url)
     }
 
     func importSettings(applyingTo controller: WMController) throws {
-        let rawData = try Data(contentsOf: Self.exportURL)
+        try importSettings(from: Self.exportURL, applyingTo: controller)
+    }
+
+    func importSettings(from url: URL, applyingTo controller: WMController? = nil) throws {
+        let rawData = try Data(contentsOf: url)
         try SettingsMigration.validateImportEpoch(from: rawData)
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let export = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
         applyImport(export)
-        controller.applyPersistedSettings(self)
+        controller?.applyPersistedSettings(self)
     }
 
     private func applyImport(_ export: SettingsExport) {
         hotkeysEnabled = export.hotkeysEnabled
         focusFollowsMouse = export.focusFollowsMouse
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
+        focusFollowsWindowToMonitor = export.focusFollowsWindowToMonitor
         mouseWarpMonitorOrder = export.mouseWarpMonitorOrder
         mouseWarpMargin = export.mouseWarpMargin
         gapSize = export.gapSize
@@ -391,10 +453,16 @@ extension SettingsStore {
         scrollModifierKey = ScrollModifierKey(rawValue: export.scrollModifierKey) ?? .optionShift
         gestureFingerCount = GestureFingerCount(rawValue: export.gestureFingerCount) ?? .three
         gestureInvertDirection = export.gestureInvertDirection
+        commandPaletteLastMode = CommandPaletteMode(rawValue: export.commandPaletteLastMode) ?? .windows
 
-        hiddenBarEnabled = export.hiddenBarEnabled
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
 
+        quakeTerminalEnabled = export.quakeTerminalEnabled
+        quakeTerminalPosition = QuakeTerminalPosition(rawValue: export.quakeTerminalPosition) ?? .top
+        quakeTerminalWidthPercent = export.quakeTerminalWidthPercent
+        quakeTerminalHeightPercent = export.quakeTerminalHeightPercent
+        quakeTerminalAnimationDuration = export.quakeTerminalAnimationDuration
+        quakeTerminalAutoHide = export.quakeTerminalAutoHide
         if let opacity = export.quakeTerminalOpacity {
             quakeTerminalOpacity = opacity
         }
@@ -402,6 +470,8 @@ extension SettingsStore {
            let mode = QuakeTerminalMonitorMode(rawValue: modeRaw) {
             quakeTerminalMonitorMode = mode
         }
+        quakeTerminalUseCustomFrame = export.quakeTerminalUseCustomFrame
+        quakeTerminalCustomFrame = export.quakeTerminalCustomFrame?.frame
 
         appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
     }

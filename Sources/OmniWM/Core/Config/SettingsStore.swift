@@ -240,10 +240,6 @@ final class SettingsStore {
         didSet { defaults.set(commandPaletteLastMode.rawValue, forKey: Keys.commandPaletteLastMode) }
     }
 
-    var hiddenBarEnabled: Bool {
-        didSet { defaults.set(hiddenBarEnabled, forKey: Keys.hiddenBarEnabled) }
-    }
-
     var hiddenBarIsCollapsed: Bool {
         didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
     }
@@ -416,7 +412,6 @@ final class SettingsStore {
             rawValue: defaults.string(forKey: Keys.commandPaletteLastMode) ?? ""
         ) ?? .windows
 
-        hiddenBarEnabled = defaults.object(forKey: Keys.hiddenBarEnabled) as? Bool ?? false
         hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ?? false
 
         quakeTerminalEnabled = defaults.object(forKey: Keys.quakeTerminalEnabled) as? Bool ?? false
@@ -885,7 +880,6 @@ private enum Keys {
 
     static let commandPaletteLastMode = "settings.commandPalette.lastMode"
 
-    static let hiddenBarEnabled = "settings.hiddenBar.enabled"
     static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
 
     static let quakeTerminalEnabled = "settings.quakeTerminal.enabled"

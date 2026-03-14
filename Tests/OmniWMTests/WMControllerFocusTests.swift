@@ -110,6 +110,17 @@ private func waitForFocusRefresh(on controller: WMController) async {
 }
 
 @Suite struct WMControllerFocusTests {
+    @Test @MainActor func toggleHiddenBarUpdatesCollapsedStateWithoutEnableGate() {
+        let settings = SettingsStore(defaults: makeFocusTestDefaults())
+        let controller = WMController(settings: settings)
+
+        #expect(settings.hiddenBarIsCollapsed == false)
+
+        controller.toggleHiddenBar()
+
+        #expect(settings.hiddenBarIsCollapsed == true)
+    }
+
     @Test @MainActor func focusWindowPerformsActivatePrivateFocusAndRaiseInOrder() {
         var events: [FocusOperationEvent] = []
         let operations = WindowFocusOperations(

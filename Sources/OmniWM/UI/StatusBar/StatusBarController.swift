@@ -49,10 +49,6 @@ final class StatusBarController: NSObject {
     }
 
     private func handleRightClick() {
-        guard settings.hiddenBarEnabled else {
-            showMenu()
-            return
-        }
         controller?.toggleHiddenBar()
     }
 

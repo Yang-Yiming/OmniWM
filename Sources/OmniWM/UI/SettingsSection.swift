@@ -8,7 +8,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case workspaces
     case borders
     case bar
-    case hiddenBar
     case hotkeys
     case quakeTerminal
 
@@ -23,7 +22,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .workspaces: "Workspaces"
         case .borders: "Borders"
         case .bar: "Bar"
-        case .hiddenBar: "Hidden Bar"
         case .hotkeys: "Hotkeys"
         case .quakeTerminal: "Quake Terminal"
         }
@@ -38,7 +36,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .workspaces: "rectangle.3.group"
         case .borders: "square.dashed"
         case .bar: "menubar.rectangle"
-        case .hiddenBar: "menubar.arrow.up.rectangle"
         case .hotkeys: "keyboard"
         case .quakeTerminal: "terminal"
         }
