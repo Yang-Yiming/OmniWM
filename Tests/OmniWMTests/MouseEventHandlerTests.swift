@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -12,6 +13,22 @@ private func makeMouseEventTestDefaults() -> UserDefaults {
 
 private func makeMouseEventTestWindow(windowId: Int = 101) -> AXWindowRef {
     AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId)
+}
+
+@MainActor
+private func makeOwnedUtilityTestWindow(
+    frame: CGRect = CGRect(x: 40, y: 40, width: 240, height: 180)
+) -> NSWindow {
+    let window = NSWindow(
+        contentRect: frame,
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    return window
 }
 
 @MainActor
@@ -98,7 +115,7 @@ private func prepareMouseResizeFixture() async -> (
     return (controller, controller.mouseEventHandler, handle, workspaceId, node.id, nodeFrame, location)
 }
 
-@Suite struct MouseEventHandlerTests {
+@Suite(.serialized) struct MouseEventHandlerTests {
     @Test @MainActor func lockedInputHandlersAreNoOps() async {
         let controller = makeMouseEventTestController()
         controller.isLockScreenActive = true
@@ -275,5 +292,87 @@ private func prepareMouseResizeFixture() async -> (
         #expect(debugSnapshot.coalescedTransientEvents == 1)
         #expect(debugSnapshot.drainRuns == 2)
         #expect(debugSnapshot.drainedTransientEvents == 2)
+    }
+
+    @Test @MainActor func ownedWindowMouseDownDropsQueuedTapEventsInsteadOfFlushingThem() {
+        let controller = makeMouseEventTestController()
+        let handler = controller.mouseEventHandler
+        let window = makeOwnedUtilityTestWindow()
+        let registry = OwnedWindowRegistry.shared
+
+        registry.resetForTests()
+        registry.register(window)
+        defer {
+            registry.unregister(window)
+            window.close()
+            registry.resetForTests()
+        }
+
+        handler.resetDebugStateForTests()
+        handler.receiveTapMouseMoved(at: CGPoint(x: 10, y: 10))
+        #expect(handler.state.pendingTapEvents.hasPendingEvents)
+
+        handler.receiveTapMouseDown(at: CGPoint(x: 80, y: 80), modifiers: [])
+
+        let debugSnapshot = handler.mouseTapDebugSnapshot()
+        #expect(debugSnapshot.flushedBeforeImmediateDispatch == 0)
+        #expect(debugSnapshot.drainRuns == 0)
+        #expect(debugSnapshot.drainedTransientEvents == 0)
+        #expect(handler.state.pendingTapEvents.hasPendingEvents == false)
+    }
+
+    @Test @MainActor func ownedWindowDragCancelsActiveNiriMoveAndResize() async {
+        let fixture = await prepareMouseResizeFixture()
+        guard let engine = fixture.controller.niriEngine,
+              let monitor = fixture.controller.workspaceManager.monitor(for: fixture.workspaceId)
+        else {
+            Issue.record("Missing Niri context for owned-window drag cancellation test")
+            return
+        }
+
+        let ownedWindow = makeOwnedUtilityTestWindow(
+            frame: CGRect(x: fixture.location.x - 40, y: fixture.location.y - 40, width: 80, height: 80)
+        )
+        let registry = OwnedWindowRegistry.shared
+        registry.resetForTests()
+        registry.register(ownedWindow)
+        defer {
+            registry.unregister(ownedWindow)
+            ownedWindow.close()
+            registry.resetForTests()
+        }
+
+        var moveStarted = false
+        fixture.controller.workspaceManager.withNiriViewportState(for: fixture.workspaceId) { state in
+            moveStarted = engine.interactiveMoveBegin(
+                windowId: fixture.nodeId,
+                windowHandle: fixture.handle,
+                startLocation: fixture.location,
+                in: fixture.workspaceId,
+                state: &state,
+                workingFrame: fixture.controller.insetWorkingFrame(for: monitor),
+                gaps: CGFloat(fixture.controller.workspaceManager.gaps)
+            )
+        }
+        #expect(moveStarted)
+        fixture.handler.state.isMoving = true
+
+        fixture.handler.dispatchMouseDragged(at: fixture.location)
+
+        #expect(fixture.handler.state.isMoving == false)
+        #expect(engine.interactiveMove == nil)
+
+        #expect(engine.interactiveResizeBegin(
+            windowId: fixture.nodeId,
+            edges: [.right],
+            startLocation: fixture.location,
+            in: fixture.workspaceId
+        ))
+        fixture.handler.state.isResizing = true
+
+        fixture.handler.dispatchMouseDragged(at: fixture.location)
+
+        #expect(fixture.handler.state.isResizing == false)
+        #expect(engine.interactiveResize == nil)
     }
 }

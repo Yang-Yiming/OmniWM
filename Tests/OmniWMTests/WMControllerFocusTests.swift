@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -37,6 +38,22 @@ private func makeFocusTestMonitor(
 
 private func makeFocusTestWindow(windowId: Int = 101) -> AXWindowRef {
     AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId)
+}
+
+@MainActor
+private func makeFocusOwnedWindow(
+    frame: CGRect = CGRect(x: 60, y: 60, width: 260, height: 180)
+) -> NSWindow {
+    let window = NSWindow(
+        contentRect: frame,
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    return window
 }
 
 private final class NotificationValueBox<Value>: @unchecked Sendable {
@@ -109,7 +126,7 @@ private func waitForFocusRefresh(on controller: WMController) async {
     await controller.layoutRefreshController.waitForRefreshWorkForTests()
 }
 
-@Suite struct WMControllerFocusTests {
+@Suite(.serialized) struct WMControllerFocusTests {
     @Test @MainActor func toggleHiddenBarUpdatesCollapsedStateWithoutEnableGate() {
         let settings = SettingsStore(defaults: makeFocusTestDefaults())
         let controller = WMController(settings: settings)
@@ -176,6 +193,51 @@ private func waitForFocusRefresh(on controller: WMController) async {
 
         #expect(controller.workspaceManager.pendingFocusedHandle == handle)
         #expect(controller.workspaceManager.isAppFullscreenActive == true)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == true)
+    }
+
+    @Test @MainActor func relayoutDoesNotRefocusManagedWindowWhileOwnedUtilityWindowIsFrontmost() async {
+        var events: [FocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in
+                events.append(.activate(pid))
+            },
+            focusSpecificWindow: { pid, windowId, _ in
+                events.append(.focus(pid, windowId))
+            },
+            raiseWindow: { _ in
+                events.append(.raise)
+            }
+        )
+        let (controller, workspaceId, handle) = makeFocusTestController(windowFocusOperations: operations)
+        let registry = OwnedWindowRegistry.shared
+        let ownedWindow = makeFocusOwnedWindow()
+        registry.resetForTests()
+        registry.register(ownedWindow)
+        defer {
+            registry.unregister(ownedWindow)
+            ownedWindow.close()
+            registry.resetForTests()
+        }
+
+        controller.enableDwindleLayout()
+        await waitForFocusRefresh(on: controller)
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        _ = controller.workspaceManager.enterNonManagedFocus(
+            appFullscreen: false,
+            preserveFocusedToken: true
+        )
+        events.removeAll()
+
+        controller.updateDwindleConfig(smartSplit: false)
+        await waitForFocusRefresh(on: controller)
+
+        #expect(events.isEmpty)
+        #expect(controller.workspaceManager.focusedHandle == handle)
         #expect(controller.workspaceManager.isNonManagedFocusActive == true)
     }
 

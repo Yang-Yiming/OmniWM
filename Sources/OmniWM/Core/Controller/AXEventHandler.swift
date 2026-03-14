@@ -329,6 +329,16 @@ final class AXEventHandler: CGSEventDelegate {
     func handleAppActivation(pid: pid_t) {
         guard let controller else { return }
         guard controller.hasStartedServices else { return }
+
+        if pid == getpid(), (controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow) {
+            _ = controller.workspaceManager.enterNonManagedFocus(
+                appFullscreen: false,
+                preserveFocusedToken: true
+            )
+            controller.borderManager.hideBorder()
+            return
+        }
+
         let focusedWindow = resolveFocusedWindowValue(pid: pid)
 
         guard let windowElement = focusedWindow else {

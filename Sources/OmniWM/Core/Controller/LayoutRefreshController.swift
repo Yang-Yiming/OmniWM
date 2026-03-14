@@ -511,6 +511,7 @@ import QuartzCore
                 guard let monitor = controller.workspaceManager.monitor(byId: monitorId) else { continue }
                 startDwindleAnimation(for: workspaceId, monitor: monitor)
             case let .activateWindow(token):
+                guard !controller.shouldSuppressManagedFocusRecovery else { continue }
                 controller.focusWindow(token)
             case .updateTabbedOverlays:
                 niriHandler.updateTabbedColumnOverlays()
@@ -863,7 +864,10 @@ import QuartzCore
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
         effects.updateWorkspaceBar = true
         effects.updateTabbedOverlays = updateTabbedOverlays
-        if recoverFocus, let focusedWorkspaceId = controller.activeWorkspace()?.id {
+        if recoverFocus,
+           !controller.shouldSuppressManagedFocusRecovery,
+           let focusedWorkspaceId = controller.activeWorkspace()?.id
+        {
             effects.focusValidationWorkspaceIds = [focusedWorkspaceId]
         }
 
@@ -873,6 +877,8 @@ import QuartzCore
     private func buildWindowRemovalExecutionPlan(
         payloads: [WindowRemovalPayload]
     ) async throws -> RefreshExecutionPlan {
+        guard let controller else { return .init() }
+
         var dwindleWorkspaces: Set<WorkspaceDescriptor.ID> = []
         var focusedWorkspacesToRecover: Set<WorkspaceDescriptor.ID> = []
         var niriRemovalSeeds: [WorkspaceDescriptor.ID: NiriWindowRemovalSeed] = [:]
@@ -917,9 +923,14 @@ import QuartzCore
         }
 
         let activeWorkspaceIds = currentActiveWorkspaceIds()
-        let focusValidationWorkspaceIds = focusedWorkspacesToRecover
-            .intersection(activeWorkspaceIds)
-            .sorted { $0.uuidString < $1.uuidString }
+        let focusValidationWorkspaceIds: [WorkspaceDescriptor.ID]
+        if controller.shouldSuppressManagedFocusRecovery {
+            focusValidationWorkspaceIds = []
+        } else {
+            focusValidationWorkspaceIds = focusedWorkspacesToRecover
+                .intersection(activeWorkspaceIds)
+                .sorted { $0.uuidString < $1.uuidString }
+        }
 
         var effects = RefreshExecutionEffects()
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
@@ -1003,7 +1014,7 @@ import QuartzCore
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
         effects.updateWorkspaceBar = true
         effects.updateTabbedOverlays = updateTabbedOverlays
-        if let focusedWorkspaceId {
+        if !controller.shouldSuppressManagedFocusRecovery, let focusedWorkspaceId {
             effects.focusValidationWorkspaceIds = [focusedWorkspaceId]
         }
         effects.markInitialRefreshComplete = true

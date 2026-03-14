@@ -15,18 +15,7 @@ struct OmniWMApp: App {
 
     var body: some Scene {
         Settings {
-            if let settings = bootstrap.settings,
-               let controller = bootstrap.controller {
-                SettingsView(settings: settings, controller: controller)
-                    .frame(minWidth: 480, minHeight: 500)
-            } else {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Starting OmniWM…")
-                        .foregroundColor(.secondary)
-                }
-                .frame(minWidth: 480, minHeight: 500)
-            }
+            SettingsSceneRedirectView(bootstrap: bootstrap)
         }
     }
 }

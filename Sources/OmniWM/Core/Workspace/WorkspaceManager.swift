@@ -401,11 +401,14 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func enterNonManagedFocus(appFullscreen: Bool) -> Bool {
+    func enterNonManagedFocus(
+        appFullscreen: Bool,
+        preserveFocusedToken: Bool = false
+    ) -> Bool {
         updateFocusSession(notify: true) { focus in
             var changed = false
 
-            if focus.focusedToken != nil {
+            if !preserveFocusedToken, focus.focusedToken != nil {
                 focus.focusedToken = nil
                 changed = true
             }

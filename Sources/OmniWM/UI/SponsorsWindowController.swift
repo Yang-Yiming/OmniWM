@@ -6,6 +6,7 @@ final class SponsorsWindowController {
     static let shared = SponsorsWindowController()
 
     private var window: NSWindow?
+    private let ownedWindowRegistry = OwnedWindowRegistry.shared
 
     func show() {
         if let window {
@@ -29,16 +30,22 @@ final class SponsorsWindowController {
         window.setContentSize(NSSize(width: 700, height: 400))
         window.center()
         window.isReleasedWhenClosed = false
+        ownedWindowRegistry.register(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         NotificationCenter.default
             .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
+                    self?.ownedWindowRegistry.unregister(window)
                     self?.window = nil
                 }
             }
         self.window = window
+    }
+
+    var windowForTests: NSWindow? {
+        window
     }
 
     func isPointInside(_ point: CGPoint) -> Bool {

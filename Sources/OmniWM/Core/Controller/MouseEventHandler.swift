@@ -255,11 +255,19 @@ final class MouseEventHandler {
 
     func dispatchMouseDragged(at location: CGPoint) {
         guard !isInputSuppressed else { return }
+        if let controller, controller.isPointInOwnWindow(location) {
+            cancelActiveMouseInteraction()
+            return
+        }
         handleMouseDraggedFromTap(at: location)
     }
 
     func dispatchMouseUp(at location: CGPoint) {
         guard !isInputSuppressed else { return }
+        if let controller, controller.isPointInOwnWindow(location) {
+            cancelActiveMouseInteraction()
+            return
+        }
         handleMouseUpFromTap(at: location)
     }
 
@@ -315,7 +323,11 @@ final class MouseEventHandler {
     }
 
     func receiveTapMouseDown(at location: CGPoint, modifiers: CGEventFlags) {
-        flushPendingTapEvents(beforeImmediateDispatch: true)
+        if let controller, controller.isPointInOwnWindow(location) {
+            dropPendingTapEvents()
+        } else {
+            flushPendingTapEvents(beforeImmediateDispatch: true)
+        }
         dispatchMouseDown(at: location, modifiers: modifiers)
     }
 
@@ -325,7 +337,11 @@ final class MouseEventHandler {
     }
 
     func receiveTapMouseUp(at location: CGPoint) {
-        flushPendingTapEvents(beforeImmediateDispatch: true)
+        if let controller, controller.isPointInOwnWindow(location) {
+            dropPendingTapEvents()
+        } else {
+            flushPendingTapEvents(beforeImmediateDispatch: true)
+        }
         dispatchMouseUp(at: location)
     }
 
@@ -348,13 +364,41 @@ final class MouseEventHandler {
     }
 
     func receiveTapGestureEvent(from cgEvent: CGEvent) {
-        flushPendingTapEvents(beforeImmediateDispatch: true)
+        let location = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
+        if let controller, controller.isPointInOwnWindow(location) {
+            dropPendingTapEvents()
+        } else {
+            flushPendingTapEvents(beforeImmediateDispatch: true)
+        }
         dispatchGestureEvent(from: cgEvent)
     }
 
     private var isInputSuppressed: Bool {
         guard let controller else { return true }
         return controller.isLockScreenActive || controller.isFrontmostAppLockScreen()
+    }
+
+    private func dropPendingTapEvents() {
+        guard state.pendingTapEvents.hasPendingEvents else { return }
+        state.pendingTapEvents.clear()
+    }
+
+    private func cancelActiveMouseInteraction() {
+        guard let controller else { return }
+
+        if state.isMoving {
+            controller.niriEngine?.interactiveMoveCancel()
+            state.dragGhostController?.endDrag()
+            state.isMoving = false
+            state.moveIsInsertMode = false
+        }
+
+        if state.isResizing {
+            controller.niriEngine?.clearInteractiveResize()
+            state.isResizing = false
+        }
+
+        resetHoveredEdgesIfNeeded()
     }
 
     private func resetHoveredEdgesIfNeeded() {
@@ -487,6 +531,10 @@ final class MouseEventHandler {
 
     private func replayQueuedMouseDragged(at location: CGPoint) {
         guard !isInputSuppressed else { return }
+        if let controller, controller.isPointInOwnWindow(location) {
+            cancelActiveMouseInteraction()
+            return
+        }
         handleMouseDraggedFromTap(at: location, requirePressedButtonCheck: false)
     }
 
@@ -836,7 +884,10 @@ final class MouseEventHandler {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
         if controller.isOverviewOpen() { return }
-        if controller.isPointInOwnWindow(location) { return }
+        if controller.isPointInOwnWindow(location) {
+            resetGestureState()
+            return
+        }
         guard !state.isResizing, !state.isMoving else { return }
         guard let engine = controller.niriEngine else { return }
 

@@ -83,6 +83,8 @@ final class WMController {
     var hasStartedServices = false
     @ObservationIgnored
     private(set) var isMouseWarpPolicyEnabled = false
+    @ObservationIgnored
+    private let ownedWindowRegistry = OwnedWindowRegistry.shared
 
     let animationClock = AnimationClock()
     private let windowFocusOperations: WindowFocusOperations
@@ -575,6 +577,8 @@ final class WMController {
     }
 
     func ensureFocusedTokenValid(in workspaceId: WorkspaceDescriptor.ID) {
+        guard !shouldSuppressManagedFocusRecovery else { return }
+
         if let focusedToken = workspaceManager.focusedToken,
            workspaceManager.entry(for: focusedToken)?.workspaceId == workspaceId
         {
@@ -655,10 +659,19 @@ extension WMController {
     func isPointInOwnWindow(_ point: CGPoint) -> Bool {
         if isPointInQuakeTerminal(point) { return true }
         if windowActionHandler.isPointInOverview(point) { return true }
-        if SettingsWindowController.shared.isPointInside(point) { return true }
-        if AppRulesWindowController.shared.isPointInside(point) { return true }
-        if SponsorsWindowController.shared.isPointInside(point) { return true }
-        return false
+        return ownedWindowRegistry.contains(point: point)
+    }
+
+    var hasFrontmostOwnedWindow: Bool {
+        ownedWindowRegistry.hasFrontmostWindow
+    }
+
+    var hasVisibleOwnedWindow: Bool {
+        ownedWindowRegistry.hasVisibleWindow
+    }
+
+    var shouldSuppressManagedFocusRecovery: Bool {
+        workspaceManager.isNonManagedFocusActive && hasFrontmostOwnedWindow
     }
 
     func focusWindow(_ token: WindowToken) {

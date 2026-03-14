@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -20,6 +21,22 @@ private func makeAXEventTestMonitor() -> Monitor {
         hasNotch: false,
         name: "Main"
     )
+}
+
+@MainActor
+private func makeAXEventOwnedWindow(
+    frame: CGRect = CGRect(x: 80, y: 80, width: 280, height: 180)
+) -> NSWindow {
+    let window = NSWindow(
+        contentRect: frame,
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    return window
 }
 
 @MainActor
@@ -54,7 +71,7 @@ private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
     controller.borderManager.lastAppliedFocusedWindowIdForTests
 }
 
-@Suite struct AXEventHandlerTests {
+@Suite(.serialized) struct AXEventHandlerTests {
     @Test @MainActor func malformedActivationPayloadFallsBackToNonManagedFocus() {
         let controller = makeAXEventTestController()
         controller.hasStartedServices = true
@@ -81,6 +98,50 @@ private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
         controller.axEventHandler.handleAppActivation(pid: getpid())
 
         #expect(controller.workspaceManager.focusedHandle == nil)
+        #expect(controller.workspaceManager.isNonManagedFocusActive)
+        #expect(controller.workspaceManager.isAppFullscreenActive == false)
+    }
+
+    @Test @MainActor func ownedUtilityWindowActivationPreservesManagedFocus() {
+        let controller = makeAXEventTestController()
+        controller.hasStartedServices = true
+        let registry = OwnedWindowRegistry.shared
+        let ownedWindow = makeAXEventOwnedWindow()
+        registry.resetForTests()
+        registry.register(ownedWindow)
+        defer {
+            registry.unregister(ownedWindow)
+            ownedWindow.close()
+            registry.resetForTests()
+        }
+
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 802),
+            pid: getpid(),
+            windowId: 802,
+            to: workspaceId
+        )
+        guard let handle = controller.workspaceManager.handle(for: token) else {
+            Issue.record("Missing handle for owned utility focus test")
+            return
+        }
+        _ = controller.workspaceManager.setManagedFocus(
+            token,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+
+        #expect(registry.contains(window: ownedWindow))
+        #expect(controller.hasVisibleOwnedWindow)
+
+        controller.axEventHandler.handleAppActivation(pid: getpid())
+
+        #expect(controller.workspaceManager.focusedHandle == handle)
         #expect(controller.workspaceManager.isNonManagedFocusActive)
         #expect(controller.workspaceManager.isAppFullscreenActive == false)
     }
