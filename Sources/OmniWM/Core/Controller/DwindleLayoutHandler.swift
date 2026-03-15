@@ -141,6 +141,31 @@ import QuartzCore
         }
     }
 
+    func activateWindow(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller,
+              let engine = controller.dwindleEngine,
+              controller.workspaceManager.entry(for: token)?.workspaceId == workspaceId,
+              let node = engine.findNode(for: token),
+              node.isLeaf
+        else {
+            return
+        }
+
+        engine.setSelectedNode(node, in: workspaceId)
+        _ = controller.workspaceManager.applySessionPatch(
+            .init(
+                workspaceId: workspaceId,
+                viewportState: nil,
+                rememberedFocusToken: token
+            )
+        )
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .layoutCommand
+        ) { [weak controller] in
+            controller?.focusWindow(token)
+        }
+    }
+
     func swapWindow(direction: Direction) {
         guard let controller else { return }
         withDwindleContext { engine, wsId in

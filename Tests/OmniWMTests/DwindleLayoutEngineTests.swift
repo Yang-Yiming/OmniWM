@@ -1,6 +1,7 @@
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import QuartzCore
 import Testing
 
 @testable import OmniWM
@@ -110,6 +111,120 @@ private func configureWorkspacesAsDwindle(
         )
         #expect(Set(updatedFrames.keys) == Set([handle1.id]))
         #expect(engine.findNode(for: handle2.id) == nil)
+    }
+
+    @Test func focusHitTestMissesEmptyWorkspace() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+
+        #expect(engine.hitTestFocusableWindow(point: .zero, in: wsId, at: CACurrentMediaTime()) == nil)
+    }
+
+    @Test func focusHitTestReturnsMatchingLeaf() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let firstHandle = makeTestHandle(pid: 51)
+        let secondHandle = makeTestHandle(pid: 52)
+
+        _ = engine.syncWindows([firstHandle, secondHandle], in: wsId, focusedHandle: firstHandle)
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        )
+
+        guard let secondFrame = frames[secondHandle.id] else {
+            Issue.record("Expected a Dwindle frame for matching-leaf focus hit-test")
+            return
+        }
+
+        #expect(
+            engine.hitTestFocusableWindow(
+                point: CGPoint(x: secondFrame.midX, y: secondFrame.midY),
+                in: wsId,
+                at: CACurrentMediaTime()
+            ) == secondHandle.id
+        )
+    }
+
+    @Test func focusHitTestPrefersFullscreenWindowOverCoveredTile() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let coveredHandle = makeTestHandle(pid: 61)
+        let fullscreenHandle = makeTestHandle(pid: 62)
+
+        _ = engine.syncWindows([coveredHandle, fullscreenHandle], in: wsId, focusedHandle: fullscreenHandle)
+        _ = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        )
+
+        guard let fullscreenNode = engine.findNode(for: fullscreenHandle.id) else {
+            Issue.record("Expected a fullscreen node for Dwindle focus hit-test")
+            return
+        }
+
+        engine.setSelectedNode(fullscreenNode, in: wsId)
+        #expect(engine.toggleFullscreen(in: wsId) == fullscreenHandle.id)
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        )
+
+        guard let coveredFrame = frames[coveredHandle.id],
+              let fullscreenFrame = frames[fullscreenHandle.id]
+        else {
+            Issue.record("Expected covered and fullscreen frames for Dwindle focus hit-test")
+            return
+        }
+
+        let overlapPoint = CGPoint(x: coveredFrame.midX, y: coveredFrame.midY)
+        #expect(coveredFrame.contains(overlapPoint))
+        #expect(fullscreenFrame.contains(overlapPoint))
+        #expect(
+            engine.hitTestFocusableWindow(
+                point: overlapPoint,
+                in: wsId,
+                at: CACurrentMediaTime()
+            ) == fullscreenHandle.id
+        )
+    }
+
+    @Test func focusHitTestUsesPresentedFrameDuringAnimation() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let handle = makeTestHandle(pid: 71)
+
+        _ = engine.syncWindows([handle], in: wsId, focusedHandle: handle)
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        )
+
+        guard let baseFrame = frames[handle.id],
+              let node = engine.findNode(for: handle.id)
+        else {
+            Issue.record("Expected Dwindle node state for animation-aware focus hit-test")
+            return
+        }
+
+        let animatedStartFrame = baseFrame.offsetBy(dx: baseFrame.width + 120, dy: 0)
+        node.animateFrom(
+            oldFrame: animatedStartFrame,
+            newFrame: baseFrame,
+            clock: nil,
+            config: CubicConfig(duration: 10.0)
+        )
+
+        let animatedPoint = CGPoint(x: animatedStartFrame.midX, y: animatedStartFrame.midY)
+        #expect(baseFrame.contains(animatedPoint) == false)
+        #expect(
+            engine.hitTestFocusableWindow(
+                point: animatedPoint,
+                in: wsId,
+                at: CACurrentMediaTime()
+            ) == handle.id
+        )
     }
 
     @Test @MainActor func steadyRelayoutPlanUsesTokensWithoutVisibilityDiffs() async throws {

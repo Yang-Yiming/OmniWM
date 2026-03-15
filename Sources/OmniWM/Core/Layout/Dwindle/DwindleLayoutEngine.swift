@@ -414,6 +414,70 @@ final class DwindleLayoutEngine {
         }
     }
 
+    func hitTestFocusableWindow(
+        point: CGPoint,
+        in workspaceId: WorkspaceDescriptor.ID,
+        at time: TimeInterval
+    ) -> WindowToken? {
+        guard let root = roots[workspaceId] else { return nil }
+
+        var firstVisibleMatch: WindowToken?
+        return hitTestFocusableWindow(
+            point: point,
+            at: time,
+            in: root,
+            firstVisibleMatch: &firstVisibleMatch
+        ) ?? firstVisibleMatch
+    }
+
+    private func hitTestFocusableWindow(
+        point: CGPoint,
+        at time: TimeInterval,
+        in node: DwindleNode,
+        firstVisibleMatch: inout WindowToken?
+    ) -> WindowToken? {
+        if case let .leaf(handle, fullscreen) = node.kind,
+           let handle,
+           let frame = presentedFrame(for: node, at: time),
+           frame.contains(point)
+        {
+            if fullscreen {
+                return handle
+            }
+
+            if firstVisibleMatch == nil {
+                firstVisibleMatch = handle
+            }
+            return nil
+        }
+
+        for child in node.children {
+            if let fullscreenMatch = hitTestFocusableWindow(
+                point: point,
+                at: time,
+                in: child,
+                firstVisibleMatch: &firstVisibleMatch
+            ) {
+                return fullscreenMatch
+            }
+        }
+
+        return nil
+    }
+
+    private func presentedFrame(for node: DwindleNode, at time: TimeInterval) -> CGRect? {
+        guard let frame = node.cachedFrame else { return nil }
+
+        let offset = node.renderOffset(at: time)
+        let sizeOffset = node.renderSizeOffset(at: time)
+        return CGRect(
+            x: frame.origin.x + offset.x,
+            y: frame.origin.y + offset.y,
+            width: frame.width + sizeOffset.width,
+            height: frame.height + sizeOffset.height
+        )
+    }
+
     private func calculateLayoutRecursive(
         node: DwindleNode,
         rect: CGRect,

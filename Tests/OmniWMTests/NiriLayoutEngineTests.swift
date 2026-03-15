@@ -1696,6 +1696,53 @@ private func hasAnyVisibilityChange(
         #expect(bottomWindow.resolvedHeight == tiledHeight)
     }
 
+    @Test func focusHitTestPrefersFullscreenWindowOverCoveredTile() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 2, extraColumns: 0)
+        let coveredWindow = fixture.windows[0]
+        let fullscreenWindow = fixture.windows[1]
+
+        var state = makeViewportStateForVisibleColumn(
+            targetWindow: fullscreenWindow,
+            engine: fixture.engine,
+            workspaceId: fixture.workspaceId,
+            workingFrame: fixture.monitor.visibleFrame,
+            gap: fixture.gap
+        )
+
+        _ = fixture.engine.calculateCombinedLayoutUsingPools(
+            in: fixture.workspaceId,
+            monitor: fixture.monitor,
+            gaps: fixture.gaps,
+            state: state,
+            workingArea: fixture.area,
+            animationTime: nil
+        )
+
+        fixture.engine.toggleFullscreen(fullscreenWindow, state: &state)
+        _ = fixture.engine.calculateCombinedLayoutUsingPools(
+            in: fixture.workspaceId,
+            monitor: fixture.monitor,
+            gaps: fixture.gaps,
+            state: state,
+            workingArea: fixture.area,
+            animationTime: nil
+        )
+
+        guard let coveredFrame = coveredWindow.frame,
+              let fullscreenFrame = fullscreenWindow.frame
+        else {
+            Issue.record("Expected frames for fullscreen focus hit-test regression")
+            return
+        }
+
+        let overlapPoint = CGPoint(x: coveredFrame.midX, y: coveredFrame.midY)
+        #expect(coveredFrame.contains(overlapPoint))
+        #expect(fullscreenFrame.contains(overlapPoint))
+        #expect(
+            fixture.engine.hitTestFocusableWindow(point: overlapPoint, in: fixture.workspaceId)?.token == fullscreenWindow.token
+        )
+    }
+
     @Test func toggleFullWidthKeepsRightVisibleColumnInViewport() {
         for visibleCount in 2 ... 5 {
             let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)

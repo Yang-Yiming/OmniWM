@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 final class MouseEventHandler {
+    private enum FocusFollowsMouseTarget {
+        case niri(workspaceId: WorkspaceDescriptor.ID, window: NiriWindow)
+        case dwindle(workspaceId: WorkspaceDescriptor.ID, token: WindowToken)
+    }
+
     struct State {
         struct LockedGestureContext {
             let workspaceId: WorkspaceDescriptor.ID
@@ -855,23 +860,62 @@ final class MouseEventHandler {
             return
         }
 
-        guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
-            return
-        }
+        guard let target = resolveFocusFollowsMouseTarget(at: location) else { return }
+        let token = focusFollowsMouseToken(for: target)
 
-        if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
-            let token = tiledWindow.token
-            if token != state.lastFocusFollowsMouseToken,
-               token != controller.workspaceManager.focusedToken {
-                state.lastFocusFollowsMouseTime = now
-                state.lastFocusFollowsMouseToken = token
-                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    controller.niriLayoutHandler.activateNode(tiledWindow, in: wsId, state: &vstate)
-                }
+        if token != state.lastFocusFollowsMouseToken,
+           token != controller.workspaceManager.focusedToken {
+            state.lastFocusFollowsMouseTime = now
+            state.lastFocusFollowsMouseToken = token
+            activateFocusFollowsMouseTarget(target)
+        }
+    }
+
+    private func resolveFocusFollowsMouseTarget(at location: CGPoint) -> FocusFollowsMouseTarget? {
+        guard let controller, let workspace = controller.activeWorkspace() else { return nil }
+
+        switch controller.settings.layoutType(for: workspace.name) {
+        case .niri, .defaultLayout:
+            guard let engine = controller.niriEngine,
+                  let window = engine.hitTestFocusableWindow(point: location, in: workspace.id)
+            else {
+                return nil
             }
-            return
+            return .niri(workspaceId: workspace.id, window: window)
+
+        case .dwindle:
+            guard let engine = controller.dwindleEngine else { return nil }
+            let presentationTime = controller.animationClock.now()
+            guard let token = engine.hitTestFocusableWindow(
+                point: location,
+                in: workspace.id,
+                at: presentationTime
+            ) else {
+                return nil
+            }
+            return .dwindle(workspaceId: workspace.id, token: token)
+        }
+    }
+
+    private func focusFollowsMouseToken(for target: FocusFollowsMouseTarget) -> WindowToken {
+        switch target {
+        case let .niri(_, window):
+            window.token
+        case let .dwindle(_, token):
+            token
+        }
+    }
+
+    private func activateFocusFollowsMouseTarget(_ target: FocusFollowsMouseTarget) {
+        guard let controller else { return }
+
+        switch target {
+        case let .niri(workspaceId, window):
+            controller.workspaceManager.withNiriViewportState(for: workspaceId) { vstate in
+                controller.niriLayoutHandler.activateNode(window, in: workspaceId, state: &vstate)
+            }
+        case let .dwindle(workspaceId, token):
+            controller.dwindleLayoutHandler.activateWindow(token, in: workspaceId)
         }
     }
 

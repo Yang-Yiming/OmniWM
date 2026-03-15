@@ -56,6 +56,37 @@ extension NiriLayoutEngine {
         return nil
     }
 
+    func hitTestFocusableWindow(
+        point: CGPoint,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> NiriWindow? {
+        guard let root = roots[workspaceId] else { return nil }
+
+        var firstVisibleMatch: NiriWindow?
+
+        for column in root.columns {
+            for child in column.children {
+                guard let window = child as? NiriWindow,
+                      !window.isHiddenInTabbedMode,
+                      let frame = window.renderedFrame ?? window.frame,
+                      frame.contains(point)
+                else {
+                    continue
+                }
+
+                if window.isFullscreen {
+                    return window
+                }
+
+                if firstVisibleMatch == nil {
+                    firstVisibleMatch = window
+                }
+            }
+        }
+
+        return firstVisibleMatch
+    }
+
     private func detectEdges(point: CGPoint, frame: CGRect, threshold: CGFloat) -> ResizeEdge {
         var edges: ResizeEdge = []
 
