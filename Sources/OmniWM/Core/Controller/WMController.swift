@@ -217,12 +217,11 @@ final class WMController {
     }
 
     func setWorkspaceBarEnabled(_ enabled: Bool) {
-        cancelPendingWorkspaceBarRefresh()
-        if enabled {
-            workspaceBarManager.setup(controller: self, settings: settings)
-        } else {
-            workspaceBarManager.removeAllBars()
+        if settings.workspaceBarEnabled != enabled {
+            settings.workspaceBarEnabled = enabled
         }
+        cancelPendingWorkspaceBarRefresh()
+        workspaceBarManager.setup(controller: self, settings: settings)
     }
 
     func cleanupUIOnStop() {
@@ -262,7 +261,7 @@ final class WMController {
     func requestWorkspaceBarRefresh() {
         workspaceBarRefreshDebugState.requestCount += 1
 
-        guard settings.workspaceBarEnabled else { return }
+        guard workspaceBarRefreshIsEnabled else { return }
         guard pendingWorkspaceBarRefreshGeneration == nil else { return }
 
         let generation = workspaceBarRefreshGeneration
@@ -431,6 +430,10 @@ final class WMController {
         hotkeys.registrationFailures
     }
 
+    private var workspaceBarRefreshIsEnabled: Bool {
+        settings.workspaceBarEnabled || settings.monitorBarSettings.contains(where: { $0.enabled == true })
+    }
+
     private func flushRequestedWorkspaceBarRefresh(expectedGeneration: UInt64) {
         guard pendingWorkspaceBarRefreshGeneration == expectedGeneration,
               workspaceBarRefreshGeneration == expectedGeneration
@@ -441,7 +444,7 @@ final class WMController {
         pendingWorkspaceBarRefreshGeneration = nil
         workspaceBarRefreshDebugState.isQueued = false
 
-        guard settings.workspaceBarEnabled else { return }
+        guard workspaceBarRefreshIsEnabled else { return }
 
         workspaceBarRefreshDebugState.executionCount += 1
         workspaceBarRefreshExecutionHookForTests?()

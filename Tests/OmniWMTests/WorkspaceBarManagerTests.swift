@@ -217,4 +217,110 @@ private func makeRecordingPanelFactory(
         #expect(manager.activeBarCountForTests() == 0)
         #expect(panelStore.panels.count == 1)
     }
+
+    @Test @MainActor func globalDisableWithoutOverridesStaysEmptyAcrossScheduledReconfigure() async {
+        let monitor = makeLayoutPlanTestMonitor(displayId: 83)
+        let controller = makeLayoutPlanTestController(monitors: [monitor])
+        controller.settings.workspaceBarEnabled = false
+
+        let manager = WorkspaceBarManager()
+        let panelStore = RecordingPanelStore()
+
+        manager.monitorProvider = { [monitor] }
+        manager.screenProvider = { _ in nil }
+        manager.panelFactory = makeRecordingPanelFactory(store: panelStore)
+
+        manager.setup(controller: controller, settings: controller.settings)
+        defer { manager.cleanup() }
+
+        #expect(manager.activeBarCountForTests() == 0)
+        #expect(panelStore.panels.isEmpty)
+
+        manager.scheduleReconfigure(after: 50_000_000)
+        try? await Task.sleep(nanoseconds: 120_000_000)
+
+        #expect(manager.activeBarCountForTests() == 0)
+        #expect(panelStore.panels.isEmpty)
+    }
+
+    @Test @MainActor func globalDisableWithMonitorOverrideKeepsBarAliveAcrossUpdateAndReconfigure() async throws {
+        let monitor = makeLayoutPlanTestMonitor(displayId: 84)
+        let controller = makeLayoutPlanTestController(monitors: [monitor])
+        controller.settings.workspaceBarEnabled = false
+        controller.settings.updateBarSettings(
+            MonitorBarSettings(
+                monitorName: monitor.name,
+                monitorDisplayId: monitor.displayId,
+                enabled: true
+            )
+        )
+
+        let manager = WorkspaceBarManager()
+        let panelStore = RecordingPanelStore()
+
+        manager.monitorProvider = { [monitor] }
+        manager.screenProvider = { _ in nil }
+        manager.panelFactory = makeRecordingPanelFactory(store: panelStore)
+
+        manager.setup(controller: controller, settings: controller.settings)
+        defer { manager.cleanup() }
+
+        let initialHostingView = try #require(manager.hostingViewIdentifierForTests(on: monitor.id))
+        #expect(manager.activeBarCountForTests() == 1)
+        #expect(panelStore.panels.count == 1)
+
+        manager.update()
+
+        #expect(manager.activeBarCountForTests() == 1)
+        #expect(manager.hostingViewIdentifierForTests(on: monitor.id) == initialHostingView)
+        #expect(panelStore.panels.count == 1)
+
+        manager.scheduleReconfigure(after: 50_000_000)
+        try? await Task.sleep(nanoseconds: 120_000_000)
+
+        #expect(manager.activeBarCountForTests() == 1)
+        #expect(manager.hostingViewIdentifierForTests(on: monitor.id) == initialHostingView)
+        #expect(panelStore.panels.count == 1)
+    }
+
+    @Test @MainActor func disablingGlobalDefaultPreservesEnabledOverrideWithoutRecreatingSurvivor() throws {
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 85)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 86, x: 1920)
+        let controller = makeLayoutPlanTestController(
+            monitors: [primaryMonitor, secondaryMonitor],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        controller.settings.updateBarSettings(
+            MonitorBarSettings(
+                monitorName: secondaryMonitor.name,
+                monitorDisplayId: secondaryMonitor.displayId,
+                enabled: true
+            )
+        )
+
+        let manager = WorkspaceBarManager()
+        let panelStore = RecordingPanelStore()
+
+        manager.monitorProvider = { [primaryMonitor, secondaryMonitor] }
+        manager.screenProvider = { _ in nil }
+        manager.panelFactory = makeRecordingPanelFactory(store: panelStore)
+
+        manager.setup(controller: controller, settings: controller.settings)
+        defer { manager.cleanup() }
+
+        let secondaryHostingView = try #require(manager.hostingViewIdentifierForTests(on: secondaryMonitor.id))
+        #expect(manager.activeBarCountForTests() == 2)
+        #expect(panelStore.panels.count == 2)
+
+        controller.settings.workspaceBarEnabled = false
+        manager.updateSettings()
+
+        #expect(manager.activeBarCountForTests() == 1)
+        #expect(manager.hostingViewIdentifierForTests(on: primaryMonitor.id) == nil)
+        #expect(manager.hostingViewIdentifierForTests(on: secondaryMonitor.id) == secondaryHostingView)
+        #expect(panelStore.panels.count == 2)
+    }
 }

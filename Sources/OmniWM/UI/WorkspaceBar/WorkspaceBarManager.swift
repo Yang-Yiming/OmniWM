@@ -104,17 +104,11 @@ final class WorkspaceBarManager {
         self.settings = settings
 
         cancelPendingReconfigure()
-
-        guard settings.workspaceBarEnabled else {
-            removeAllBars()
-            return
-        }
-
         reconfigureBars()
     }
 
     func update() {
-        guard let settings, settings.workspaceBarEnabled else {
+        guard settings != nil else {
             cancelPendingReconfigure()
             removeAllBars()
             return
@@ -152,6 +146,7 @@ final class WorkspaceBarManager {
             existingMonitorIds.remove(monitor.id)
             let resolved = settings.resolvedBarSettings(for: monitor)
 
+            // Global workspace-bar settings are defaults; monitor overrides decide bar ownership.
             if !resolved.enabled {
                 removeBarForMonitor(monitor.id)
                 continue
@@ -179,7 +174,7 @@ final class WorkspaceBarManager {
     }
 
     private func refreshBarsContent() {
-        guard let settings, settings.workspaceBarEnabled else { return }
+        guard settings != nil else { return }
 
         let currentMonitors = Dictionary(uniqueKeysWithValues: monitorProvider().map { ($0.id, $0) })
         for instance in barsByMonitor.values {
@@ -453,7 +448,7 @@ final class WorkspaceBarManager {
     }
 
     private func handleWakeFromSleep() {
-        guard let settings, settings.workspaceBarEnabled else { return }
+        guard settings != nil else { return }
         removeAllBars()
         reconfigureBars()
     }
