@@ -102,6 +102,11 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     static let shared = CommandPaletteController()
     static let unavailableMenuStatusText = "Open the palette while another app is frontmost to search its menus."
 
+    struct InlineHint: Equatable {
+        let title: String
+        let shortcut: String
+    }
+
     @Published private(set) var isVisible = false
     @Published var searchText = "" {
         didSet { updateSelectionAfterFilterChange() }
@@ -228,17 +233,25 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         "Searching menus in \(appName ?? "Current App")"
     }
 
-    static func windowsStatusText(
-        isMenuModeAvailable: Bool,
-        isSummonRightAvailable: Bool
-    ) -> String {
+    static func modeHint(for mode: CommandPaletteMode) -> InlineHint {
+        switch mode {
+        case .windows:
+            InlineHint(title: mode.displayName, shortcut: "⌘1")
+        case .menu:
+            InlineHint(title: mode.displayName, shortcut: "⌘2")
+        }
+    }
+
+    static func selectedWindowHint(isSummonRightAvailable: Bool) -> InlineHint? {
+        guard isSummonRightAvailable else { return nil }
+        return InlineHint(title: "Summon Right", shortcut: "⇧↩")
+    }
+
+    static func windowsStatusText(isSummonRightAvailable: Bool) -> String {
         let summonText = if isSummonRightAvailable {
             "Shift-Enter summons right."
         } else {
             "Shift-Enter unavailable for this session."
-        }
-        if isMenuModeAvailable {
-            return "Enter jumps. \(summonText) Command-2 searches menus."
         }
         return "Enter jumps. \(summonText)"
     }
@@ -885,7 +898,8 @@ private struct CommandPaletteView: View {
                                 ForEach(controller.filteredWindowItems) { item in
                                     CommandPaletteWindowRow(
                                         item: item,
-                                        isSelected: controller.selectedItemID == .window(item.id)
+                                        isSelected: controller.selectedItemID == .window(item.id),
+                                        isSummonRightAvailable: controller.isSummonRightAvailable
                                     )
                                     .id(CommandPaletteSelectionID.window(item.id))
                                     .onTapGesture {
@@ -935,7 +949,6 @@ private struct CommandPaletteView: View {
         switch controller.selectedMode {
         case .windows:
             CommandPaletteController.windowsStatusText(
-                isMenuModeAvailable: controller.isMenuModeAvailable,
                 isSummonRightAvailable: controller.isSummonRightAvailable
             )
         case .menu:
@@ -980,28 +993,93 @@ private struct CommandPaletteModePicker: View {
     let isMenuModeAvailable: Bool
     let onSelect: (CommandPaletteMode) -> Void
 
+    private let trackColor = Color(red: 0.22, green: 0.22, blue: 0.22)
+    private let selectedFillColor = Color(red: 0.49, green: 0.33, blue: 0.20)
+
     var body: some View {
         HStack(spacing: 4) {
             modeButton(.windows, enabled: true)
             modeButton(.menu, enabled: isMenuModeAvailable)
         }
         .padding(4)
-        .background(Color.secondary.opacity(0.12))
+        .background(trackColor.opacity(0.92))
         .clipShape(Capsule())
     }
 
     private func modeButton(_ mode: CommandPaletteMode, enabled: Bool) -> some View {
-        Button(action: { onSelect(mode) }) {
-            Text(mode.displayName)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(selectedMode == mode ? Color.accentColor.opacity(0.25) : Color.clear)
-                .foregroundColor(enabled ? .primary : .secondary)
-                .clipShape(Capsule())
+        let hint = CommandPaletteController.modeHint(for: mode)
+        let isSelected = selectedMode == mode
+        return Button(action: { onSelect(mode) }) {
+            HStack(spacing: 10) {
+                Text(hint.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(tabTitleColor(isSelected: isSelected, enabled: enabled))
+                Text(hint.shortcut)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(tabShortcutColor(isSelected: isSelected, enabled: enabled))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(isSelected ? selectedFillColor : Color.clear)
+            .overlay {
+                Capsule()
+                    .strokeBorder(
+                        isSelected ? selectedFillColor.opacity(0.95) : Color.clear,
+                        lineWidth: 1
+                    )
+            }
+            .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    private func tabTitleColor(isSelected: Bool, enabled: Bool) -> Color {
+        if !enabled {
+            return Color.white.opacity(0.38)
+        }
+        return isSelected ? .white : Color.white.opacity(0.92)
+    }
+
+    private func tabShortcutColor(isSelected: Bool, enabled: Bool) -> Color {
+        if !enabled {
+            return Color.white.opacity(0.32)
+        }
+        return isSelected ? Color.white.opacity(0.82) : Color.white.opacity(0.62)
+    }
+}
+
+private struct CommandPaletteShortcutBadge: View {
+    let text: String
+    var prominent = false
+    var enabled = true
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(backgroundColor)
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .opacity(enabled ? 1 : 0.6)
+    }
+
+    private var foregroundColor: Color {
+        enabled ? (prominent ? .primary : .secondary) : .secondary
+    }
+
+    private var backgroundColor: Color {
+        prominent ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.14)
+    }
+
+    private var borderColor: Color {
+        prominent ? Color.accentColor.opacity(0.22) : Color.clear
     }
 }
 
@@ -1048,6 +1126,12 @@ private struct CommandPaletteEmptyStateView: View {
 private struct CommandPaletteWindowRow: View {
     let item: CommandPaletteWindowItem
     let isSelected: Bool
+    let isSummonRightAvailable: Bool
+
+    private var summonHint: CommandPaletteController.InlineHint? {
+        guard isSelected else { return nil }
+        return CommandPaletteController.selectedWindowHint(isSummonRightAvailable: isSummonRightAvailable)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1074,12 +1158,21 @@ private struct CommandPaletteWindowRow: View {
 
             Spacer()
 
-            Text(item.workspaceName)
-                .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.secondary.opacity(0.18))
-                .clipShape(Capsule())
+            HStack(spacing: 8) {
+                if let summonHint {
+                    Text(summonHint.title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    CommandPaletteShortcutBadge(text: summonHint.shortcut)
+                }
+
+                Text(item.workspaceName)
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.18))
+                    .clipShape(Capsule())
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -1109,13 +1202,7 @@ private struct CommandPaletteMenuRow: View {
             Spacer()
 
             if let shortcut = item.keyboardShortcut {
-                Text(shortcut)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                CommandPaletteShortcutBadge(text: shortcut)
             }
         }
         .padding(.horizontal, 16)

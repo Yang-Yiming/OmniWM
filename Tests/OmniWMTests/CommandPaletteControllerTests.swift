@@ -243,33 +243,47 @@ private func makeCommandPaletteAppSnapshot(
         #expect(controller.selectedMode == .menu)
     }
 
-    @Test func windowsStatusTextReflectsMenuAvailability() {
-        #expect(
-            CommandPaletteController.windowsStatusText(
-                isMenuModeAvailable: true,
-                isSummonRightAvailable: true
+    @Test func command1SwitchesBackToWindowsMode() {
+        let controller = CommandPaletteController()
+        controller.setMenuAvailabilityForTests(
+            makeCommandPaletteAppSnapshot(
+                pid: 501,
+                bundleIdentifier: "com.apple.Finder",
+                localizedName: "Finder"
             )
-                == "Enter jumps. Shift-Enter summons right. Command-2 searches menus."
+        )
+        controller.selectedMode = .menu
+
+        #expect(controller.handleModeShortcutForTests("1") == true)
+        #expect(controller.selectedMode == .windows)
+    }
+
+    @Test func modeHintMatchesDisplayedShortcuts() {
+        #expect(
+            CommandPaletteController.modeHint(for: .windows)
+                == .init(title: "Windows", shortcut: "⌘1")
         )
         #expect(
-            CommandPaletteController.windowsStatusText(
-                isMenuModeAvailable: false,
-                isSummonRightAvailable: true
-            )
+            CommandPaletteController.modeHint(for: .menu)
+                == .init(title: "Menu", shortcut: "⌘2")
+        )
+    }
+
+    @Test func selectedWindowHintReflectsSummonAvailability() {
+        #expect(
+            CommandPaletteController.selectedWindowHint(isSummonRightAvailable: true)
+                == .init(title: "Summon Right", shortcut: "⇧↩")
+        )
+        #expect(CommandPaletteController.selectedWindowHint(isSummonRightAvailable: false) == nil)
+    }
+
+    @Test func windowsStatusTextReflectsSummonAvailability() {
+        #expect(
+            CommandPaletteController.windowsStatusText(isSummonRightAvailable: true)
                 == "Enter jumps. Shift-Enter summons right."
         )
         #expect(
-            CommandPaletteController.windowsStatusText(
-                isMenuModeAvailable: true,
-                isSummonRightAvailable: false
-            )
-                == "Enter jumps. Shift-Enter unavailable for this session. Command-2 searches menus."
-        )
-        #expect(
-            CommandPaletteController.windowsStatusText(
-                isMenuModeAvailable: false,
-                isSummonRightAvailable: false
-            )
+            CommandPaletteController.windowsStatusText(isSummonRightAvailable: false)
                 == "Enter jumps. Shift-Enter unavailable for this session."
         )
     }
