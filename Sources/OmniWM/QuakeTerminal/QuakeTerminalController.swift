@@ -75,11 +75,12 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         }
         runtimeConfig.action_cb = { _, _, _ in false }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            guard let userdata else { return }
+            guard let userdata else { return false }
             DispatchQueue.main.async {
                 let controller = Unmanaged<QuakeTerminalController>.fromOpaque(userdata).takeUnretainedValue()
                 controller.readClipboard(location: location, state: state)
             }
+            return true
         }
         runtimeConfig.confirm_read_clipboard_cb = { _, _, _, _ in }
         runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
