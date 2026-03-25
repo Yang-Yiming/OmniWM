@@ -184,6 +184,98 @@ final class StatusBarMenuBuilder {
         let settingsItem = NSMenuItem()
         settingsItem.view = settingsRow
         menu.addItem(settingsItem)
+
+        let exportEditableRow = MenuActionRowView(
+            icon: "square.and.arrow.up",
+            label: "Export Editable Config"
+        ) { [weak self] in
+            self?.exportSettings(mode: .full)
+        }
+        let exportEditableItem = NSMenuItem()
+        exportEditableItem.view = exportEditableRow
+        menu.addItem(exportEditableItem)
+
+        let exportCompactRow = MenuActionRowView(
+            icon: "archivebox",
+            label: "Export Compact Backup"
+        ) { [weak self] in
+            self?.exportSettings(mode: .compact)
+        }
+        let exportCompactItem = NSMenuItem()
+        exportCompactItem.view = exportCompactRow
+        menu.addItem(exportCompactItem)
+
+        let revealSettingsFileRow = MenuActionRowView(
+            icon: "folder",
+            label: "Reveal Settings File"
+        ) { [weak self] in
+            self?.revealSettingsFile()
+        }
+        let revealSettingsFileItem = NSMenuItem()
+        revealSettingsFileItem.view = revealSettingsFileRow
+        menu.addItem(revealSettingsFileItem)
+
+        let openSettingsFileRow = MenuActionRowView(
+            icon: "doc.text",
+            label: "Open Settings File"
+        ) { [weak self] in
+            self?.openSettingsFile()
+        }
+        let openSettingsFileItem = NSMenuItem()
+        openSettingsFileItem.view = openSettingsFileRow
+        menu.addItem(openSettingsFileItem)
+    }
+
+    private func exportSettings(mode: SettingsExportMode) {
+        do {
+            try settings.exportSettings(mode: mode)
+        } catch {
+            presentInfoAlert(
+                title: "Could Not Export Settings",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func ensureSettingsFileExists() throws {
+        guard !settings.settingsFileExists else { return }
+        try settings.exportSettings(mode: .full)
+    }
+
+    private func revealSettingsFile() {
+        do {
+            try ensureSettingsFileExists()
+            NSWorkspace.shared.activateFileViewerSelecting([SettingsStore.exportURL])
+        } catch {
+            presentInfoAlert(
+                title: "Could Not Reveal Settings File",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func openSettingsFile() {
+        do {
+            try ensureSettingsFileExists()
+            guard NSWorkspace.shared.open(SettingsStore.exportURL) else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+        } catch {
+            presentInfoAlert(
+                title: "Could Not Open Settings File",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func presentInfoAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        _ = alert.runModal()
     }
 
     private func addLinksSection(to menu: NSMenu) {
