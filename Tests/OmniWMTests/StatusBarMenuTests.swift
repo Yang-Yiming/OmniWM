@@ -98,6 +98,57 @@ import Testing
         #expect(received.first?.1 == SettingsStore.exportURL.path)
     }
 
+    @Test func exportActionReportsSharedFailureTitle() {
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+        builder.configFileActionPerformer = { _, _, _ in
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        builder.performConfigFileAction(.export(.full))
+
+        #expect(received.count == 1)
+        #expect(received.first?.0 == ConfigFileAction.export(.full).failureAlertTitle)
+    }
+
+    @Test func openActionReportsSharedFailureTitle() {
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+        builder.configFileActionPerformer = { _, _, _ in
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        builder.performConfigFileAction(.open)
+
+        #expect(received.count == 1)
+        #expect(received.first?.0 == ConfigFileAction.open.failureAlertTitle)
+    }
+
+    @Test func importActionReportsSharedFailureTitle() {
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+        let exportURL = SettingsStore.exportURL
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+        try? FileManager.default.removeItem(at: exportURL)
+
+        builder.performConfigFileAction(.import)
+
+        #expect(received.count == 1)
+        #expect(received.first?.0 == ConfigFileAction.import.failureAlertTitle)
+    }
+
     private func textLabels(in view: NSView) -> [String] {
         let direct = (view as? NSTextField).map(\.stringValue).map { [$0] } ?? []
         return direct + view.subviews.flatMap(textLabels(in:))
