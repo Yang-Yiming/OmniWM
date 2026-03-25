@@ -201,7 +201,7 @@ extension SettingsExport {
     }
 
     func exportData(
-        incrementalOnly: Bool = true,
+        incrementalOnly: Bool = false,
         defaults: SettingsExport = .defaults(),
         encoder: JSONEncoder = Self.makeEncoder()
     ) throws -> Data {
@@ -293,11 +293,11 @@ extension SettingsStore {
         FileManager.default.fileExists(atPath: Self.exportURL.path)
     }
 
-    func exportSettings(incrementalOnly: Bool = true) throws {
+    func exportSettings(incrementalOnly: Bool = false) throws {
         try exportSettings(to: Self.exportURL, incrementalOnly: incrementalOnly)
     }
 
-    func exportSettings(to url: URL, incrementalOnly: Bool = true) throws {
+    func exportSettings(to url: URL, incrementalOnly: Bool = false) throws {
         let export = SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
             focusFollowsMouse: focusFollowsMouse,

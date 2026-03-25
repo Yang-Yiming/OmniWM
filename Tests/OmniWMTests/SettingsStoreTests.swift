@@ -537,6 +537,21 @@ private func makeSettingsTestMonitor(
         let data2 = try encoder.encode(decoded)
         #expect(data1 == data2)
     }
+
+    @Test func fullExportByDefaultIncludesCanonicalHotkeyBindings() throws {
+        let data = try SettingsExport.defaults().exportData()
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected full export to produce a JSON object")
+            return
+        }
+
+        guard let hotkeyBindings = json["hotkeyBindings"] as? [[String: Any]] else {
+            Issue.record("Expected default export to include full hotkey bindings")
+            return
+        }
+
+        #expect(hotkeyBindings.count == HotkeyBindingRegistry.defaults().count)
+    }
 }
 
 @Suite @MainActor struct NiriColumnWidthPresetPersistenceTests {
