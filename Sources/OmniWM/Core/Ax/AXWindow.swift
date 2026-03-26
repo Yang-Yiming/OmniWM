@@ -383,7 +383,7 @@ enum AXWindowService {
                     attributeFetchSucceeded: attributeFetchSucceeded
                 )
             }
-            let buttonElement = unsafeBitCast(fullscreenButtonElement, to: AXUIElement.self)
+            let buttonElement = unsafeDowncast(fullscreenButtonElement as AnyObject, to: AXUIElement.self)
             var enabledValue: CFTypeRef?
             let enabledResult = AXUIElementCopyAttributeValue(
                 buttonElement,
