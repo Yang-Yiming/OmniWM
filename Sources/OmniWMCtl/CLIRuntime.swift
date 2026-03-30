@@ -35,6 +35,43 @@ enum CLIRuntime {
         case childLaunch(Error)
     }
 
+    struct WatchChildResult: Sendable, Equatable {
+        enum TerminationReason: Sendable, Equatable {
+            case exit
+            case uncaughtSignal
+            case unknown
+        }
+
+        let terminationReason: TerminationReason
+        let terminationStatus: Int32
+    }
+
+    typealias WatchChildRunner = @Sendable (IPCEventEnvelope, [String], CLIWatchProcessState) async throws -> WatchChildResult
+
+    private final class WatchChildExecutionHooks: @unchecked Sendable {
+        private let lock = NSLock()
+        private var runner: WatchChildRunner?
+
+        func setRunner(_ runner: WatchChildRunner?) {
+            lock.lock()
+            self.runner = runner
+            lock.unlock()
+        }
+
+        func currentRunner() -> WatchChildRunner? {
+            lock.lock()
+            let runner = runner
+            lock.unlock()
+            return runner
+        }
+    }
+
+    private static let watchChildExecutionHooks = WatchChildExecutionHooks()
+
+    static func setWatchChildRunnerForTests(_ runner: WatchChildRunner?) {
+        watchChildExecutionHooks.setRunner(runner)
+    }
+
     static func run(arguments: [String], client: IPCClient = IPCClient()) async -> Int32 {
         let outputFormat = CLIParser.outputFormat(arguments: arguments)
 
@@ -136,11 +173,14 @@ enum CLIRuntime {
                     }
 
                     do {
-                        try executeWatchChild(
+                        let result = try await executeWatchChild(
                             event: event,
                             childArguments: watchConfiguration.childArguments,
                             processState: processState
                         )
+                        if result.terminationReason != .exit || result.terminationStatus != 0 {
+                            reportWatchChildFailure(result: result, command: watchConfiguration.childArguments)
+                        }
                     } catch {
                         throw WatchRuntimeError.childLaunch(error)
                     }
@@ -201,7 +241,23 @@ enum CLIRuntime {
         event: IPCEventEnvelope,
         childArguments: [String],
         processState: CLIWatchProcessState
-    ) throws {
+    ) async throws -> WatchChildResult {
+        if let runner = watchChildExecutionHooks.currentRunner() {
+            return try await runner(event, childArguments, processState)
+        }
+
+        return try await defaultWatchChildRunner(
+            event: event,
+            childArguments: childArguments,
+            processState: processState
+        )
+    }
+
+    private static func defaultWatchChildRunner(
+        event: IPCEventEnvelope,
+        childArguments: [String],
+        processState: CLIWatchProcessState
+    ) async throws -> WatchChildResult {
         guard let executableName = childArguments.first else {
             throw POSIXError(.EINVAL)
         }
@@ -228,14 +284,70 @@ enum CLIRuntime {
             if process.isRunning {
                 process.terminate()
             }
-            process.waitUntilExit()
+            _ = await waitForTermination(of: process)
+            process.terminationHandler = nil
+            processState.clear(process)
             throw error
         }
 
-        process.waitUntilExit()
+        let result = await waitForTermination(of: process)
+        process.terminationHandler = nil
+        processState.clear(process)
+        return result
+    }
 
-        if process.terminationReason != .exit || process.terminationStatus != 0 {
-            reportWatchChildFailure(process: process, command: childArguments)
+    private static func waitForTermination(of process: Process) async -> WatchChildResult {
+        await withCheckedContinuation { continuation in
+            final class ResumeState: @unchecked Sendable {
+                private let lock = NSLock()
+                private var didResume = false
+                private let continuation: CheckedContinuation<WatchChildResult, Never>
+
+                init(continuation: CheckedContinuation<WatchChildResult, Never>) {
+                    self.continuation = continuation
+                }
+
+                func resumeIfNeeded(with result: WatchChildResult) {
+                    lock.lock()
+                    let shouldResume = !didResume
+                    didResume = true
+                    lock.unlock()
+
+                    guard shouldResume else { return }
+                    continuation.resume(returning: result)
+                }
+            }
+
+            let state = ResumeState(continuation: continuation)
+
+            process.terminationHandler = { terminatedProcess in
+                state.resumeIfNeeded(
+                    with: WatchChildResult(
+                        terminationReason: terminationReason(for: terminatedProcess.terminationReason),
+                        terminationStatus: terminatedProcess.terminationStatus
+                    )
+                )
+            }
+
+            if !process.isRunning {
+                state.resumeIfNeeded(
+                    with: WatchChildResult(
+                        terminationReason: terminationReason(for: process.terminationReason),
+                        terminationStatus: process.terminationStatus
+                    )
+                )
+            }
+        }
+    }
+
+    private static func terminationReason(for reason: Process.TerminationReason) -> WatchChildResult.TerminationReason {
+        switch reason {
+        case .exit:
+            return .exit
+        case .uncaughtSignal:
+            return .uncaughtSignal
+        @unknown default:
+            return .unknown
         }
     }
 
@@ -268,16 +380,16 @@ enum CLIRuntime {
         throw POSIXError(.ENOENT)
     }
 
-    private static func reportWatchChildFailure(process: Process, command: [String]) {
+    private static func reportWatchChildFailure(result: WatchChildResult, command: [String]) {
         let commandText = command.joined(separator: " ")
         let message: String
 
-        switch process.terminationReason {
+        switch result.terminationReason {
         case .exit:
-            message = "omniwmctl watch: child exited with status \(process.terminationStatus): \(commandText)\n"
+            message = "omniwmctl watch: child exited with status \(result.terminationStatus): \(commandText)\n"
         case .uncaughtSignal:
-            message = "omniwmctl watch: child terminated by signal \(process.terminationStatus): \(commandText)\n"
-        @unknown default:
+            message = "omniwmctl watch: child terminated by signal \(result.terminationStatus): \(commandText)\n"
+        case .unknown:
             message = "omniwmctl watch: child terminated unexpectedly: \(commandText)\n"
         }
 

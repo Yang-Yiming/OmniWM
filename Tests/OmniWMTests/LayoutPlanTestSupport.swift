@@ -9,8 +9,24 @@ func makeLayoutPlanTestDefaults() -> UserDefaults {
     return UserDefaults(suiteName: suiteName)!
 }
 
+func layoutPlanTestMainDisplayId() -> CGDirectDisplayID {
+    let mainDisplayId = CGMainDisplayID()
+    return mainDisplayId == 0 ? 1 : mainDisplayId
+}
+
+func layoutPlanTestSyntheticDisplayId(_ slot: Int) -> CGDirectDisplayID {
+    precondition(slot >= 1, "Synthetic display slots start at 1")
+
+    let mainDisplayId = layoutPlanTestMainDisplayId()
+    var candidate = CGDirectDisplayID(10_000 + slot)
+    if candidate == mainDisplayId {
+        candidate = CGDirectDisplayID(20_000 + slot)
+    }
+    return candidate
+}
+
 func makeLayoutPlanTestMonitor(
-    displayId: CGDirectDisplayID = 1,
+    displayId: CGDirectDisplayID = layoutPlanTestMainDisplayId(),
     name: String = "Main",
     x: CGFloat = 0,
     y: CGFloat = 0,
@@ -25,6 +41,41 @@ func makeLayoutPlanTestMonitor(
         visibleFrame: frame,
         hasNotch: false,
         name: name
+    )
+}
+
+func makeLayoutPlanPrimaryTestMonitor(
+    name: String = "Main",
+    x: CGFloat = 0,
+    y: CGFloat = 0,
+    width: CGFloat = 1920,
+    height: CGFloat = 1080
+) -> Monitor {
+    makeLayoutPlanTestMonitor(
+        displayId: layoutPlanTestMainDisplayId(),
+        name: name,
+        x: x,
+        y: y,
+        width: width,
+        height: height
+    )
+}
+
+func makeLayoutPlanSecondaryTestMonitor(
+    slot: Int = 1,
+    name: String = "Secondary",
+    x: CGFloat = 1920,
+    y: CGFloat = 0,
+    width: CGFloat = 1920,
+    height: CGFloat = 1080
+) -> Monitor {
+    makeLayoutPlanTestMonitor(
+        displayId: layoutPlanTestSyntheticDisplayId(slot),
+        name: name,
+        x: x,
+        y: y,
+        width: width,
+        height: height
     )
 }
 
@@ -91,12 +142,10 @@ func makeTwoMonitorLayoutPlanTestController() -> (
     secondaryWorkspaceId: WorkspaceDescriptor.ID
 ) {
     makeTwoMonitorLayoutPlanTestController(
-        primaryMonitor: makeLayoutPlanTestMonitor(
-            displayId: 100,
+        primaryMonitor: makeLayoutPlanPrimaryTestMonitor(
             name: "Primary"
         ),
-        secondaryMonitor: makeLayoutPlanTestMonitor(
-            displayId: 200,
+        secondaryMonitor: makeLayoutPlanSecondaryTestMonitor(
             name: "Secondary",
             x: 1920
         )
@@ -122,12 +171,15 @@ func makeTwoMonitorLayoutPlanTestController(
         ]
     )
 
-    guard let primaryWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: primaryMonitor.id)?.id,
+    guard let primaryWorkspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
           let secondaryWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
     else {
         fatalError("Failed to create two-monitor layout plan fixture")
     }
 
+    guard controller.workspaceManager.setActiveWorkspace(primaryWorkspaceId, on: primaryMonitor.id) else {
+        fatalError("Failed to activate primary workspace on the primary monitor")
+    }
     guard controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id) else {
         fatalError("Failed to activate secondary workspace on the secondary monitor")
     }

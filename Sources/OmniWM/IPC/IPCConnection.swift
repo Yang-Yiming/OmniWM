@@ -74,9 +74,9 @@ actor IPCConnection {
                 let task = Task(priority: .utility) {
                     for await event in stream {
                         do {
-                            try await self.send(event)
+                            try self.send(event)
                         } catch {
-                            await self.stop()
+                            self.stop()
                             return
                         }
                     }

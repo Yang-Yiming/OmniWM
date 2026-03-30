@@ -12,27 +12,11 @@ private func makeAXEventTestDefaults() -> UserDefaults {
 }
 
 private func makeAXEventTestMonitor() -> Monitor {
-    let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    return Monitor(
-        id: Monitor.ID(displayId: 1),
-        displayId: 1,
-        frame: frame,
-        visibleFrame: frame,
-        hasNotch: false,
-        name: "Main"
-    )
+    makeLayoutPlanPrimaryTestMonitor(name: "Main")
 }
 
 private func makeAXEventSecondaryMonitor() -> Monitor {
-    let frame = CGRect(x: 1920, y: 0, width: 1920, height: 1080)
-    return Monitor(
-        id: Monitor.ID(displayId: 2),
-        displayId: 2,
-        frame: frame,
-        visibleFrame: frame,
-        hasNotch: false,
-        name: "Secondary"
-    )
+    makeLayoutPlanSecondaryTestMonitor(name: "Secondary", x: 1920)
 }
 
 @MainActor

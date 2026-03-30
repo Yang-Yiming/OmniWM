@@ -5,8 +5,53 @@ import OmniWMIPC
 @testable import OmniWM
 @testable import OmniWMCtl
 
-private enum CLIRuntimeTestError: Error {
-    case timedOut
+private enum CLIRuntimeTestError: Error, LocalizedError {
+    case timedOut(
+        step: String,
+        expectedCount: Int,
+        observedCount: Int,
+        details: String
+    )
+
+    var errorDescription: String? {
+        switch self {
+        case let .timedOut(step, expectedCount, observedCount, details):
+            return """
+            Timed out during \(step). Expected at least \(expectedCount) items, observed \(observedCount).
+            \(details)
+            """
+        }
+    }
+}
+
+private actor WatchEventRecorder {
+    private var events: [IPCEventEnvelope] = []
+    private var waiters: [(count: Int, continuation: CheckedContinuation<[IPCEventEnvelope], Never>)] = []
+
+    func record(_ event: IPCEventEnvelope) -> Int {
+        events.append(event)
+        let snapshot = events
+        let readyIndices = waiters.indices.filter { snapshot.count >= waiters[$0].count }
+        for index in readyIndices.reversed() {
+            let waiter = waiters.remove(at: index)
+            waiter.continuation.resume(returning: snapshot)
+        }
+        return snapshot.count
+    }
+
+    func waitForCount(_ count: Int) async -> [IPCEventEnvelope] {
+        if events.count >= count {
+            return events
+        }
+
+        return await withCheckedContinuation { continuation in
+            waiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func snapshot() -> [IPCEventEnvelope] {
+        events
+    }
 }
 
 private func makeCLITestSocketPath() -> String {
@@ -15,32 +60,171 @@ private func makeCLITestSocketPath() -> String {
         .path
 }
 
+private func linesAtFile(_ url: URL) -> [String] {
+    guard let data = try? Data(contentsOf: url),
+          let text = String(data: data, encoding: .utf8)
+    else {
+        return []
+    }
+
+    return text
+        .split(separator: "\n", omittingEmptySubsequences: true)
+        .map(String.init)
+}
+
 private func waitForFileLines(
     at url: URL,
     expectedCount: Int,
-    timeout: Duration = .seconds(2)
+    step: String,
+    timeout: Duration = .seconds(4)
 ) async throws -> [String] {
     let deadline = ContinuousClock.now + timeout
+    var lastObservedLines: [String] = []
 
     while ContinuousClock.now < deadline {
-        if let data = try? Data(contentsOf: url),
-           let text = String(data: data, encoding: .utf8)
-        {
-            let lines = text
-                .split(separator: "\n", omittingEmptySubsequences: true)
-                .map(String.init)
-            if lines.count >= expectedCount {
-                return lines
-            }
+        let lines = linesAtFile(url)
+        lastObservedLines = lines
+        if lines.count >= expectedCount {
+            return lines
         }
 
         try await Task.sleep(for: .milliseconds(25))
     }
 
-    throw CLIRuntimeTestError.timedOut
+    throw CLIRuntimeTestError.timedOut(
+        step: step,
+        expectedCount: expectedCount,
+        observedCount: lastObservedLines.count,
+        details: """
+        File: \(url.path)
+        Current lines:
+        \(lastObservedLines.joined(separator: "\n"))
+        """
+    )
+}
+
+private func waitForRecordedEvents(
+    _ recorder: WatchEventRecorder,
+    expectedCount: Int,
+    step: String,
+    timeout: Duration = .seconds(2)
+) async throws -> [IPCEventEnvelope] {
+    try await withThrowingTaskGroup(of: [IPCEventEnvelope].self) { group in
+        group.addTask {
+            await recorder.waitForCount(expectedCount)
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            let snapshot = await recorder.snapshot()
+            throw CLIRuntimeTestError.timedOut(
+                step: step,
+                expectedCount: expectedCount,
+                observedCount: snapshot.count,
+                details: """
+                Recorded event ids:
+                \(snapshot.map(\.id).joined(separator: "\n"))
+                """
+            )
+        }
+
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
 }
 
 @Suite(.serialized) @MainActor struct CLIRuntimeTests {
+    @Test func watchContinuesAfterNonZeroExitWithInjectedChildRunner() async throws {
+        let socketPath = makeCLITestSocketPath()
+        let fixture = makeTwoMonitorLayoutPlanTestController()
+
+        let server = IPCServer(controller: fixture.controller, socketPath: socketPath)
+        defer {
+            server.stop()
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: IPCSocketPath.secretPath(forSocketPath: socketPath))
+        }
+        try server.start()
+
+        let recorder = WatchEventRecorder()
+        CLIRuntime.setWatchChildRunnerForTests { event, _, _ in
+            let eventCount = await recorder.record(event)
+            return CLIRuntime.WatchChildResult(
+                terminationReason: .exit,
+                terminationStatus: eventCount == 1 ? 7 : 0
+            )
+        }
+        defer {
+            CLIRuntime.setWatchChildRunnerForTests(nil)
+        }
+
+        let runtimeTask = Task.detached {
+            await CLIRuntime.run(
+                arguments: [
+                    "omniwmctl",
+                    "watch",
+                    "focused-monitor",
+                    "--exec",
+                    "/usr/bin/true"
+                ],
+                client: IPCClient(socketPath: socketPath)
+            )
+        }
+        defer {
+            runtimeTask.cancel()
+        }
+
+        let initialEvents = try await waitForRecordedEvents(
+            recorder,
+            expectedCount: 1,
+            step: "waiting for initial injected watch event"
+        )
+        #expect(initialEvents.count >= 1)
+        #expect(fixture.controller.workspaceManager.setInteractionMonitor(fixture.secondaryMonitor.id))
+
+        let secondEvents = try await waitForRecordedEvents(
+            recorder,
+            expectedCount: 2,
+            step: "waiting for secondary monitor injected watch event"
+        )
+        #expect(secondEvents.count >= 2)
+        #expect(fixture.controller.workspaceManager.setInteractionMonitor(fixture.primaryMonitor.id))
+
+        let events = try await waitForRecordedEvents(
+            recorder,
+            expectedCount: 3,
+            step: "waiting for third injected watch event"
+        )
+
+        runtimeTask.cancel()
+        _ = await runtimeTask.value
+
+        #expect(events.count >= 3)
+        #expect(events.allSatisfy { $0.channel == .focusedMonitor })
+
+        let firstEvent = events[0]
+        let secondEvent = events[1]
+        let thirdEvent = events[2]
+
+        if case let .focusedMonitor(payload) = firstEvent.result.payload {
+            #expect(payload.display?.id == "display:\(fixture.primaryMonitor.displayId)")
+        } else {
+            Issue.record("Expected focused-monitor payload for initial injected watch event")
+        }
+
+        if case let .focusedMonitor(payload) = secondEvent.result.payload {
+            #expect(payload.display?.id == "display:\(fixture.secondaryMonitor.displayId)")
+        } else {
+            Issue.record("Expected focused-monitor payload for second injected watch event")
+        }
+
+        if case let .focusedMonitor(payload) = thirdEvent.result.payload {
+            #expect(payload.display?.id == "display:\(fixture.primaryMonitor.displayId)")
+        } else {
+            Issue.record("Expected focused-monitor payload for third injected watch event")
+        }
+    }
+
     @Test func watchExecStreamsFocusedMonitorEventsToSerializedChildrenAndContinuesAfterNonZeroExit() async throws {
         let socketPath = makeCLITestSocketPath()
         let fixture = makeTwoMonitorLayoutPlanTestController()
@@ -91,7 +275,7 @@ private func waitForFileLines(
             unsetenv("OMNIWM_WATCH_TEST_COUNTER")
         }
 
-        let runtimeTask = Task {
+        let runtimeTask = Task.detached {
             await CLIRuntime.run(
                 arguments: [
                     "omniwmctl",
@@ -107,21 +291,33 @@ private func waitForFileLines(
             runtimeTask.cancel()
         }
 
-        let initialLines = try await waitForFileLines(at: outputURL, expectedCount: 1)
+        let initialLines = try await waitForFileLines(
+            at: outputURL,
+            expectedCount: 1,
+            step: "waiting for initial integration watch output"
+        )
         #expect(initialLines.count >= 1)
         #expect(fixture.controller.workspaceManager.setInteractionMonitor(fixture.secondaryMonitor.id))
-        let secondLines = try await waitForFileLines(at: outputURL, expectedCount: 2)
+        let secondLines = try await waitForFileLines(
+            at: outputURL,
+            expectedCount: 2,
+            step: "waiting for secondary monitor integration watch output"
+        )
         #expect(secondLines.count >= 2)
         #expect(fixture.controller.workspaceManager.setInteractionMonitor(fixture.primaryMonitor.id))
 
-        _ = try await waitForFileLines(at: outputURL, expectedCount: 3)
-        try await Task.sleep(for: .milliseconds(250))
-        let lines = try await waitForFileLines(at: outputURL, expectedCount: 3, timeout: .milliseconds(200))
+        _ = try await waitForFileLines(
+            at: outputURL,
+            expectedCount: 3,
+            step: "waiting for third integration watch output"
+        )
+        try await Task.sleep(for: .milliseconds(400))
+        let lines = linesAtFile(outputURL)
 
         runtimeTask.cancel()
         _ = await runtimeTask.value
 
-        #expect(lines.count >= 3)
+        #expect(lines.count == 3)
 
         let firstParts = lines[0].split(separator: "\t", maxSplits: 3).map(String.init)
         let secondParts = lines[1].split(separator: "\t", maxSplits: 3).map(String.init)
