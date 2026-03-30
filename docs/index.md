@@ -12,11 +12,11 @@ This site is the documentation hub for architecture notes and technical referenc
 
 - [Architecture Guide](ARCHITECTURE.md)
 - [IPC & CLI Reference](IPC-CLI.md)
-- [Contributing Guide](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md)
+- [Contribution Guide](CONTRIBUTING.md)
 - [Latest Releases](https://github.com/BarutSRB/OmniWM/releases)
 
 ## What Lives Where
 
 - Use this docs site for contributor-oriented and technical reference documentation.
 - Use the repository [README](https://github.com/BarutSRB/OmniWM/blob/main/README.md) for installation, screenshots, quick start, and end-user feature overview.
-- Use [CONTRIBUTING.md](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md) for contribution workflow and project conventions.
+- Use the [Contribution Guide](CONTRIBUTING.md) for contribution workflow, project direction, and a link to the canonical root guide.

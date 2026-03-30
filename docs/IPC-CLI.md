@@ -4,7 +4,7 @@ title: OmniWM IPC & CLI Reference
 
 # OmniWM IPC & CLI Reference
 
-This document covers the OmniWM automation surface. For the docs hub, see [Documentation Home](index.md). For internal architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+This document covers the OmniWM automation surface. For the docs hub, see [Documentation Home](index.md). For internal architecture, see [ARCHITECTURE.md](ARCHITECTURE.md). For contribution process, see the [Contribution Guide](CONTRIBUTING.md).
 
 ## Table of Contents
 

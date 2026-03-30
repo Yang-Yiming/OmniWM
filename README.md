@@ -170,12 +170,13 @@ OmniWM checks for updates by default.
 
 ## Documentation
 
-The GitHub Pages documentation hub lives in [`docs/index.md`](docs/index.md).
+The documentation hub lives in [`docs/index.md`](docs/index.md).
 
 - [Documentation Home](docs/index.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)
 - [IPC & CLI Reference](docs/IPC-CLI.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contribution Docs](docs/CONTRIBUTING.md)
+- [Canonical Contributing Guide](CONTRIBUTING.md)
 
 ## IPC and CLI
 
@@ -416,3 +417,11 @@ If you find OmniWM useful, consider supporting development:
 ## Contributing
 
 Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM).
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the actual project guidelines, expectations, and preferred direction.
+
+For deeper technical context, the docs pages that back the documentation site are here:
+
+- [Architecture Guide](docs/ARCHITECTURE.md)
+- [IPC & CLI Reference](docs/IPC-CLI.md)
+- [Contribution Docs](docs/CONTRIBUTING.md)
